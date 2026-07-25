@@ -80,7 +80,7 @@ Presencia temporal de una instancia de agente.
 
 ```text
 id
-agent_id
+actor_id
 project_id
 node_id
 status
@@ -88,6 +88,10 @@ started_at
 last_seen_at
 expires_at
 ```
+
+La API v0.1 solo abrirá sesiones para actores de tipo `agent`, pero la
+persistencia utiliza el supertipo `actor` para poder incorporar Node y runners
+sin cambiar la identidad de una sesión.
 
 Estados:
 
@@ -252,8 +256,10 @@ Cada comando mutable exige:
 
 - `command_id`;
 - `idempotency_key`;
-- `project_id`;
-- `actor_id`;
+- `organization_id`;
+- `project_id`, excepto en comandos de bootstrap como `project.create`;
+- identidad del actor derivada de la autenticación, no aceptada ciegamente
+  desde el payload;
 - `session_id` cuando aplique;
 - `expected_version` cuando modifica un agregado;
 - `correlation_id`;
@@ -362,6 +368,9 @@ VALIDATION_FAILED
 CONTEXT_EXPIRED
 ```
 
+`event_cursor` representa la secuencia confirmada dentro del proyecto. Se
+transporta como un string opaco aunque v0.1 utilice internamente un `bigint`.
+
 ## 8. Flujo de workspace
 
 ```text
@@ -430,8 +439,10 @@ Todavía no se prometerá control de una referencia remota.
 Tablas:
 
 ```text
+organizations
 projects
 repositories
+actors
 principals
 agents
 nodes
@@ -467,7 +478,7 @@ Propuesta:
 ## 13. Seguridad inicial
 
 - servidor escuchando en loopback por defecto;
-- token local de proyecto;
+- token local de instalación para el primer recorrido;
 - un agent token por sesión;
 - scopes limitados al proyecto;
 - rutas de workspace asignadas;
@@ -531,4 +542,3 @@ Propuesta:
 - runners remotos;
 - multi-repository snapshots;
 - UI completa.
-

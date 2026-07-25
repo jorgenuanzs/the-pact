@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+.pact
+bin
+build
+coverage
+dist
+tmp
+*.log
+*.out

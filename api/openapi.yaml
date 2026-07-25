@@ -1,0 +1,597 @@
+openapi: 3.1.0
+info:
+  title: Pact API
+  version: 0.1.0
+  description: |
+    API del primer recorrido vertical de Pact.
+
+    En modo local existe una organización implícita. Los clientes no crean ni
+    seleccionan una organización mediante esta versión de la API.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Servidor local predeterminado
+tags:
+  - name: System
+  - name: Projects
+  - name: Events
+paths:
+  /livez:
+    get:
+      tags:
+        - System
+      operationId: getLiveness
+      summary: Comprueba que el proceso está vivo
+      description: |
+        Esta comprobación no depende de PostgreSQL ni de otros servicios. Una
+        respuesta correcta solo confirma que el proceso HTTP puede responder.
+      responses:
+        "200":
+          description: El proceso está vivo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessResponse"
+              example:
+                data:
+                  status: live
+  /readyz:
+    get:
+      tags:
+        - System
+      operationId: getReadiness
+      summary: Comprueba que Pact puede atender solicitudes
+      description: |
+        Pact está listo cuando terminó su arranque, el esquema de PostgreSQL es
+        compatible y la base de datos está accesible. Durante el apagado vuelve
+        a responder con 503.
+      responses:
+        "200":
+          description: Pact está listo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+              example:
+                data:
+                  status: ready
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /version:
+    get:
+      tags:
+        - System
+      operationId: getVersion
+      summary: Obtiene la versión del servidor
+      responses:
+        "200":
+          description: Versión en ejecución.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionResponse"
+              example:
+                data:
+                  version: 0.1.0-dev
+                  commit: unknown
+                  date: unknown
+  /v1/projects:
+    post:
+      tags:
+        - Projects
+      operationId: createProject
+      summary: Crea un proyecto en la organización local
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+            example:
+              name: The Pact
+              slug: the-pact
+              canonical_revision: 3269b3f
+      responses:
+        "201":
+          description: Proyecto creado.
+          headers:
+            Idempotency-Replayed:
+              description: Presente y verdadero cuando se devuelve un resultado guardado.
+              schema:
+                type: string
+                const: "true"
+            Location:
+              description: Ruta del proyecto creado.
+              schema:
+                type: string
+                example: /v1/projects/019c3fd8-2b34-7a10-8b75-3fd40dcfb68e
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Projects
+      operationId: getProject
+      summary: Obtiene un proyecto
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Proyecto encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/events:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Events
+      operationId: listProjectEvents
+      summary: Lista eventos duraderos de un proyecto
+      description: |
+        Devuelve eventos posteriores al cursor indicado y ordenados por su
+        secuencia dentro del proyecto. Si `after` se omite, la lectura comienza
+        antes del primer evento disponible.
+
+        Aunque el cursor actual contiene la representación decimal de un
+        `bigint`, los clientes deben tratarlo como una cadena opaca: solo deben
+        almacenarlo y devolverlo, nunca realizar cálculos con él.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AfterCursor"
+        - $ref: "#/components/parameters/EventLimit"
+      responses:
+        "200":
+          description: Página de eventos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/events/stream:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Events
+      operationId: streamProjectEvents
+      summary: Sigue los eventos de un proyecto mediante SSE
+      description: |
+        Primero reproduce los eventos duraderos posteriores a `Last-Event-ID` y
+        después mantiene abierta la conexión para enviar eventos nuevos.
+
+        Cada mensaje utiliza la secuencia del proyecto en el campo SSE `id`, el
+        tipo del evento en `event` y el objeto `ProjectEvent` serializado como
+        JSON en `data`. Los comentarios SSE pueden utilizarse como heartbeat y
+        deben ignorarse. Si la conexión termina, el cliente debe reconectarse
+        enviando el último `id` procesado.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LastEventId"
+      responses:
+        "200":
+          description: Stream SSE abierto.
+          headers:
+            Cache-Control:
+              description: Los streams no se almacenan en caché.
+              schema:
+                type: string
+                const: no-cache
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                id: 1
+                event: pact.project.created.v1
+                data: {"id":"019c3fd8-2b34-7a10-8b75-3fd40dcfb68f","project_id":"019c3fd8-2b34-7a10-8b75-3fd40dcfb68e","sequence":"1","type":"pact.project.created.v1","version":1,"aggregate_type":"project","aggregate_id":"019c3fd8-2b34-7a10-8b75-3fd40dcfb68e","aggregate_version":1,"command_id":"019c3fd8-2b34-7a10-8b75-3fd40dcfb690","correlation_id":"019c3fd8-2b34-7a10-8b75-3fd40dcfb690","occurred_at":"2026-07-25T12:00:00Z","recorded_at":"2026-07-25T12:00:00Z","data":{"name":"The Pact","slug":"the-pact"}}
+
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Token local opaco configurado para Pact Server.
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      description: Identificador opaco del proyecto.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Clave elegida por el cliente para hacer idempotente la creación. Repetir
+        la clave con el mismo cuerpo devuelve el resultado guardado; reutilizarla
+        con un cuerpo diferente produce un conflicto.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    AfterCursor:
+      name: after
+      in: query
+      required: false
+      description: Cursor exclusivo del último evento ya procesado.
+      schema:
+        $ref: "#/components/schemas/EventCursor"
+    EventLimit:
+      name: limit
+      in: query
+      required: false
+      description: Número máximo de eventos que se devolverán.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      description: Cursor exclusivo del último evento SSE procesado.
+      schema:
+        $ref: "#/components/schemas/EventCursor"
+  schemas:
+    LivenessResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - status
+          properties:
+            status:
+              type: string
+              const: live
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - status
+          properties:
+            status:
+              type: string
+              const: ready
+    VersionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/VersionInfo"
+    VersionInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - commit
+        - date
+      properties:
+        version:
+          type: string
+          minLength: 1
+        commit:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          minLength: 1
+    CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        canonical_revision:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 64
+          pattern: "^[0-9a-fA-F]{7,64}$"
+          description: Revisión Git canónica inicial, si ya se conoce.
+    ProjectResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/Project"
+    Project:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - slug
+        - canonical_revision
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        canonical_revision:
+          type:
+            - string
+            - "null"
+          maxLength: 64
+          pattern: "^[0-9a-f]{7,64}$"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EventPageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/EventPage"
+    EventPage:
+      type: object
+      additionalProperties: false
+      required:
+        - events
+        - next_cursor
+        - has_more
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectEvent"
+        next_cursor:
+          oneOf:
+            - $ref: "#/components/schemas/EventCursor"
+            - type: "null"
+          description: Cursor del último evento incluido o null si no hay eventos.
+        has_more:
+          type: boolean
+    EventCursor:
+      type: string
+      pattern: "^[0-9]+$"
+      description: |
+        Cursor opaco. En v0.1 se transporta como una cadena decimal compatible
+        con un bigint de PostgreSQL.
+      examples:
+        - "481"
+    ProjectEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - sequence
+        - type
+        - version
+        - aggregate_type
+        - aggregate_id
+        - aggregate_version
+        - command_id
+        - correlation_id
+        - occurred_at
+        - recorded_at
+        - data
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        sequence:
+          $ref: "#/components/schemas/EventCursor"
+        type:
+          type: string
+          minLength: 1
+          examples:
+            - pact.project.created.v1
+        version:
+          type: integer
+          minimum: 1
+        aggregate_type:
+          type: string
+          minLength: 1
+        aggregate_id:
+          type: string
+          minLength: 1
+        aggregate_version:
+          type: integer
+          format: int64
+          minimum: 1
+        command_id:
+          type: string
+          format: uuid
+        actor_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        session_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        intent_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        causation_id:
+          type:
+            - string
+            - "null"
+        correlation_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        recorded_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+    Problem:
+      type: object
+      description: Error compatible con Problem Details para HTTP APIs.
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          description: Código estable y legible por máquinas.
+        request_id:
+          type: string
+  responses:
+    BadRequest:
+      description: La solicitud no tiene una forma o un valor válido.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Falta un Bearer token válido.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: El recurso no existe o no es visible para el actor.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: |
+        El slug ya existe o una clave de idempotencia se reutilizó con un cuerpo
+        diferente.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: El cuerpo debe utilizar Content-Type application/json.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ServiceUnavailable:
+      description: Pact todavía no está listo o está apagándose.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    InternalServerError:
+      description: Fallo interno no atribuible al cliente.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
