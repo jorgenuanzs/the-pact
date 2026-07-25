@@ -1,0 +1,22 @@
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Local Pact state
+.pact/data/
+.pact/workspaces/
+
+# Go
+bin/
+coverage.out
+*.test
+
+# Editors
+.idea/
+.vscode/
+
