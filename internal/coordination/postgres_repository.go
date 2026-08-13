@@ -31,7 +31,7 @@ func (r *PostgresRepository) CheckScopes(
 	projectID string,
 	scopes []ScopeInput,
 ) (ScopeCheckResult, error) {
-	var repositoryID string
+	var repositoryID *string
 	err := r.pool.QueryRow(ctx, `
 		SELECT root_repository_id
 		FROM identity.projects
@@ -43,7 +43,10 @@ func (r *PostgresRepository) CheckScopes(
 	if err != nil {
 		return ScopeCheckResult{}, fmt.Errorf("load project repository for scope check: %w", err)
 	}
-	overlaps, err := loadScopeOverlaps(ctx, r.pool, organizationID, projectID, repositoryID, scopes)
+	if repositoryID == nil {
+		return ScopeCheckResult{}, ErrRepositoryUnavailable
+	}
+	overlaps, err := loadScopeOverlaps(ctx, r.pool, organizationID, projectID, *repositoryID, scopes)
 	if err != nil {
 		return ScopeCheckResult{}, err
 	}
@@ -88,7 +91,7 @@ func (r *PostgresRepository) Start(
 		return result, nil
 	}
 
-	var repositoryID string
+	var repositoryID *string
 	err = tx.QueryRow(ctx, `
 		SELECT root_repository_id
 		FROM identity.projects
@@ -101,7 +104,10 @@ func (r *PostgresRepository) Start(
 	if err != nil {
 		return StartResult{}, fmt.Errorf("load project repository for work.start: %w", err)
 	}
-	overlaps, err := loadScopeOverlaps(ctx, tx, organizationID, projectID, repositoryID, input.Scopes)
+	if repositoryID == nil {
+		return StartResult{}, ErrRepositoryUnavailable
+	}
+	overlaps, err := loadScopeOverlaps(ctx, tx, organizationID, projectID, *repositoryID, input.Scopes)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -129,7 +135,7 @@ func (r *PostgresRepository) Start(
 
 	claims := make([]ScopeClaim, 0, len(input.Scopes))
 	for _, requested := range input.Scopes {
-		resource, err := upsertResourceRef(ctx, tx, organizationID, projectID, repositoryID, requested)
+		resource, err := upsertResourceRef(ctx, tx, organizationID, projectID, *repositoryID, requested)
 		if err != nil {
 			return StartResult{}, err
 		}

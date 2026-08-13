@@ -44,6 +44,11 @@ func TestCoordinatedWorkLifecycleAndScopeExclusion(t *testing.T) {
 	).Create(ctx, "coordination-project-"+suffix, projects.CreateInput{
 		Name: "Coordination project " + suffix,
 		Slug: "coordination-project-" + suffix,
+		RootRepository: &projects.SourceRepositoryInput{
+			Slug: "primary", Name: "Primary repository",
+			RemoteURL:     "https://example.com/coordination-" + suffix + ".git",
+			DefaultBranch: "main", ObjectFormat: "sha1",
+		},
 	})
 	if err != nil {
 		t.Fatalf("create project: %v", err)

@@ -846,6 +846,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusForbidden, "coordination_forbidden", "Forbidden", err.Error())
 	case errors.Is(err, coordination.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "coordinated_work_not_found", "Coordinated work not found", err.Error())
+	case errors.Is(err, coordination.ErrRepositoryUnavailable):
+		writeProblem(w, r, http.StatusConflict, "project_repository_unavailable", "Project repository unavailable", err.Error())
 	case errors.Is(err, coordination.ErrVersionConflict):
 		writeProblem(w, r, http.StatusConflict, "intent_version_conflict", "Intent changed", err.Error())
 	case errors.Is(err, coordination.ErrInvalidTransition):
