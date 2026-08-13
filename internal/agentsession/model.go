@@ -24,3 +24,33 @@ type Session struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
 }
+
+type ObservationInput struct {
+	Dirty           bool   `json:"dirty"`
+	DiffFingerprint string `json:"diff_fingerprint"`
+	ChangedPaths    int    `json:"changed_paths"`
+	HeadRevision    string `json:"head_revision,omitempty"`
+	Branch          string `json:"branch,omitempty"`
+}
+
+type RepositoryObservation struct {
+	ID              string    `json:"id"`
+	ProjectID       string    `json:"project_id"`
+	SessionID       string    `json:"session_id"`
+	ActorID         string    `json:"actor_id"`
+	NodeID          string    `json:"node_id"`
+	Dirty           bool      `json:"dirty"`
+	DiffFingerprint string    `json:"diff_fingerprint"`
+	ChangedPaths    int       `json:"changed_paths"`
+	HeadRevision    string    `json:"head_revision,omitempty"`
+	Branch          string    `json:"branch,omitempty"`
+	Version         int64     `json:"version"`
+	ObservedAt      time.Time `json:"observed_at"`
+}
+
+type ObservationResult struct {
+	Observation RepositoryObservation `json:"observation"`
+	EventID     *string               `json:"event_id,omitempty"`
+	EventType   *string               `json:"event_type,omitempty"`
+	Replayed    bool                  `json:"replayed"`
+}

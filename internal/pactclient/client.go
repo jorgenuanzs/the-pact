@@ -133,6 +133,25 @@ func (c *Client) HeartbeatAgentSession(ctx context.Context, sessionID string) (a
 	return response.Data, nil
 }
 
+func (c *Client) ObserveRepository(
+	ctx context.Context,
+	sessionID string,
+	idempotencyKey string,
+	input agentsession.ObservationInput,
+) (agentsession.ObservationResult, error) {
+	var response struct {
+		Data agentsession.ObservationResult `json:"data"`
+	}
+	path := "/v1/agent-sessions/" + url.PathEscape(sessionID) + "/repository-observations"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey},
+		Body:    input,
+	}, &response); err != nil {
+		return agentsession.ObservationResult{}, err
+	}
+	return response.Data, nil
+}
+
 func (c *Client) CloseAgentSession(ctx context.Context, sessionID string) error {
 	path := "/v1/agent-sessions/" + url.PathEscape(sessionID)
 	return c.do(ctx, http.MethodDelete, path, "", nil, nil)

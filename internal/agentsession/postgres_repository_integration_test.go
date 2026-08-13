@@ -4,8 +4,10 @@ package agentsession_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +58,7 @@ func TestAgentSessionLifecycleAppearsInBackoffice(t *testing.T) {
 		AgentName:  "Kimi",
 		AgentType:  "kimi",
 		ClientType: "kimi-cli",
+		ObserveGit: true,
 	})
 	if err != nil {
 		t.Fatalf("start session: %v", err)
@@ -65,6 +68,79 @@ func TestAgentSessionLifecycleAppearsInBackoffice(t *testing.T) {
 	}
 	if _, err := service.Heartbeat(ctx, "00000000-0000-4000-8000-000000000002", true, session.ID); err != nil {
 		t.Fatalf("heartbeat session: %v", err)
+	}
+	clean, err := service.Observe(
+		ctx,
+		"00000000-0000-4000-8000-000000000002",
+		session.ID,
+		"clean-"+suffix,
+		agentsession.ObservationInput{
+			DiffFingerprint: strings.Repeat("0", 64),
+			HeadRevision:    strings.Repeat("a", 40),
+			Branch:          "main",
+		},
+	)
+	if err != nil {
+		t.Fatalf("observe clean repository: %v", err)
+	}
+	if clean.EventID != nil || clean.Observation.Dirty || clean.Observation.Version != 1 {
+		t.Fatalf("clean observation = %#v", clean)
+	}
+	headChanged, err := service.Observe(
+		ctx,
+		"00000000-0000-4000-8000-000000000002",
+		session.ID,
+		"head-"+suffix,
+		agentsession.ObservationInput{
+			DiffFingerprint: strings.Repeat("0", 64),
+			HeadRevision:    strings.Repeat("b", 40),
+			Branch:          "main",
+		},
+	)
+	if err != nil {
+		t.Fatalf("observe changed Git HEAD: %v", err)
+	}
+	if headChanged.EventType == nil || *headChanged.EventType != "pact.git.external_change_detected.v1" || headChanged.Observation.Version != 2 {
+		t.Fatalf("HEAD observation = %#v", headChanged)
+	}
+	dirtyInput := agentsession.ObservationInput{
+		Dirty: true, DiffFingerprint: strings.Repeat("1", 64), ChangedPaths: 2,
+		HeadRevision: strings.Repeat("b", 40), Branch: "main",
+	}
+	dirty, err := service.Observe(
+		ctx,
+		"00000000-0000-4000-8000-000000000002",
+		session.ID,
+		"dirty-"+suffix,
+		dirtyInput,
+	)
+	if err != nil {
+		t.Fatalf("observe dirty repository: %v", err)
+	}
+	if dirty.EventType == nil || *dirty.EventType != "pact.workspace.diff_updated.v1" || dirty.Observation.Version != 3 {
+		t.Fatalf("dirty observation = %#v", dirty)
+	}
+	replayed, err := service.Observe(
+		ctx,
+		"00000000-0000-4000-8000-000000000002",
+		session.ID,
+		"dirty-"+suffix,
+		dirtyInput,
+	)
+	if err != nil || !replayed.Replayed || replayed.Observation.Version != dirty.Observation.Version {
+		t.Fatalf("replayed observation = %#v, %v", replayed, err)
+	}
+	conflictingInput := dirtyInput
+	conflictingInput.ChangedPaths = 3
+	_, err = service.Observe(
+		ctx,
+		"00000000-0000-4000-8000-000000000002",
+		session.ID,
+		"dirty-"+suffix,
+		conflictingInput,
+	)
+	if !errors.Is(err, agentsession.ErrIdempotencyConflict) {
+		t.Fatalf("idempotency conflict error = %v", err)
 	}
 	overview, err := backoffice.NewPostgresReader(pool).Get(
 		ctx,
@@ -76,6 +152,9 @@ func TestAgentSessionLifecycleAppearsInBackoffice(t *testing.T) {
 	}
 	if overview.Counts.LiveSessions != 1 || overview.Counts.ConnectedNodes != 1 || len(overview.ActiveWork) != 1 {
 		t.Fatalf("active overview = %#v", overview)
+	}
+	if overview.Counts.ConnectedObservers != 1 || overview.CodeActivity.State != backoffice.CodeActivityEditing {
+		t.Fatalf("observed overview = %#v", overview)
 	}
 	if overview.ActiveWork[0].ActorName != "Kimi" || overview.ActiveWork[0].ClientType != "kimi-cli" {
 		t.Fatalf("active work = %#v", overview.ActiveWork[0])

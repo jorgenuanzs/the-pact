@@ -2,13 +2,20 @@ package agentsession
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 )
 
-var ErrNotFound = errors.New("agent session not found")
+var (
+	ErrNotFound            = errors.New("agent session not found")
+	ErrIdempotencyConflict = errors.New("idempotency key was already used with a different observation")
+	ErrCommandIncomplete   = errors.New("the previous observation command has not completed")
+)
 
 type ValidationError struct {
 	Field   string
@@ -22,6 +29,7 @@ func (e *ValidationError) Error() string {
 type Repository interface {
 	Start(context.Context, string, string, string, StartInput) (Session, error)
 	Heartbeat(context.Context, string, string, bool, string) (Session, error)
+	Observe(context.Context, string, string, string, string, [sha256.Size]byte, ObservationInput) (ObservationResult, error)
 	Close(context.Context, string, string, bool, string) error
 }
 
@@ -81,6 +89,68 @@ func (s *Service) Heartbeat(ctx context.Context, sponsorPrincipalID string, allo
 	return s.repository.Heartbeat(ctx, s.organizationID, sponsorPrincipalID, allowAll, sessionID)
 }
 
+func (s *Service) Observe(
+	ctx context.Context,
+	sponsorPrincipalID string,
+	sessionID string,
+	idempotencyKey string,
+	input ObservationInput,
+) (ObservationResult, error) {
+	sponsorPrincipalID = strings.TrimSpace(sponsorPrincipalID)
+	sessionID = strings.TrimSpace(sessionID)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	input.DiffFingerprint = strings.ToLower(strings.TrimSpace(input.DiffFingerprint))
+	input.HeadRevision = strings.ToLower(strings.TrimSpace(input.HeadRevision))
+	input.Branch = strings.TrimSpace(input.Branch)
+	if err := validateUUID("sponsor_principal_id", sponsorPrincipalID); err != nil {
+		return ObservationResult{}, err
+	}
+	if err := validateUUID("session_id", sessionID); err != nil {
+		return ObservationResult{}, err
+	}
+	switch {
+	case idempotencyKey == "":
+		return ObservationResult{}, &ValidationError{Field: "Idempotency-Key", Message: "header is required"}
+	case len(idempotencyKey) > 200:
+		return ObservationResult{}, &ValidationError{Field: "Idempotency-Key", Message: "must contain at most 200 characters"}
+	case len(input.DiffFingerprint) != sha256.Size*2:
+		return ObservationResult{}, &ValidationError{Field: "diff_fingerprint", Message: "must be a SHA-256 hexadecimal digest"}
+	case input.ChangedPaths < 0 || input.ChangedPaths > 1_000_000:
+		return ObservationResult{}, &ValidationError{Field: "changed_paths", Message: "must be between 0 and 1000000"}
+	case !input.Dirty && input.ChangedPaths != 0:
+		return ObservationResult{}, &ValidationError{Field: "changed_paths", Message: "must be zero when dirty is false"}
+	case input.Dirty && input.ChangedPaths == 0:
+		return ObservationResult{}, &ValidationError{Field: "changed_paths", Message: "must be greater than zero when dirty is true"}
+	case len(input.HeadRevision) > 64:
+		return ObservationResult{}, &ValidationError{Field: "head_revision", Message: "must contain at most 64 characters"}
+	case input.HeadRevision != "" && len(input.HeadRevision) < 7:
+		return ObservationResult{}, &ValidationError{Field: "head_revision", Message: "must contain at least 7 characters"}
+	case input.HeadRevision != "" && !isHex(input.HeadRevision):
+		return ObservationResult{}, &ValidationError{Field: "head_revision", Message: "must be a hexadecimal Git object ID"}
+	case len(input.Branch) > 255:
+		return ObservationResult{}, &ValidationError{Field: "branch", Message: "must contain at most 255 characters"}
+	}
+	if _, err := hex.DecodeString(input.DiffFingerprint); err != nil {
+		return ObservationResult{}, &ValidationError{Field: "diff_fingerprint", Message: "must be a SHA-256 hexadecimal digest"}
+	}
+	canonical, err := json.Marshal(struct {
+		Operation      string           `json:"operation"`
+		OrganizationID string           `json:"organization_id"`
+		SessionID      string           `json:"session_id"`
+		Input          ObservationInput `json:"input"`
+	}{
+		Operation: "repository.observe", OrganizationID: s.organizationID,
+		SessionID: sessionID, Input: input,
+	})
+	if err != nil {
+		return ObservationResult{}, err
+	}
+	return s.repository.Observe(
+		ctx, s.organizationID, sponsorPrincipalID, sessionID,
+		idempotencyKey, sha256.Sum256(canonical), input,
+	)
+}
+
 func (s *Service) Close(ctx context.Context, sponsorPrincipalID string, allowAll bool, sessionID string) error {
 	sponsorPrincipalID = strings.TrimSpace(sponsorPrincipalID)
 	sessionID = strings.TrimSpace(sessionID)
@@ -112,4 +182,13 @@ func validateUUID(field, value string) error {
 		}
 	}
 	return nil
+}
+
+func isHex(value string) bool {
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return value != ""
 }

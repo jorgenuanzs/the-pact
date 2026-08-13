@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
@@ -55,6 +57,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runLogout(args[1:], stdout, stderr)
 	case "agent":
 		return runAgent(args[1:], stdin, stdout, stderr)
+	case "node":
+		return runNode(args[1:], stdout, stderr)
 	case "version":
 		return json.NewEncoder(stdout).Encode(buildinfo.Current())
 	case "help", "-h", "--help":
@@ -99,6 +103,10 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	initialSnapshot, err := gitobserve.Capture(context.Background(), binding.Root)
+	if err != nil {
+		return err
+	}
 	client, err := pactclient.New(login.ServerURL, login.APIToken)
 	if err != nil {
 		return err
@@ -112,7 +120,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		AgentName:  strings.TrimSpace(*agentName),
 		AgentType:  *clientType,
 		ClientType: *clientType,
-		ObserveGit: false,
+		ObserveGit: true,
 	})
 	cancelStart()
 	if err != nil {
@@ -124,9 +132,14 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		_ = client.CloseAgentSession(closeContext, session.ID)
 	}()
 	fmt.Fprintf(stdout, "PACT agent session active: %s (%s)\n", session.ActorName, session.ID)
+	if err := reportObservation(ctx, client, session.ID, initialSnapshot); err != nil {
+		return err
+	}
 
 	heartbeatErrors := make(chan error, 1)
 	go maintainHeartbeat(ctx, client, session.ID, heartbeatErrors)
+	observationErrors := make(chan error, 1)
+	go maintainGitObservations(ctx, binding.Root, client, session.ID, initialSnapshot, 2*time.Second, observationErrors)
 	commandArguments := flags.Args()
 	if len(commandArguments) == 0 {
 		select {
@@ -134,6 +147,8 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return nil
 		case heartbeatErr := <-heartbeatErrors:
 			return heartbeatErr
+		case observationErr := <-observationErrors:
+			return observationErr
 		}
 	}
 
@@ -154,6 +169,9 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	go func() { commandResult <- command.Wait() }()
 	select {
 	case commandErr := <-commandResult:
+		if observationErr := reportCurrentObservation(binding.Root, client, session.ID); observationErr != nil {
+			return observationErr
+		}
 		if commandErr != nil {
 			return fmt.Errorf("agent command stopped: %w", commandErr)
 		}
@@ -164,6 +182,12 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		<-commandResult
 		return heartbeatErr
+	case observationErr := <-observationErrors:
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		<-commandResult
+		return observationErr
 	case <-ctx.Done():
 		if command.Process != nil {
 			_ = command.Process.Signal(os.Interrupt)
@@ -178,6 +202,159 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		return nil
 	}
+}
+
+func runNode(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 || args[0] != "run" {
+		return errors.New("expected pact node run")
+	}
+	flags := flag.NewFlagSet("pact node run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	projectPath := flags.String("path", ".", "path inside the connected Pact project")
+	interval := flags.Duration("interval", 2*time.Second, "Git observation interval")
+	once := flags.Bool("once", false, "capture one observation and exit")
+	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("pact node run accepts no positional arguments")
+	}
+	if *interval < 250*time.Millisecond || *interval > time.Minute {
+		return errors.New("--interval must be between 250ms and 1m")
+	}
+	binding, err := localproject.LoadBinding(*projectPath)
+	if err != nil {
+		return err
+	}
+	login, err := loginForServer(binding.ServerURL)
+	if err != nil {
+		return err
+	}
+	node, err := localproject.EnsureNodeIdentity(binding.Root)
+	if err != nil {
+		return err
+	}
+	initialSnapshot, err := gitobserve.Capture(context.Background(), binding.Root)
+	if err != nil {
+		return err
+	}
+	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	startContext, cancelStart := context.WithTimeout(ctx, 15*time.Second)
+	session, err := client.StartAgentSession(startContext, binding.ProjectID, agentsession.StartInput{
+		NodeKey: node.Key, NodeName: node.Name, AgentName: "Pact Node",
+		AgentType: "pact-node", ClientType: "pact-node", ObserveGit: true,
+	})
+	cancelStart()
+	if err != nil {
+		return fmt.Errorf("start Pact Node session: %w", err)
+	}
+	defer func() {
+		closeContext, cancelClose := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelClose()
+		_ = client.CloseAgentSession(closeContext, session.ID)
+	}()
+	if err := reportObservation(ctx, client, session.ID, initialSnapshot); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "PACT Node observing %s (%s)\n", binding.Root, session.ID)
+	fmt.Fprintln(stdout, "Only Git state metadata and a SHA-256 fingerprint are sent; file names and contents remain local.")
+	if *once {
+		return nil
+	}
+	heartbeatErrors := make(chan error, 1)
+	go maintainHeartbeat(ctx, client, session.ID, heartbeatErrors)
+	observationErrors := make(chan error, 1)
+	go maintainGitObservations(ctx, binding.Root, client, session.ID, initialSnapshot, *interval, observationErrors)
+	select {
+	case <-ctx.Done():
+		return nil
+	case heartbeatErr := <-heartbeatErrors:
+		return heartbeatErr
+	case observationErr := <-observationErrors:
+		return observationErr
+	}
+}
+
+func maintainGitObservations(
+	ctx context.Context,
+	root string,
+	client *pactclient.Client,
+	sessionID string,
+	previous gitobserve.Snapshot,
+	interval time.Duration,
+	errorsChannel chan<- error,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			captureContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+			current, err := gitobserve.Capture(captureContext, root)
+			cancel()
+			if err == nil && current != previous {
+				err = reportObservation(ctx, client, sessionID, current)
+				if err == nil {
+					previous = current
+				}
+			}
+			if err != nil {
+				select {
+				case errorsChannel <- fmt.Errorf("observe Git repository: %w", err):
+				default:
+				}
+				return
+			}
+		}
+	}
+}
+
+func reportCurrentObservation(root string, client *pactclient.Client, sessionID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	snapshot, err := gitobserve.Capture(ctx, root)
+	if err != nil {
+		return fmt.Errorf("capture final Git observation: %w", err)
+	}
+	return reportObservation(ctx, client, sessionID, snapshot)
+}
+
+func reportObservation(
+	ctx context.Context,
+	client *pactclient.Client,
+	sessionID string,
+	snapshot gitobserve.Snapshot,
+) error {
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return fmt.Errorf("create observation idempotency key: %w", err)
+	}
+	reportContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, err := client.ObserveRepository(
+		reportContext,
+		sessionID,
+		"pact-observe-"+hex.EncodeToString(keyBytes),
+		agentsession.ObservationInput{
+			Dirty: snapshot.Dirty, DiffFingerprint: snapshot.Fingerprint,
+			ChangedPaths: snapshot.ChangedPaths, HeadRevision: snapshot.HeadRevision,
+			Branch: snapshot.Branch,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("report Git observation: %w", err)
+	}
+	return nil
 }
 
 func maintainHeartbeat(
@@ -697,5 +874,6 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact whoami")
 	fmt.Fprintln(writer, "  pact logout [--revoke]")
 	fmt.Fprintln(writer, "  pact agent run --client TYPE [--name NAME] [--path PATH] [-- COMMAND ...]")
+	fmt.Fprintln(writer, "  pact node run [--path PATH] [--interval 2s] [--once]")
 	fmt.Fprintln(writer, "  pact version")
 }

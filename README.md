@@ -25,10 +25,11 @@ El primer vertical técnico ya tiene una base ejecutable:
 - identidades personales, invitaciones de un solo uso, roles y revocación;
 - identidad remota del repositorio para conectar varios checkouts sin duplicar proyectos;
 - registro de nodos y sesiones vivas mediante `pact agent run`;
+- Pact Node y observación Git privada mediante `pact node run`;
 - entorno reproducible mediante Docker Compose.
 
-El siguiente corte incorporará Pact Node para observar Git y administrar
-worktrees; después ampliará intenciones, scopes e integraciones MCP.
+El siguiente corte ampliará Pact Node con worktrees administrados, intenciones
+y scopes, y expondrá el protocolo a agentes mediante MCP.
 
 ## Inicio rápido
 
@@ -58,9 +59,9 @@ como Bearer para consultar la API; no viene incluido en los archivos del panel
 ni se añade a la URL.
 
 El panel recibe eventos duraderos en vivo y consulta el estado operativo del
-proyecto. Hasta que exista Pact Node, no puede observar el sistema de archivos:
-la actividad del código aparecerá como `unobserved`, que significa «Pact no lo
-está observando», no «nadie está modificando código».
+proyecto. La actividad aparece como `unobserved` hasta que se ejecuta Pact Node
+o un agente a través del wrapper observador; no significa «nadie está
+modificando código», sino «PACT no lo está observando».
 
 El backoffice utiliza las consultas autenticadas `GET /v1/projects`,
 `GET /v1/projects/{project_id}/overview` y el stream SSE de eventos del
@@ -77,7 +78,7 @@ Las versiones etiquetadas publican binarios para macOS y Linux, tanto arm64
 como amd64. Por ejemplo, en un Mac con Apple Silicon:
 
 ```sh
-PACT_VERSION=v0.1.0
+PACT_VERSION=v0.3.0
 curl -fL -o pact.tar.gz \
   "https://github.com/jorgenuanzs/the-pact/releases/download/${PACT_VERSION}/pact_darwin_arm64.tar.gz"
 curl -fL -o checksums.txt \
@@ -140,11 +141,20 @@ pact agent run --client codex -- codex
 PACT registra por separado el computador, el actor y su sesión. La sesión
 permanece activa mientras vive el proceso hijo y se cierra al terminarlo; se
 envían heartbeats, pero no se captura la conversación ni la entrada o salida del
-agente. El comando después de `--` puede ser cualquier ejecutable local.
+agente. Mientras trabaja, el wrapper también observa el checkout Git. El comando
+después de `--` puede ser cualquier ejecutable local.
 
-Este wrapper hace visible quién está conectado, pero todavía no observa los
-cambios del repositorio. Hasta que exista Pact Node, el backoffice mantiene la
-actividad de código en `unobserved` aunque muestre una sesión activa.
+Para observar también cambios realizados directamente por una persona, un IDE
+u otra herramienta que no esté envuelta por el CLI, mantiene Pact Node activo:
+
+```sh
+pact node run
+```
+
+`pact node run --once` realiza una comprobación y termina. El modo continuo
+consulta Git cada dos segundos y mantiene una sesión con heartbeat. PACT envía
+únicamente el estado dirty/clean, rama, revisión, cantidad de rutas y una huella
+SHA-256. Los nombres y contenidos de archivos nunca salen del computador.
 
 ## Invitar a otra persona
 
@@ -185,9 +195,9 @@ colaboradores.
 Agente o herramienta local
             │
             ▼
-  Pact CLI ── sesión y heartbeat del actor
+  Pact CLI ── sesión, heartbeat y observación del agente
             │
-  Pact Node (siguiente corte) ── observación Git + worktrees
+  Pact Node ── observación Git (worktrees administrados: siguiente corte)
             │ HTTPS / JSON / SSE
             ▼
         Pact Server
@@ -209,6 +219,7 @@ loopback durante el desarrollo local.
 - [ADR-0004: bootstrap local y vínculo con el servidor](docs/adr/0004-local-project-bootstrap.md)
 - [ADR-0005: incorporación y conexión entre máquinas](docs/adr/0005-cli-onboarding-and-machine-connection.md)
 - [ADR-0006: acceso personal, invitaciones y roles](docs/adr/0006-personal-access-and-project-roles.md)
+- [ADR-0007: Pact Node y observación Git privada](docs/adr/0007-pact-node-git-observation.md)
 - [Especificación del bucle central v0.1](docs/spec/core-loop-v0.1.md)
 - [Contrato OpenAPI](api/openapi.yaml)
 - [Desarrollo local](docs/development.md)

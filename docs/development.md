@@ -270,10 +270,24 @@ El panel combina SSE con una consulta periódica del overview. Los eventos son
 duraderos, pero los heartbeats actualizan `last_seen_at` sin crear un evento en
 cada intervalo; el polling permite reflejar conexiones que quedan obsoletas.
 
-El wrapper `pact agent run` ya registra nodos y sesiones, pero Pact Node todavía
-no está implementado. Hasta que exista y anuncie la capacidad de observar diffs,
-el indicador correcto será `unobserved`. El panel no examina por sí mismo el
-repositorio ni el sistema de archivos del host.
+`pact agent run` observa Git mientras vive el agente. Para cubrir cambios
+realizados fuera de ese wrapper, ejecuta desde el checkout conectado:
+
+```sh
+pact node run
+```
+
+Pact Node anuncia la capacidad de observar diffs, mantiene heartbeat y reporta
+solo cuando cambia la huella local. `pact node run --once` resulta útil para una
+comprobación puntual. El panel no examina por sí mismo el sistema de archivos
+del host: si ningún observador está vigente, el indicador correcto sigue siendo
+`unobserved`.
+
+La telemetría no contiene nombres ni contenido de archivos. Incluye dirty/clean,
+revisión, rama, cantidad de rutas y una huella SHA-256 calculada a partir del
+estado Git y metadatos locales. Un cambio de huella dirty emite
+`pact.workspace.diff_updated.v1`; un cambio de HEAD sin diff emite
+`pact.git.external_change_detected.v1`.
 
 ## Crear un proyecto
 

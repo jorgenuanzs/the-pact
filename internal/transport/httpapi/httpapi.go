@@ -35,6 +35,7 @@ type ProjectService interface {
 type AgentSessionService interface {
 	Start(context.Context, string, string, agentsession.StartInput) (agentsession.Session, error)
 	Heartbeat(context.Context, string, bool, string) (agentsession.Session, error)
+	Observe(context.Context, string, string, string, agentsession.ObservationInput) (agentsession.ObservationResult, error)
 	Close(context.Context, string, bool, string) error
 }
 
@@ -119,6 +120,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
 	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartAgentSession))))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/heartbeat", api.requireAuth(http.HandlerFunc(api.handleAgentHeartbeat)))
+	mux.Handle("POST /v1/agent-sessions/{sessionID}/repository-observations", api.requireAuth(http.HandlerFunc(api.handleRepositoryObservation)))
 	mux.Handle("DELETE /v1/agent-sessions/{sessionID}", api.requireAuth(http.HandlerFunc(api.handleCloseAgentSession)))
 	mux.Handle("POST /v1/projects/{projectID}/invitations", api.requireAuth(http.HandlerFunc(api.handleCreateInvitation)))
 	mux.Handle("DELETE /v1/invitations/{invitationID}", api.requireAuth(http.HandlerFunc(api.handleRevokeInvitation)))
@@ -137,6 +139,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/heartbeat", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/agent-sessions/{sessionID}/repository-observations", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}", api.methodNotAllowed(http.MethodDelete))
 	mux.Handle("/v1/projects/{projectID}/invitations", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/invitations/{invitationID}", api.methodNotAllowed(http.MethodDelete))
@@ -278,6 +281,35 @@ func (a *API) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": session})
+}
+
+func (a *API) handleRepositoryObservation(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.agentSessions == nil {
+		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
+		return
+	}
+	var input agentsession.ObservationInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.agentSessions.Observe(
+		r.Context(), principal.ID, r.PathValue("sessionID"),
+		r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
 func (a *API) handleCloseAgentSession(w http.ResponseWriter, r *http.Request) {
@@ -653,6 +685,10 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusNotFound, "access_resource_not_found", "Access resource not found", err.Error())
 	case errors.Is(err, agentsession.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "agent_session_not_found", "Agent session not found", err.Error())
+	case errors.Is(err, agentsession.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, agentsession.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
 	case errors.Is(err, projects.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "project_not_found", "Project not found", "The requested project does not exist.")
 	case errors.Is(err, projects.ErrSlugTaken):

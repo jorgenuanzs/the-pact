@@ -83,15 +83,15 @@ la máquina, `pact agent run` genera o reutiliza una identidad privada de nodo e
 pact agent run --client kimi -- kimi
 ```
 
-El CLI mantiene un heartbeat mientras vive el proceso hijo y cierra la sesión
-cuando termina. También inyecta `PACT_SESSION_ID`, `PACT_PROJECT_ID` y
+El CLI mantiene un heartbeat y observa Git mientras vive el proceso hijo;
+cierra la sesión cuando termina. También inyecta `PACT_SESSION_ID`, `PACT_PROJECT_ID` y
 `PACT_SERVER_URL` en el entorno del proceso, de modo que futuras integraciones
 puedan atribuir comandos de dominio sin leer conversaciones.
 
-Esta primera implementación registra presencia, no observación de Git. Declara
-`observe_git=false`; por tanto, una sesión activa no autoriza al backoffice a
-afirmar que el código está siendo modificado. Pact Node incorporará después la
-observación de diffs y la administración de worktrees.
+El wrapper declara `observe_git=true` y reporta observaciones durante la sesión.
+Para personas, IDE y herramientas que trabajen fuera del wrapper existe
+`pact node run`, un proceso residente con la misma capacidad de observación.
+La administración de worktrees sigue siendo una evolución posterior.
 
 Clonar el repositorio no otorga por sí mismo permisos al agente. El cliente usa
 la identidad con la que ese computador inició sesión en Pact Server.
@@ -104,4 +104,4 @@ la identidad con la que ese computador inició sesión en Pact Server.
 - conectar es seguro por defecto y no crea proyectos por un error tipográfico;
 - un cliente de IA puede publicar presencia sin entregar su conversación;
 - la colaboración entre personas utiliza identidades y tokens individuales;
-- ver una sesión activa no equivale todavía a observar modificaciones de código.
+- solo una sesión observadora con telemetría reciente demuestra modificaciones.

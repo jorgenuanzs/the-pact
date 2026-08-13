@@ -21,10 +21,11 @@ const cliTestToken = "this-is-a-long-cli-test-token"
 
 func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	var (
-		lock          sync.Mutex
-		remoteProject *projects.Project
-		sessionOpened bool
-		sessionClosed bool
+		lock                sync.Mutex
+		remoteProject       *projects.Project
+		sessionOpened       bool
+		sessionClosed       bool
+		observationReported bool
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer "+cliTestToken {
@@ -81,7 +82,7 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if input.AgentName != "Kimi" || input.AgentType != "kimi" || input.NodeKey == "" || input.ObserveGit {
+			if input.AgentName != "Kimi" || input.AgentType != "kimi" || input.NodeKey == "" || !input.ObserveGit {
 				t.Errorf("agent session input = %#v", input)
 			}
 			sessionOpened = true
@@ -99,6 +100,23 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 				StartedAt:  now,
 				LastSeenAt: now,
 				ExpiresAt:  now.Add(45 * time.Second),
+			}})
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/agent-sessions/018f784a-68c1-7b0f-8f2a-cfc255f99e3f/repository-observations":
+			var input agentsession.ObservationInput
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+				t.Errorf("decode repository observation: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if request.Header.Get("Idempotency-Key") == "" || len(input.DiffFingerprint) != 64 || input.Dirty != (input.ChangedPaths > 0) {
+				t.Errorf("repository observation = %#v; idempotency=%q", input, request.Header.Get("Idempotency-Key"))
+			}
+			observationReported = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": agentsession.ObservationResult{
+				Observation: agentsession.RepositoryObservation{
+					ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e6c", ProjectID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d",
+					SessionID: "018f784a-68c1-7b0f-8f2a-cfc255f99e3f", DiffFingerprint: input.DiffFingerprint,
+				},
 			}})
 		case request.Method == http.MethodDelete && request.URL.Path == "/v1/agent-sessions/018f784a-68c1-7b0f-8f2a-cfc255f99e3f":
 			sessionClosed = true
@@ -172,8 +190,8 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	); err != nil {
 		t.Fatalf("agent run error = %v; stderr = %s", err, stderr.String())
 	}
-	if !sessionOpened || !sessionClosed || !strings.Contains(stdout.String(), "PACT agent session active: Kimi") {
-		t.Fatalf("session opened=%v closed=%v stdout=%s", sessionOpened, sessionClosed, stdout.String())
+	if !sessionOpened || !sessionClosed || !observationReported || !strings.Contains(stdout.String(), "PACT agent session active: Kimi") {
+		t.Fatalf("session opened=%v closed=%v observed=%v stdout=%s", sessionOpened, sessionClosed, observationReported, stdout.String())
 	}
 	nodeConfig, err := os.ReadFile(filepath.Join(collaboratorRoot, ".pact", "node.json"))
 	if err != nil {

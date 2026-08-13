@@ -2,6 +2,7 @@ package agentsession
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 )
@@ -9,6 +10,7 @@ import (
 type fakeRepository struct {
 	start     func(context.Context, string, string, string, StartInput) (Session, error)
 	heartbeat func(context.Context, string, string, bool, string) (Session, error)
+	observe   func(context.Context, string, string, string, string, [sha256.Size]byte, ObservationInput) (ObservationResult, error)
 	close     func(context.Context, string, string, bool, string) error
 }
 
@@ -18,6 +20,13 @@ func (f fakeRepository) Start(ctx context.Context, organizationID, sponsorID, pr
 
 func (f fakeRepository) Heartbeat(ctx context.Context, organizationID, sponsorID string, allowAll bool, sessionID string) (Session, error) {
 	return f.heartbeat(ctx, organizationID, sponsorID, allowAll, sessionID)
+}
+
+func (f fakeRepository) Observe(ctx context.Context, organizationID, sponsorID, sessionID, idempotencyKey string, requestHash [sha256.Size]byte, input ObservationInput) (ObservationResult, error) {
+	if f.observe == nil {
+		return ObservationResult{}, errors.New("unexpected Observe call")
+	}
+	return f.observe(ctx, organizationID, sponsorID, sessionID, idempotencyKey, requestHash, input)
 }
 
 func (f fakeRepository) Close(ctx context.Context, organizationID, sponsorID string, allowAll bool, sessionID string) error {
@@ -62,5 +71,39 @@ func TestStartRejectsInvalidProjectID(t *testing.T) {
 	var validationErr *ValidationError
 	if !errors.As(err, &validationErr) || validationErr.Field != "project_id" {
 		t.Fatalf("Start() error = %v", err)
+	}
+}
+
+func TestObserveNormalizesAndHashesValidatedInput(t *testing.T) {
+	var received ObservationInput
+	service := NewService("organization", fakeRepository{
+		observe: func(_ context.Context, organizationID, sponsorID, sessionID, idempotencyKey string, requestHash [sha256.Size]byte, input ObservationInput) (ObservationResult, error) {
+			if organizationID != "organization" || sponsorID != "018f784a-68c1-7b0f-8f2a-cfc255f99e2e" ||
+				sessionID != "018f784a-68c1-7b0f-8f2a-cfc255f99e3f" || idempotencyKey != "observation-1" {
+				t.Fatalf("unexpected observation scope")
+			}
+			if requestHash == ([sha256.Size]byte{}) {
+				t.Fatal("request hash is empty")
+			}
+			received = input
+			return ObservationResult{}, nil
+		},
+	})
+	_, err := service.Observe(
+		context.Background(),
+		"018f784a-68c1-7b0f-8f2a-cfc255f99e2e",
+		"018f784a-68c1-7b0f-8f2a-cfc255f99e3f",
+		" observation-1 ",
+		ObservationInput{
+			Dirty: true, DiffFingerprint: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			ChangedPaths: 2, HeadRevision: "ABCDEF1", Branch: " feature/live ",
+		},
+	)
+	if err != nil {
+		t.Fatalf("Observe() error = %v", err)
+	}
+	if received.DiffFingerprint != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
+		received.HeadRevision != "abcdef1" || received.Branch != "feature/live" {
+		t.Fatalf("input = %#v", received)
 	}
 }

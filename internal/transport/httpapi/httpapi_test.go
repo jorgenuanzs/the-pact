@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
+	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
@@ -110,6 +111,24 @@ type fakeEventReader struct {
 	list func(context.Context, string, string, int64, int) ([]eventlog.Event, error)
 }
 
+type fakeAgentSessionService struct {
+	observe func(context.Context, string, string, string, agentsession.ObservationInput) (agentsession.ObservationResult, error)
+}
+
+func (fakeAgentSessionService) Start(context.Context, string, string, agentsession.StartInput) (agentsession.Session, error) {
+	return agentsession.Session{}, nil
+}
+
+func (fakeAgentSessionService) Heartbeat(context.Context, string, bool, string) (agentsession.Session, error) {
+	return agentsession.Session{}, nil
+}
+
+func (f fakeAgentSessionService) Observe(ctx context.Context, principalID, sessionID, key string, input agentsession.ObservationInput) (agentsession.ObservationResult, error) {
+	return f.observe(ctx, principalID, sessionID, key, input)
+}
+
+func (fakeAgentSessionService) Close(context.Context, string, bool, string) error { return nil }
+
 func (f fakeEventReader) List(ctx context.Context, organizationID, projectID string, after int64, limit int) ([]eventlog.Event, error) {
 	return f.list(ctx, organizationID, projectID, after, limit)
 }
@@ -142,6 +161,42 @@ func TestProtectedEndpointRequiresToken(t *testing.T) {
 	}
 	if response.Header().Get("WWW-Authenticate") != "Bearer" {
 		t.Fatalf("WWW-Authenticate = %q", response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestRepositoryObservationUsesAuthenticatedSessionAndIdempotency(t *testing.T) {
+	const sessionID = "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		AgentSessionService: fakeAgentSessionService{observe: func(_ context.Context, principalID, receivedSessionID, key string, input agentsession.ObservationInput) (agentsession.ObservationResult, error) {
+			if principalID != access.BootstrapPrincipalID || receivedSessionID != sessionID || key != "observation-1" {
+				t.Fatalf("principal=%q session=%q key=%q", principalID, receivedSessionID, key)
+			}
+			if !input.Dirty || input.ChangedPaths != 1 || len(input.DiffFingerprint) != 64 {
+				t.Fatalf("input = %#v", input)
+			}
+			return agentsession.ObservationResult{Replayed: true}, nil
+		}},
+		AccessService:    fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+	})
+	request := authenticatedRequest(
+		http.MethodPost,
+		"/v1/agent-sessions/"+sessionID+"/repository-observations",
+		`{"dirty":true,"diff_fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","changed_paths":1}`,
+	)
+	request.Header.Set("Idempotency-Key", "observation-1")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("status = %d, replayed = %q, body = %s", response.Code, response.Header().Get("Idempotency-Replayed"), response.Body.String())
 	}
 }
 

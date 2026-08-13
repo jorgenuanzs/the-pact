@@ -150,6 +150,8 @@ services:
       - test
       - -tags=integration
       - ./internal/projects
+      - ./internal/access
+      - ./internal/agentsession
     environment:
       PACT_TEST_DATABASE_URL: >-
         postgres://${PACT_DB_USER:-pact}:${PACT_DB_PASSWORD:?Set PACT_DB_PASSWORD in .env}@postgres-test:5432/pact_test?sslmode=disable

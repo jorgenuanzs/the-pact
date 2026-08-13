@@ -149,14 +149,11 @@ eluda las invariantes del dominio.
 
 ## Estado de implementación
 
-El backoffice y el overview pueden mostrar desde ahora proyectos, contadores,
-trabajo activo y eventos duraderos. Pact Node y sus comandos de observación
-todavía no están implementados.
-
-Hasta que exista un observador compatible, el resultado correcto para la
-actividad del código será `unobserved`, aunque haya sesiones o workspaces
-registrados. La interfaz debe explicar esta limitación y no sustituirla por un
-estado aparentemente más tranquilizador.
+El backoffice, Pact Node y el wrapper `pact agent run` implementan esta
+semántica. El servidor conserva la última observación por sesión y emite eventos
+duraderos cuando cambia un diff observado o HEAD. Si no existe un observador
+compatible, el resultado correcto sigue siendo `unobserved`, aunque haya otras
+sesiones o workspaces registrados.
 
 ## Consecuencias
 

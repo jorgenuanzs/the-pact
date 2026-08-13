@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pact API
-  version: 0.1.0
+  version: 0.3.0
   description: |
     API del primer recorrido vertical de Pact.
 
@@ -15,6 +15,8 @@ tags:
   - name: Backoffice
   - name: Projects
   - name: Events
+  - name: Agents
+  - name: Access
 paths:
   /livez:
     get:
@@ -396,6 +398,55 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/agent-sessions/{session_id}/repository-observations:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags:
+        - Agents
+      operationId: observeSessionRepository
+      summary: Registra el estado observado de un checkout Git
+      description: |
+        Solo el principal que patrocina la sesión puede informar esta
+        observación. La sesión debe estar activa y haber anunciado la capacidad
+        `workspace.diff.observe.v1`. El payload no contiene nombres ni contenido
+        de archivos: incluye una huella calculada localmente, la cantidad de
+        rutas cambiadas, rama y revisión.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepositoryObservationRequest"
+      responses:
+        "200":
+          description: Observación almacenada y, cuando corresponde, evento durable emitido.
+          headers:
+            Idempotency-Replayed:
+              description: Presente y verdadero al devolver un resultado ya almacenado.
+              schema:
+                type: string
+                const: "true"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryObservationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
         "500":
           $ref: "#/components/responses/InternalServerError"
   /v1/agent-sessions/{session_id}:
@@ -1130,6 +1181,111 @@ components:
           type: string
           format: date-time
         expires_at:
+          type: string
+          format: date-time
+    RepositoryObservationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - dirty
+        - diff_fingerprint
+        - changed_paths
+      properties:
+        dirty:
+          type: boolean
+        diff_fingerprint:
+          type: string
+          pattern: "^[0-9a-fA-F]{64}$"
+          description: SHA-256 del estado local del checkout; no es un diff ni revela rutas.
+        changed_paths:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        head_revision:
+          type: string
+          minLength: 7
+          maxLength: 64
+          pattern: "^[0-9a-fA-F]+$"
+        branch:
+          type: string
+          minLength: 1
+          maxLength: 255
+    RepositoryObservationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - observation
+            - replayed
+          properties:
+            observation:
+              $ref: "#/components/schemas/RepositoryObservation"
+            event_id:
+              type: string
+              format: uuid
+            event_type:
+              type: string
+              enum:
+                - pact.workspace.diff_updated.v1
+                - pact.git.external_change_detected.v1
+            replayed:
+              type: boolean
+    RepositoryObservation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - session_id
+        - actor_id
+        - node_id
+        - dirty
+        - diff_fingerprint
+        - changed_paths
+        - version
+        - observed_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
+        dirty:
+          type: boolean
+        diff_fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        changed_paths:
+          type: integer
+          minimum: 0
+        head_revision:
+          type: string
+          minLength: 7
+          maxLength: 64
+        branch:
+          type: string
+          minLength: 1
+          maxLength: 255
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        observed_at:
           type: string
           format: date-time
     ProjectOverviewResponse:
