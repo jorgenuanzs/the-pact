@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
+	"github.com/jorgenuanzs/the-pact/internal/agentconfig"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
@@ -47,6 +49,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runInit(args[1:], stdout, stderr)
 	case "connect":
 		return runConnect(args[1:], stdout, stderr)
+	case "enable":
+		return runEnable(args[1:], stdout, stderr)
 	case "invite":
 		return runInvite(args[1:], stdout, stderr)
 	case "join":
@@ -69,6 +73,61 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runEnable(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("expected pact enable codex")
+	}
+	clientType := strings.ToLower(strings.TrimSpace(args[0]))
+	if clientType != "codex" {
+		return fmt.Errorf("unsupported agent client %q; currently supported: codex", args[0])
+	}
+	flags := flag.NewFlagSet("pact enable codex", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	projectPath := flags.String("path", ".", "path inside the connected Pact project")
+	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("pact enable codex accepts no positional arguments")
+	}
+	binding, err := localproject.LoadBinding(*projectPath)
+	if err != nil {
+		return err
+	}
+	if _, err := loginForServer(binding.ServerURL); err != nil {
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve Pact executable: %w", err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return fmt.Errorf("resolve Pact executable symlinks: %w", err)
+	}
+	result, err := agentconfig.EnableCodex(agentconfig.CodexOptions{
+		ProjectRoot: binding.Root,
+		PactCommand: executable,
+	})
+	if err != nil {
+		return err
+	}
+	state := "already enabled"
+	if result.Changed {
+		state = "enabled"
+	}
+	fmt.Fprintf(stdout, "Codex MCP %s for %s\n", state, binding.Root)
+	fmt.Fprintf(stdout, "  project config  %s\n", result.ConfigPath)
+	if result.Excluded {
+		fmt.Fprintln(stdout, "  Git visibility  machine-local (excluded through .git/info/exclude)")
+	}
+	fmt.Fprintln(stdout, "Restart Codex or reload the VS Code window before opening a new chat.")
+	return nil
 }
 
 func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -913,6 +972,7 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact login --server URL [--token-stdin]")
 	fmt.Fprintln(writer, "  pact init [--server URL] [--name NAME] [PATH]")
 	fmt.Fprintln(writer, "  pact connect [--server URL] [--project SLUG_OR_ID] [PATH]")
+	fmt.Fprintln(writer, "  pact enable codex [--path PATH]")
 	fmt.Fprintln(writer, "  pact invite create --email EMAIL [--role ROLE] [--path PATH]")
 	fmt.Fprintln(writer, "  pact join --server URL --name NAME --invite-stdin")
 	fmt.Fprintln(writer, "  pact whoami")

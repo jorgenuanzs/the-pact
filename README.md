@@ -159,8 +159,23 @@ SHA-256. Los nombres y contenidos de archivos nunca salen del computador.
 
 ## Conectar un agente mediante MCP
 
+Para Codex, PACT configura el MCP del repositorio con un solo comando:
+
+```sh
+cd repository
+pact enable codex
+```
+
+La configuración queda en `.codex/config.toml`, se limita al checkout actual y
+se excluye localmente mediante `.git/info/exclude`. No ensucia Git ni aparece en
+otros proyectos. Codex CLI, la extensión de VS Code y la aplicación de
+escritorio comparten esta configuración; hay que reiniciarlos después del alta.
+El comando es idempotente, por lo que se puede repetir después de actualizar el
+binario de PACT.
+
 Un cliente compatible con Model Context Protocol puede iniciar PACT como un
-servidor local por `stdio`. La configuración equivalente en cada cliente es:
+servidor local por `stdio`. Para clientes que aún no tienen automatización, la
+configuración equivalente es:
 
 ```json
 {

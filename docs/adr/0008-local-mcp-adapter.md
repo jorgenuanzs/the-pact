@@ -69,12 +69,18 @@ observa cada workspace por separado. La frontera de privacidad de este ADR se
 mantiene: solo el agente asignado recibe su ruta absoluta; el contexto
 compartido omite rutas locales.
 
+Desde v0.5.1, `pact enable codex` instala de forma idempotente un servidor
+`pact` en la configuración de proyecto de Codex. La definición usa rutas
+absolutas locales para evitar depender del `PATH` de VS Code y se excluye
+mediante `.git/info/exclude`; cada checkout mantiene su propio enlace y solo lo
+carga cuando Codex confía en ese proyecto.
+
 ## Límites conscientes
 
 - El transporte inicial es local por `stdio`; aún no existe un endpoint MCP
   remoto con OAuth ni transporte HTTP.
-- Cada cliente debe registrar el comando en su propia configuración. PACT no
-  modifica automáticamente configuraciones de terceros.
+- Codex dispone de onboarding automático por proyecto. Claude, Kimi y otros
+  clientes todavía deben registrar el comando en su propia configuración.
 - El proceso sigue el ciclo de vida del cliente MCP y todavía no se instala como
   servicio residente del sistema operativo.
 - El contexto es una vista estructurada de PACT; recursos MCP, prompts y

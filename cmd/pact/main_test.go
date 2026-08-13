@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/userconfig"
 )
 
 const cliTestToken = "this-is-a-long-cli-test-token"
@@ -206,6 +208,53 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	err := run([]string{"destroy-everything"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown command") {
 		t.Fatalf("run() error = %v", err)
+	}
+}
+
+func TestEnableCodexConfiguresConnectedProject(t *testing.T) {
+	root := newRealGitRepository(t, "https://github.com/example/enabled.git")
+	serverURL := "https://pact.example.com"
+	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, ServerURL: serverURL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localproject.Bind(root, serverURL, "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	if _, err := userconfig.Save(serverURL, cliTestToken); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := run(
+		[]string{"enable", "codex", "--path", root},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	); err != nil {
+		t.Fatalf("enable error = %v; stderr = %s", err, stderr.String())
+	}
+	configPath := filepath.Join(root, ".codex", "config.toml")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "[mcp_servers.pact]") ||
+		!strings.Contains(stdout.String(), "Codex MCP enabled") ||
+		!strings.Contains(stdout.String(), configPath) {
+		t.Fatalf("stdout = %s\nconfig = %s", stdout.String(), content)
+	}
+	stdout.Reset()
+	if err := run(
+		[]string{"enable", "codex", "--path", root},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "already enabled") {
+		t.Fatalf("second enable stdout = %s", stdout.String())
 	}
 }
 

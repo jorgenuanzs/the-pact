@@ -290,7 +290,14 @@ estado Git y metadatos locales. Un cambio de huella dirty emite
 `pact.git.external_change_detected.v1`.
 
 Un cliente MCP puede consumir la misma vista operativa sin ejecutar el CLI
-manualmente. Desde un checkout conectado, su configuración debe iniciar:
+manualmente. Codex se habilita de forma local e idempotente con:
+
+```sh
+pact enable codex
+```
+
+Para probar el transporte directamente o configurar otro cliente, el proceso
+que debe iniciarse desde un checkout conectado es:
 
 ```sh
 pact mcp serve --client test --path /ruta/absoluta/al/checkout
