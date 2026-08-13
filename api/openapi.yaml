@@ -12,6 +12,7 @@ servers:
     description: Servidor local predeterminado
 tags:
   - name: System
+  - name: Backoffice
   - name: Projects
   - name: Events
 paths:
@@ -74,7 +75,72 @@ paths:
                   version: 0.1.0-dev
                   commit: unknown
                   date: unknown
+  /admin/:
+    get:
+      tags:
+        - Backoffice
+      operationId: getLocalBackoffice
+      summary: Abre el backoffice local de Pact
+      description: |
+        Entrega la interfaz HTML del backoffice. El documento no contiene datos
+        del proyecto ni credenciales: la interfaz solicita el token local y lo
+        utiliza para consultar las operaciones protegidas de la API.
+
+        Este perfil está diseñado para ejecutarse en la interfaz de loopback y
+        no debe exponerse a una red hasta incorporar el modelo de autenticación
+        y permisos para equipos.
+      security: []
+      responses:
+        "200":
+          description: Aplicación HTML del backoffice.
+          headers:
+            Cache-Control:
+              description: El documento HTML no se almacena en caché.
+              schema:
+                type: string
+                const: no-store
+            Content-Security-Policy:
+              description: Política que limita recursos y conexiones al mismo origen.
+              schema:
+                type: string
+          content:
+            text/html:
+              schema:
+                type: string
   /v1/projects:
+    get:
+      tags:
+        - Projects
+        - Backoffice
+      operationId: listProjects
+      summary: Lista los proyectos de la organización local
+      description: |
+        Devuelve los proyectos visibles para la organización local implícita,
+        ordenados desde el que se actualizó más recientemente.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Lista de proyectos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectListResponse"
+              example:
+                data:
+                  projects:
+                    - id: 019c3fd8-2b34-7a10-8b75-3fd40dcfb68e
+                      name: The Pact
+                      slug: the-pact
+                      status: initializing
+                      canonical_revision: 3269b3f
+                      version: 1
+                      created_at: "2026-07-25T12:00:00Z"
+                      updated_at: "2026-07-25T12:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
     post:
       tags:
         - Projects
@@ -94,6 +160,12 @@ paths:
               name: The Pact
               slug: the-pact
               canonical_revision: 3269b3f
+              root_repository:
+                slug: primary
+                name: Primary
+                remote_url: https://github.com/jorgenuanzs/the-pact
+                default_branch: main
+                object_format: sha1
       responses:
         "201":
           description: Proyecto creado.
@@ -139,6 +211,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/overview:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Backoffice
+        - Projects
+      operationId: getProjectOverview
+      summary: Obtiene el estado operativo de un proyecto
+      description: |
+        Reúne el estado observado del código, contadores de coordinación,
+        trabajo activo y los eventos recientes del proyecto.
+
+        `unobserved` significa que Pact no tiene un observador compatible
+        conectado. No equivale a confirmar que el repositorio está inactivo.
+        El estado `editing` solo se deriva de telemetría reciente emitida por
+        un observador capaz de detectar cambios del workspace.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Vista operativa actual del proyecto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectOverviewResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -230,6 +336,89 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/agent-sessions:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      tags:
+        - Agents
+      operationId: startAgentSession
+      summary: Registra una ejecución activa de un agente en un computador conectado
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartAgentSessionRequest"
+      responses:
+        "201":
+          description: Sesión iniciada.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/agent-sessions/{session_id}/heartbeat:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags:
+        - Agents
+      operationId: heartbeatAgentSession
+      summary: Renueva la presencia de una sesión de agente
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Presencia renovada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/agent-sessions/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    delete:
+      tags:
+        - Agents
+      operationId: closeAgentSession
+      summary: Cierra una sesión de agente
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Sesión cerrada.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -243,6 +432,14 @@ components:
       in: path
       required: true
       description: Identificador opaco del proyecto.
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      description: Identificador opaco de la sesión activa.
       schema:
         type: string
         format: uuid
@@ -362,6 +559,43 @@ components:
           maxLength: 64
           pattern: "^[0-9a-fA-F]{7,64}$"
           description: Revisión Git canónica inicial, si ya se conoce.
+        root_repository:
+          oneOf:
+            - $ref: "#/components/schemas/SourceRepositoryInput"
+            - type: "null"
+          description: Repositorio Git principal que identifica el proyecto entre máquinas.
+    SourceRepositoryInput:
+      type: object
+      additionalProperties: false
+      required:
+        - slug
+        - name
+        - remote_url
+        - default_branch
+        - object_format
+      properties:
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        remote_url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        default_branch:
+          type: string
+          minLength: 1
+          maxLength: 255
+        object_format:
+          type: string
+          enum:
+            - sha1
+            - sha256
     ProjectResponse:
       type: object
       additionalProperties: false
@@ -370,6 +604,24 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/Project"
+    ProjectListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectList"
+    ProjectList:
+      type: object
+      additionalProperties: false
+      required:
+        - projects
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
     Project:
       type: object
       additionalProperties: false
@@ -377,7 +629,9 @@ components:
         - id
         - name
         - slug
+        - status
         - canonical_revision
+        - root_repository
         - version
         - created_at
         - updated_at
@@ -389,12 +643,22 @@ components:
           type: string
         slug:
           type: string
+        status:
+          type: string
+          enum:
+            - initializing
+            - active
+            - archived
         canonical_revision:
           type:
             - string
             - "null"
           maxLength: 64
           pattern: "^[0-9a-f]{7,64}$"
+        root_repository:
+          oneOf:
+            - $ref: "#/components/schemas/SourceRepository"
+            - type: "null"
         version:
           type: integer
           format: int64
@@ -405,6 +669,434 @@ components:
         updated_at:
           type: string
           format: date-time
+    SourceRepository:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - slug
+        - name
+        - vcs_type
+        - status
+        - remote_url
+        - default_branch
+        - object_format
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        vcs_type:
+          type: string
+          const: git
+        status:
+          type: string
+          enum:
+            - active
+            - unavailable
+            - archived
+        remote_url:
+          type:
+            - string
+            - "null"
+          maxLength: 2048
+        default_branch:
+          type: string
+        object_format:
+          type: string
+          enum:
+            - sha1
+            - sha256
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    StartAgentSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - node_key
+        - node_name
+        - agent_name
+        - agent_type
+        - client_type
+        - observe_git
+      properties:
+        node_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Identidad estable generada localmente para este computador y checkout.
+        node_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        agent_type:
+          type: string
+          minLength: 1
+          maxLength: 100
+          examples:
+            - kimi
+        client_type:
+          type: string
+          minLength: 1
+          maxLength: 100
+          examples:
+            - kimi
+        observe_git:
+          type: boolean
+          description: Declara si este proceso observa cambios Git del checkout.
+    AgentSessionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/AgentSession"
+    AgentSession:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - actor_id
+        - actor_name
+        - node_id
+        - node_name
+        - client_type
+        - status
+        - started_at
+        - last_seen_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        actor_name:
+          type: string
+        node_id:
+          type: string
+          format: uuid
+        node_name:
+          type: string
+        client_type:
+          type: string
+        status:
+          type: string
+          enum:
+            - starting
+            - active
+            - stale
+            - closed
+            - expired
+        started_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    ProjectOverviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectOverview"
+    ProjectOverview:
+      type: object
+      additionalProperties: false
+      required:
+        - project
+        - code_activity
+        - counts
+        - active_work
+        - recent_events
+        - generated_at
+      properties:
+        project:
+          $ref: "#/components/schemas/Project"
+        code_activity:
+          $ref: "#/components/schemas/CodeActivity"
+        counts:
+          $ref: "#/components/schemas/BackofficeCounts"
+        active_work:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveWork"
+        recent_events:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecentEvent"
+        generated_at:
+          type: string
+          format: date-time
+    CodeActivity:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - reason
+        - source
+        - observed_at
+        - observer_connected
+        - observer_count
+        - observer_freshness_seconds
+        - active_window_seconds
+        - recent_window_seconds
+      properties:
+        state:
+          type: string
+          enum:
+            - unobserved
+            - idle
+            - editing
+            - recent
+        reason:
+          type: string
+          enum:
+            - no_connected_observer
+            - observer_connected_no_recent_change
+            - fresh_workspace_diff
+            - fresh_external_git_change
+            - recent_workspace_diff
+            - recent_external_git_change
+            - recent_changeset
+        source:
+          type:
+            - string
+            - "null"
+          description: Tipo del evento utilizado como evidencia, cuando existe.
+        observed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Hora de registro asignada por Pact Server al evento usado como evidencia.
+        observer_connected:
+          type: boolean
+        observer_count:
+          type: integer
+          format: int64
+          minimum: 0
+        observer_freshness_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Ventana máxima desde el último heartbeat para considerar vigente un observador.
+        active_window_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        recent_window_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+    BackofficeCounts:
+      type: object
+      additionalProperties: false
+      required:
+        - repositories
+        - live_sessions
+        - connected_nodes
+        - connected_observers
+        - active_intents
+        - blocked_intents
+        - live_workspaces
+        - active_scope_claims
+        - pending_changesets
+        - events
+      properties:
+        repositories:
+          type: integer
+          format: int64
+          minimum: 0
+        live_sessions:
+          type: integer
+          format: int64
+          minimum: 0
+        connected_nodes:
+          type: integer
+          format: int64
+          minimum: 0
+        connected_observers:
+          type: integer
+          format: int64
+          minimum: 0
+        active_intents:
+          type: integer
+          format: int64
+          minimum: 0
+        blocked_intents:
+          type: integer
+          format: int64
+          minimum: 0
+        live_workspaces:
+          type: integer
+          format: int64
+          minimum: 0
+        active_scope_claims:
+          type: integer
+          format: int64
+          minimum: 0
+        pending_changesets:
+          type: integer
+          format: int64
+          minimum: 0
+        events:
+          type: integer
+          format: int64
+          minimum: 0
+    ActiveWork:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - actor_id
+        - actor_name
+        - actor_kind
+        - client_type
+        - session_status
+        - last_seen_at
+        - expires_at
+        - node_id
+        - node_name
+        - node_status
+        - intent_id
+        - intent_title
+        - intent_status
+        - workspace_id
+        - workspace_status
+        - workspace_branch
+        - workspace_path_ref
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        actor_name:
+          type: string
+          minLength: 1
+        actor_kind:
+          type: string
+          minLength: 1
+        client_type:
+          type: string
+          minLength: 1
+        session_status:
+          type: string
+          minLength: 1
+        last_seen_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        node_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        node_name:
+          type:
+            - string
+            - "null"
+        node_status:
+          type:
+            - string
+            - "null"
+        intent_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        intent_title:
+          type:
+            - string
+            - "null"
+        intent_status:
+          type:
+            - string
+            - "null"
+        workspace_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        workspace_status:
+          type:
+            - string
+            - "null"
+        workspace_branch:
+          type:
+            - string
+            - "null"
+        workspace_path_ref:
+          type:
+            - string
+            - "null"
+    RecentEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - sequence
+        - type
+        - actor_id
+        - session_id
+        - intent_id
+        - occurred_at
+        - data
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequence:
+          $ref: "#/components/schemas/EventCursor"
+        type:
+          type: string
+          minLength: 1
+        actor_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        session_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        intent_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
     EventPageResponse:
       type: object
       additionalProperties: false

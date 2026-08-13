@@ -8,15 +8,23 @@ Thumbs.db
 !.env.example
 
 # Local Pact state
-.pact/data/
-.pact/workspaces/
+.pact/
 
 # Go
 bin/
 coverage.out
 *.test
 
+# Terraform local state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!.tfvars.example
+crash.log
+crash.*.log
+*.tfplan
+
 # Editors
 .idea/
 .vscode/
-

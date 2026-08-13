@@ -17,9 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
 )
 
 const maxRequestBody = 1 << 20
@@ -27,6 +30,13 @@ const maxRequestBody = 1 << 20
 type ProjectService interface {
 	Create(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
 	Get(context.Context, string) (projects.Project, error)
+	List(context.Context) ([]projects.Project, error)
+}
+
+type AgentSessionService interface {
+	Start(context.Context, string, agentsession.StartInput) (agentsession.Session, error)
+	Heartbeat(context.Context, string) (agentsession.Session, error)
+	Close(context.Context, string) error
 }
 
 type ReadinessCheck func(context.Context) error
@@ -38,6 +48,8 @@ type Config struct {
 	Build                buildinfo.Info
 	Readiness            ReadinessCheck
 	ProjectService       ProjectService
+	AgentSessionService  AgentSessionService
+	BackofficeReader     backoffice.Reader
 	EventReader          eventlog.Reader
 	StreamShutdown       <-chan struct{}
 	StreamPollInterval   time.Duration
@@ -51,6 +63,8 @@ type API struct {
 	build                buildinfo.Info
 	readiness            ReadinessCheck
 	projects             ProjectService
+	agentSessions        AgentSessionService
+	backoffice           backoffice.Reader
 	events               eventlog.Reader
 	streamShutdown       <-chan struct{}
 	streamPollInterval   time.Duration
@@ -72,6 +86,8 @@ func New(cfg Config) http.Handler {
 		build:                cfg.Build,
 		readiness:            cfg.Readiness,
 		projects:             cfg.ProjectService,
+		agentSessions:        cfg.AgentSessionService,
+		backoffice:           cfg.BackofficeReader,
 		events:               cfg.EventReader,
 		streamShutdown:       cfg.StreamShutdown,
 		streamPollInterval:   cfg.StreamPollInterval,
@@ -82,17 +98,30 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("GET /livez", api.handleLive)
 	mux.HandleFunc("GET /readyz", api.handleReady)
 	mux.HandleFunc("GET /version", api.handleVersion)
+	mux.HandleFunc("GET /admin", api.handleAdminRedirect)
+	mux.Handle("GET /admin/", adminui.Handler())
+	mux.Handle("GET /v1/projects", api.requireAuth(http.HandlerFunc(api.handleListProjects)))
 	mux.Handle("POST /v1/projects", api.requireAuth(http.HandlerFunc(api.handleCreateProject)))
 	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleGetProject)))
+	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(http.HandlerFunc(api.handleProjectOverview)))
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(http.HandlerFunc(api.handleListEvents)))
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(http.HandlerFunc(api.handleStreamEvents)))
+	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(http.HandlerFunc(api.handleStartAgentSession)))
+	mux.Handle("POST /v1/agent-sessions/{sessionID}/heartbeat", api.requireAuth(http.HandlerFunc(api.handleAgentHeartbeat)))
+	mux.Handle("DELETE /v1/agent-sessions/{sessionID}", api.requireAuth(http.HandlerFunc(api.handleCloseAgentSession)))
 	mux.Handle("/livez", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/readyz", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/version", api.methodNotAllowed(http.MethodGet))
-	mux.Handle("/v1/projects", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/admin", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/admin/", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects/{projectID}/overview", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/agent-sessions/{sessionID}/heartbeat", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/agent-sessions/{sessionID}", api.methodNotAllowed(http.MethodDelete))
 	mux.HandleFunc("/", api.handleNotFound)
 
 	return api.requestContext(api.accessLog(api.recoverPanic(mux)))
@@ -116,6 +145,21 @@ func (a *API) handleReady(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": a.build})
+}
+
+func (a *API) handleAdminRedirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/admin/", http.StatusPermanentRedirect)
+}
+
+func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	projectList, err := a.projects.List(r.Context())
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+		"projects": projectList,
+	}})
 }
 
 func (a *API) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +194,81 @@ func (a *API) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": project})
+}
+
+func (a *API) handleStartAgentSession(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.agentSessions == nil {
+		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
+		return
+	}
+	var input agentsession.StartInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	session, err := a.agentSessions.Start(r.Context(), r.PathValue("projectID"), input)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/v1/agent-sessions/"+session.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": session})
+}
+
+func (a *API) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
+	if a.agentSessions == nil {
+		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
+		return
+	}
+	session, err := a.agentSessions.Heartbeat(r.Context(), r.PathValue("sessionID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": session})
+}
+
+func (a *API) handleCloseAgentSession(w http.ResponseWriter, r *http.Request) {
+	if a.agentSessions == nil {
+		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
+		return
+	}
+	if err := a.agentSessions.Close(r.Context(), r.PathValue("sessionID")); err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
+	project, err := a.projects.Get(r.Context(), r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if a.backoffice == nil {
+		a.writeDomainError(w, r, errors.New("backoffice reader is not configured"))
+		return
+	}
+
+	overview, err := a.backoffice.Get(r.Context(), a.organizationID, project.ID)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+		"project":       project,
+		"code_activity": overview.CodeActivity,
+		"counts":        overview.Counts,
+		"active_work":   overview.ActiveWork,
+		"recent_events": overview.RecentEvents,
+		"generated_at":  overview.GeneratedAt,
+	}})
 }
 
 func (a *API) handleListEvents(w http.ResponseWriter, r *http.Request) {
@@ -388,13 +507,20 @@ func sseEventName(value string) string {
 
 func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
 	var validationErr *projects.ValidationError
+	var agentValidationErr *agentsession.ValidationError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", validationErr.Error())
+	case errors.As(err, &agentValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", agentValidationErr.Error())
+	case errors.Is(err, agentsession.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "agent_session_not_found", "Agent session not found", err.Error())
 	case errors.Is(err, projects.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "project_not_found", "Project not found", "The requested project does not exist.")
 	case errors.Is(err, projects.ErrSlugTaken):
 		writeProblem(w, r, http.StatusConflict, "project_slug_taken", "Project already exists", err.Error())
+	case errors.Is(err, projects.ErrRepositoryTaken):
+		writeProblem(w, r, http.StatusConflict, "repository_already_connected", "Repository already connected", err.Error())
 	case errors.Is(err, projects.ErrIdempotencyConflict):
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, projects.ErrCommandIncomplete):

@@ -1,0 +1,8 @@
+[Unit]
+Description=Reconcile the PACT route in the shared Caddy gateway
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/the-pact/shared/reconcile-gateway.sh

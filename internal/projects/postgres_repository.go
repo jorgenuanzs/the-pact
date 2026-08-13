@@ -78,13 +78,15 @@ func (r *PostgresRepository) Create(
 	}
 
 	payload, err := json.Marshal(struct {
-		Name              string  `json:"name"`
-		Slug              string  `json:"slug"`
-		CanonicalRevision *string `json:"canonical_revision"`
+		Name              string            `json:"name"`
+		Slug              string            `json:"slug"`
+		CanonicalRevision *string           `json:"canonical_revision"`
+		RootRepository    *SourceRepository `json:"root_repository"`
 	}{
 		Name:              project.Name,
 		Slug:              project.Slug,
 		CanonicalRevision: project.CanonicalRevision,
+		RootRepository:    project.RootRepository,
 	})
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("encode project.created payload: %w", err)
@@ -178,17 +180,31 @@ func (r *PostgresRepository) Create(
 func (r *PostgresRepository) Get(ctx context.Context, organizationID, projectID string) (Project, error) {
 	project, err := scanProject(r.pool.QueryRow(ctx, `
 		SELECT
-			id,
-			organization_id,
-			name,
-			slug,
-			canonical_revision,
-			version,
-			created_at,
-			updated_at
-		FROM identity.projects
-		WHERE organization_id = $1
-		  AND id = $2
+			project.id,
+			project.organization_id,
+			project.name,
+			project.slug,
+			project.status,
+			project.canonical_revision,
+			project.version,
+			project.created_at,
+			project.updated_at,
+			repository.id,
+			repository.slug,
+			repository.name,
+			repository.vcs_type,
+			repository.status,
+			repository.remote_url,
+			repository.default_branch,
+			repository.object_format,
+			repository.version
+		FROM identity.projects AS project
+		LEFT JOIN coordination.repositories AS repository
+		  ON repository.organization_id = project.organization_id
+		 AND repository.project_id = project.id
+		 AND repository.id = project.root_repository_id
+		WHERE project.organization_id = $1
+		  AND project.id = $2
 	`, organizationID, projectID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Project{}, ErrNotFound
@@ -199,8 +215,56 @@ func (r *PostgresRepository) Get(ctx context.Context, organizationID, projectID 
 	return project, nil
 }
 
+func (r *PostgresRepository) List(ctx context.Context, organizationID string) ([]Project, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			project.id,
+			project.organization_id,
+			project.name,
+			project.slug,
+			project.status,
+			project.canonical_revision,
+			project.version,
+			project.created_at,
+			project.updated_at,
+			repository.id,
+			repository.slug,
+			repository.name,
+			repository.vcs_type,
+			repository.status,
+			repository.remote_url,
+			repository.default_branch,
+			repository.object_format,
+			repository.version
+		FROM identity.projects AS project
+		LEFT JOIN coordination.repositories AS repository
+		  ON repository.organization_id = project.organization_id
+		 AND repository.project_id = project.id
+		 AND repository.id = project.root_repository_id
+		WHERE project.organization_id = $1
+		ORDER BY project.updated_at DESC, project.id DESC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	defer rows.Close()
+
+	projectList := make([]Project, 0)
+	for rows.Next() {
+		project, scanErr := scanProject(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list projects: %w", scanErr)
+		}
+		projectList = append(projectList, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	return projectList, nil
+}
+
 func insertProject(ctx context.Context, tx pgx.Tx, organizationID string, input CreateInput) (Project, error) {
-	return scanProject(tx.QueryRow(ctx, `
+	project, err := scanBaseProject(tx.QueryRow(ctx, `
 		INSERT INTO identity.projects (
 			organization_id,
 			name,
@@ -213,11 +277,79 @@ func insertProject(ctx context.Context, tx pgx.Tx, organizationID string, input 
 			organization_id,
 			name,
 			slug,
+			status,
 			canonical_revision,
 			version,
 			created_at,
 			updated_at
 	`, organizationID, input.Name, input.Slug, input.CanonicalRevision))
+	if err != nil {
+		return Project{}, err
+	}
+	if input.RootRepository == nil {
+		return project, nil
+	}
+
+	repositoryInput := input.RootRepository
+	var repository SourceRepository
+	err = tx.QueryRow(ctx, `
+		INSERT INTO coordination.repositories (
+			organization_id,
+			project_id,
+			slug,
+			name,
+			remote_url,
+			default_branch,
+			object_format
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING
+			id,
+			slug,
+			name,
+			vcs_type,
+			status,
+			remote_url,
+			default_branch,
+			object_format,
+			version
+	`,
+		organizationID,
+		project.ID,
+		repositoryInput.Slug,
+		repositoryInput.Name,
+		repositoryInput.RemoteURL,
+		repositoryInput.DefaultBranch,
+		repositoryInput.ObjectFormat,
+	).Scan(
+		&repository.ID,
+		&repository.Slug,
+		&repository.Name,
+		&repository.VCSType,
+		&repository.Status,
+		&repository.RemoteURL,
+		&repository.DefaultBranch,
+		&repository.ObjectFormat,
+		&repository.Version,
+	)
+	if err != nil {
+		return Project{}, err
+	}
+
+	err = tx.QueryRow(ctx, `
+		UPDATE identity.projects
+		SET root_repository_id = $3,
+		    status = 'active',
+		    updated_at = transaction_timestamp()
+		WHERE organization_id = $1
+		  AND id = $2
+		RETURNING status, updated_at
+	`, organizationID, project.ID, repository.ID).Scan(&project.Status, &project.UpdatedAt)
+	if err != nil {
+		return Project{}, err
+	}
+	project.RootRepository = &repository
+	return project, nil
 }
 
 func nextProjectEventSequence(
@@ -258,11 +390,61 @@ type rowScanner interface {
 
 func scanProject(row rowScanner) (Project, error) {
 	var project Project
+	var repository SourceRepository
+	var (
+		repositoryID            *string
+		repositorySlug          *string
+		repositoryName          *string
+		repositoryVCSType       *string
+		repositoryStatus        *string
+		repositoryRemoteURL     *string
+		repositoryDefaultBranch *string
+		repositoryObjectFormat  *string
+		repositoryVersion       *int64
+	)
 	err := row.Scan(
 		&project.ID,
 		&project.OrganizationID,
 		&project.Name,
 		&project.Slug,
+		&project.Status,
+		&project.CanonicalRevision,
+		&project.Version,
+		&project.CreatedAt,
+		&project.UpdatedAt,
+		&repositoryID,
+		&repositorySlug,
+		&repositoryName,
+		&repositoryVCSType,
+		&repositoryStatus,
+		&repositoryRemoteURL,
+		&repositoryDefaultBranch,
+		&repositoryObjectFormat,
+		&repositoryVersion,
+	)
+	if err == nil && repositoryID != nil {
+		repository.ID = *repositoryID
+		repository.Slug = *repositorySlug
+		repository.Name = *repositoryName
+		repository.VCSType = *repositoryVCSType
+		repository.Status = *repositoryStatus
+		repository.RemoteURL = repositoryRemoteURL
+		repository.DefaultBranch = *repositoryDefaultBranch
+		repository.ObjectFormat = *repositoryObjectFormat
+		repository.Version = *repositoryVersion
+		project.RootRepository = &repository
+	}
+	return project, err
+}
+
+func scanBaseProject(row rowScanner) (Project, error) {
+	var project Project
+	err := row.Scan(
+		&project.ID,
+		&project.OrganizationID,
+		&project.Name,
+		&project.Slug,
+		&project.Status,
 		&project.CanonicalRevision,
 		&project.Version,
 		&project.CreatedAt,
@@ -306,6 +488,12 @@ func loadStoredCreateResult(
 		return CreateResult{}, fmt.Errorf("decode stored project.create result: %w", err)
 	}
 	project.OrganizationID = organizationID
+	if project.Status == "" {
+		// Project creation always starts in initializing. Older stored responses
+		// predate the status field, so reconstruct the original response rather
+		// than leaking a later project transition into an idempotent replay.
+		project.Status = "initializing"
+	}
 	return CreateResult{Project: project, Replayed: true}, nil
 }
 
@@ -315,6 +503,11 @@ func mapProjectWriteError(err error) error {
 		postgresErr.Code == "23505" &&
 		postgresErr.ConstraintName == "projects_tenant_slug_uq" {
 		return ErrSlugTaken
+	}
+	if errors.As(err, &postgresErr) &&
+		postgresErr.Code == "23505" &&
+		postgresErr.ConstraintName == "repositories_tenant_remote_active_uq" {
+		return ErrRepositoryTaken
 	}
 	return fmt.Errorf("create project: %w", err)
 }

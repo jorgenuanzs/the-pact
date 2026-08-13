@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd "${script_dir}/../.." && pwd)"
+deploy_host="${PACT_DEPLOY_HOST:-ubuntu@80.225.187.244}"
+ssh_key="${PACT_SSH_KEY:-${HOME}/.ssh/nuanzs-infra-oci}"
+temporary_dir="$(mktemp -d)"
+
+cleanup() {
+  rm -rf -- "${temporary_dir}"
+}
+trap cleanup EXIT
+
+for command_name in git scp shasum ssh tar; do
+  command -v "${command_name}" >/dev/null 2>&1 || {
+    echo "Missing required command: ${command_name}" >&2
+    exit 1
+  }
+done
+[[ -f "${ssh_key}" ]] || {
+  echo "SSH key not found: ${ssh_key}" >&2
+  exit 1
+}
+
+source_archive="${temporary_dir}/source.tar.gz"
+COPYFILE_DISABLE=1 tar \
+  --no-xattrs \
+  --no-mac-metadata \
+  --exclude='./.git' \
+  --exclude='./.env' \
+  --exclude='./.pact' \
+  --exclude='./bin' \
+  --exclude='./build' \
+  --exclude='./coverage' \
+  --exclude='./dist' \
+  --exclude='./infra/oci-madrid/.terraform' \
+  --exclude='./infra/oci-madrid/terraform.tfstate*' \
+  --exclude='./infra/oci-madrid/*.tfvars' \
+  --exclude='./tmp' \
+  -czf "${source_archive}" \
+  -C "${project_dir}" \
+  .
+
+source_sha256="$(shasum -a 256 "${source_archive}" | awk '{print $1}')"
+release_id="$(date -u +%Y%m%d%H%M%S)-${source_sha256:0:12}"
+build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+git_commit="$(git -C "${project_dir}" rev-parse --short HEAD)"
+if [[ -n "$(git -C "${project_dir}" status --porcelain)" ]]; then
+  git_commit="${git_commit}-dirty"
+fi
+
+cat >"${temporary_dir}/deployment.env" <<EOF
+PACT_RELEASE_ID=${release_id}
+PACT_SOURCE_SHA256=${source_sha256}
+PACT_BUILD_DATE=${build_date}
+PACT_GIT_COMMIT=${git_commit}
+EOF
+cp "${script_dir}/docker-compose.prod.yml" "${temporary_dir}/docker-compose.prod.yml"
+cp "${script_dir}/activate-release.sh" "${temporary_dir}/activate-release.sh"
+chmod 700 "${temporary_dir}/activate-release.sh"
+
+remote_dir="/tmp/the-pact-${release_id}"
+ssh -i "${ssh_key}" "${deploy_host}" "mkdir -m 700 '${remote_dir}'"
+scp -i "${ssh_key}" \
+  "${source_archive}" \
+  "${temporary_dir}/deployment.env" \
+  "${temporary_dir}/docker-compose.prod.yml" \
+  "${temporary_dir}/activate-release.sh" \
+  "${deploy_host}:${remote_dir}/"
+ssh -i "${ssh_key}" "${deploy_host}" "sudo bash '${remote_dir}/activate-release.sh' '${remote_dir}'"
+
+echo "Deployed PACT release ${release_id} to ${deploy_host}."

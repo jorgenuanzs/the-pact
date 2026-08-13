@@ -2,6 +2,8 @@
 
 FROM golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS source
 
+LABEL io.pact.project="the-pact"
+
 RUN apk add --no-cache build-base git
 
 WORKDIR /src
@@ -42,7 +44,32 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -o /out/pact-server \
       ./cmd/pact-server
 
+FROM source AS cli-build
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG CLI_GOOS=linux
+ARG CLI_GOARCH=arm64
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${CLI_GOOS} GOARCH=${CLI_GOARCH} go build \
+      -buildvcs=false \
+      -trimpath \
+      -ldflags="-s -w \
+        -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Version=${VERSION} \
+        -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Commit=${COMMIT} \
+        -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Date=${BUILD_DATE}" \
+      -o /out/pact \
+      ./cmd/pact
+
+FROM scratch AS cli-artifact
+
+COPY --from=cli-build /out/pact /pact
+
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
+
+LABEL io.pact.project="the-pact"
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 pact \

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
@@ -22,6 +23,7 @@ const testToken = "this-is-a-long-local-test-token"
 type fakeProjectService struct {
 	create func(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
 	get    func(context.Context, string) (projects.Project, error)
+	list   func(context.Context) ([]projects.Project, error)
 }
 
 func (f fakeProjectService) Create(ctx context.Context, key string, input projects.CreateInput) (projects.CreateResult, error) {
@@ -30,6 +32,22 @@ func (f fakeProjectService) Create(ctx context.Context, key string, input projec
 
 func (f fakeProjectService) Get(ctx context.Context, projectID string) (projects.Project, error) {
 	return f.get(ctx, projectID)
+}
+
+func (f fakeProjectService) List(ctx context.Context) ([]projects.Project, error) {
+	return f.list(ctx)
+}
+
+type fakeBackofficeReader struct {
+	get func(context.Context, string, string) (backoffice.Overview, error)
+}
+
+func (f fakeBackofficeReader) Get(
+	ctx context.Context,
+	organizationID string,
+	projectID string,
+) (backoffice.Overview, error) {
+	return f.get(ctx, organizationID, projectID)
 }
 
 type fakeEventReader struct {
@@ -68,6 +86,168 @@ func TestProtectedEndpointRequiresToken(t *testing.T) {
 	}
 	if response.Header().Get("WWW-Authenticate") != "Bearer" {
 		t.Fatalf("WWW-Authenticate = %q", response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestAdminShellIsPublicButContainsNoCredentials(t *testing.T) {
+	handler := testHandler(t, fakeProjectService{}, fakeEventReader{})
+	request := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	if policy := response.Header().Get("Content-Security-Policy"); !strings.Contains(policy, "form-action 'none'") {
+		t.Fatalf("Content-Security-Policy does not disable form submissions: %q", policy)
+	}
+	if cacheControl := response.Header().Get("Cache-Control"); cacheControl != "no-store" {
+		t.Fatalf("Cache-Control = %q", cacheControl)
+	}
+	if strings.Contains(response.Body.String(), testToken) {
+		t.Fatal("admin shell contains the API token")
+	}
+	if strings.Contains(response.Body.String(), `name="token"`) {
+		t.Fatal("admin shell allows the browser to serialize the token field")
+	}
+}
+
+func TestAdminUsesCanonicalRouteAndNoSPAFallback(t *testing.T) {
+	handler := testHandler(t, fakeProjectService{}, fakeEventReader{})
+
+	redirectRequest := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	redirectResponse := httptest.NewRecorder()
+	handler.ServeHTTP(redirectResponse, redirectRequest)
+	if redirectResponse.Code != http.StatusPermanentRedirect ||
+		redirectResponse.Header().Get("Location") != "/admin/" {
+		t.Fatalf(
+			"redirect status=%d location=%q",
+			redirectResponse.Code,
+			redirectResponse.Header().Get("Location"),
+		)
+	}
+
+	missingRequest := httptest.NewRequest(http.MethodGet, "/admin/not-an-asset", nil)
+	missingResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingResponse, missingRequest)
+	if missingResponse.Code != http.StatusNotFound {
+		t.Fatalf("missing asset status = %d, body = %s", missingResponse.Code, missingResponse.Body.String())
+	}
+	if strings.Contains(strings.ToLower(missingResponse.Body.String()), "<!doctype html>") {
+		t.Fatal("missing asset fell back to the application shell")
+	}
+}
+
+func TestListProjectsReturnsAnEmptyArray(t *testing.T) {
+	service := fakeProjectService{
+		list: func(context.Context) ([]projects.Project, error) {
+			return []projects.Project{}, nil
+		},
+	}
+	handler := testHandler(t, service, fakeEventReader{})
+	request := authenticatedRequest(http.MethodGet, "/v1/projects", "")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Projects []projects.Project `json:"projects"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.Projects == nil || len(body.Data.Projects) != 0 {
+		t.Fatalf("projects = %#v", body.Data.Projects)
+	}
+}
+
+func TestProjectOverviewKeepsCodeActivityUnobserved(t *testing.T) {
+	const (
+		organizationID = "00000000-0000-4000-8000-000000000001"
+		projectID      = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	)
+	service := fakeProjectService{
+		get: func(_ context.Context, id string) (projects.Project, error) {
+			if id != projectID {
+				t.Fatalf("project ID = %q", id)
+			}
+			return projects.Project{ID: projectID, Name: "Pact", Slug: "pact"}, nil
+		},
+	}
+	reader := fakeBackofficeReader{
+		get: func(_ context.Context, receivedOrganizationID, receivedProjectID string) (backoffice.Overview, error) {
+			if receivedOrganizationID != organizationID || receivedProjectID != projectID {
+				t.Fatalf("Get(org=%q, project=%q)", receivedOrganizationID, receivedProjectID)
+			}
+			return backoffice.Overview{
+				CodeActivity: backoffice.CodeActivity{
+					State:  backoffice.CodeActivityUnobserved,
+					Reason: backoffice.ReasonNoConnectedObserver,
+				},
+				ActiveWork:   []backoffice.ActiveWork{},
+				RecentEvents: []backoffice.RecentEvent{},
+				GeneratedAt:  time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC),
+			}, nil
+		},
+	}
+	handler := testHandlerWithBackoffice(t, service, reader, fakeEventReader{})
+	request := authenticatedRequest(http.MethodGet, "/v1/projects/"+projectID+"/overview", "")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Data struct {
+			CodeActivity backoffice.CodeActivity  `json:"code_activity"`
+			ActiveWork   []backoffice.ActiveWork  `json:"active_work"`
+			RecentEvents []backoffice.RecentEvent `json:"recent_events"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.CodeActivity.State != backoffice.CodeActivityUnobserved ||
+		body.Data.CodeActivity.Reason != backoffice.ReasonNoConnectedObserver {
+		t.Fatalf("code activity = %#v", body.Data.CodeActivity)
+	}
+	if body.Data.ActiveWork == nil || body.Data.RecentEvents == nil {
+		t.Fatalf("overview arrays must not be null: %#v", body.Data)
+	}
+}
+
+func TestProjectOverviewDoesNotReadAcrossProjectBoundary(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	service := fakeProjectService{
+		get: func(context.Context, string) (projects.Project, error) {
+			return projects.Project{}, projects.ErrNotFound
+		},
+	}
+	reader := fakeBackofficeReader{
+		get: func(context.Context, string, string) (backoffice.Overview, error) {
+			t.Fatal("backoffice reader should not be called")
+			return backoffice.Overview{}, nil
+		},
+	}
+	handler := testHandlerWithBackoffice(t, service, reader, fakeEventReader{})
+	request := authenticatedRequest(http.MethodGet, "/v1/projects/"+projectID+"/overview", "")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -141,6 +321,7 @@ func TestCreateProjectReturnsStoredResponseOnReplay(t *testing.T) {
 		OrganizationID: "00000000-0000-4000-8000-000000000001",
 		Name:           "Pact",
 		Slug:           "pact",
+		Status:         "initializing",
 		Version:        1,
 		CreatedAt:      time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC),
 		UpdatedAt:      time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC),
@@ -320,14 +501,34 @@ func TestSSEEventNameRejectsProtocolInjection(t *testing.T) {
 
 func testHandler(t *testing.T, projectService ProjectService, eventReader eventlog.Reader) http.Handler {
 	t.Helper()
+	return testHandlerWithBackoffice(
+		t,
+		projectService,
+		fakeBackofficeReader{
+			get: func(context.Context, string, string) (backoffice.Overview, error) {
+				return backoffice.Overview{}, nil
+			},
+		},
+		eventReader,
+	)
+}
+
+func testHandlerWithBackoffice(
+	t *testing.T,
+	projectService ProjectService,
+	backofficeReader backoffice.Reader,
+	eventReader eventlog.Reader,
+) http.Handler {
+	t.Helper()
 	return New(Config{
-		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
-		APIToken:       testToken,
-		OrganizationID: "00000000-0000-4000-8000-000000000001",
-		Build:          buildinfo.Info{Version: "test"},
-		Readiness:      func(context.Context) error { return nil },
-		ProjectService: projectService,
-		EventReader:    eventReader,
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		APIToken:         testToken,
+		OrganizationID:   "00000000-0000-4000-8000-000000000001",
+		Build:            buildinfo.Info{Version: "test"},
+		Readiness:        func(context.Context) error { return nil },
+		ProjectService:   projectService,
+		BackofficeReader: backofficeReader,
+		EventReader:      eventReader,
 	})
 }
 

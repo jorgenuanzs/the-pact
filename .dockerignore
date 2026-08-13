@@ -4,10 +4,16 @@
 .env.*
 !.env.example
 .pact
+.DS_Store
 bin
 build
 coverage
 dist
+infra
 tmp
 *.log
 *.out
+*.tfplan
+*.tfstate
+*.tfstate.*
+terraform.tfvars

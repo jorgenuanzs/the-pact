@@ -1,0 +1,180 @@
+name: the-pact
+
+x-pact-environment: &pact-environment
+  PACT_DATABASE_URL: >-
+    postgres://${PACT_DB_USER}:${PACT_DB_PASSWORD}@postgres:5432/${PACT_DB_NAME}?sslmode=disable
+  PACT_DATABASE_TIMEOUT: 5s
+  PACT_DATABASE_STATEMENT_TIMEOUT: 15s
+  PACT_DATABASE_LOCK_TIMEOUT: 5s
+  PACT_LOCAL_ORGANIZATION_ID: ${PACT_LOCAL_ORGANIZATION_ID}
+  PACT_LOG_LEVEL: ${PACT_LOG_LEVEL:-info}
+  PACT_SHUTDOWN_TIMEOUT: 15s
+
+x-pact-container: &pact-container
+  image: ${PACT_SERVER_IMAGE}
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=30
+    environment:
+      POSTGRES_DB: ${PACT_DB_NAME}
+      POSTGRES_USER: ${PACT_DB_USER}
+      POSTGRES_PASSWORD: ${PACT_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: --data-checksums
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - private
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    stop_grace_period: 45s
+    mem_limit: 640m
+    mem_reservation: 256m
+    cpus: 0.35
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  migrate:
+    <<: *pact-container
+    restart: "no"
+    command:
+      - migrate
+      - up
+    environment:
+      <<: *pact-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - private
+    healthcheck:
+      disable: true
+    mem_limit: 256m
+    mem_reservation: 64m
+    cpus: 0.25
+
+  pact-server:
+    <<: *pact-container
+    restart: unless-stopped
+    command:
+      - serve
+    environment:
+      <<: *pact-environment
+      PACT_HTTP_ADDRESS: 0.0.0.0:8080
+      PACT_LOCAL_API_TOKEN: ${PACT_LOCAL_API_TOKEN}
+      PACT_RUN_MIGRATIONS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    networks:
+      private:
+      edge:
+        aliases:
+          - pact-server
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --spider
+        - http://127.0.0.1:8080/readyz
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 20s
+    mem_limit: 384m
+    mem_reservation: 64m
+    cpus: 0.35
+
+  backup:
+    image: pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3
+    init: true
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        while true; do
+          timestamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          temporary="/backups/pact-$${timestamp}.dump.partial"
+          final="/backups/pact-$${timestamp}.dump"
+          pg_dump --host=postgres --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}" --format=custom --file="$${temporary}"
+          mv "$${temporary}" "$${final}"
+          find /backups -type f -name 'pact-*.dump' -mtime +$${PACT_BACKUP_RETENTION_DAYS} -delete
+          sleep 86400
+        done
+    environment:
+      POSTGRES_DB: ${PACT_DB_NAME}
+      POSTGRES_USER: ${PACT_DB_USER}
+      PGPASSWORD: ${PACT_DB_PASSWORD}
+      PACT_BACKUP_RETENTION_DAYS: ${PACT_BACKUP_RETENTION_DAYS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres-backups:/backups
+    networks:
+      - private
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 192m
+    mem_reservation: 32m
+    cpus: 0.15
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  postgres-data:
+  postgres-backups:
+
+networks:
+  private:
+    internal: true
+  edge:
+    external: true
+    name: nuanzs-edge

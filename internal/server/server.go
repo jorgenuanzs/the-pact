@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/config"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
@@ -60,21 +62,26 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	projectRepository := projects.NewPostgresRepository(pool)
 	projectService := projects.NewService(cfg.LocalOrganization, projectRepository)
+	agentSessionRepository := agentsession.NewPostgresRepository(pool)
+	agentSessionService := agentsession.NewService(cfg.LocalOrganization, agentSessionRepository)
 	eventReader := eventlog.NewPostgresReader(pool)
+	backofficeReader := backoffice.NewPostgresReader(pool)
 	requestContext, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
 	streamContext, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
 
 	handler := httpapi.New(httpapi.Config{
-		Logger:         logger,
-		APIToken:       cfg.LocalAPIToken,
-		OrganizationID: cfg.LocalOrganization,
-		Build:          buildinfo.Current(),
-		Readiness:      pool.Ping,
-		ProjectService: projectService,
-		EventReader:    eventReader,
-		StreamShutdown: streamContext.Done(),
+		Logger:              logger,
+		APIToken:            cfg.LocalAPIToken,
+		OrganizationID:      cfg.LocalOrganization,
+		Build:               buildinfo.Current(),
+		Readiness:           pool.Ping,
+		ProjectService:      projectService,
+		AgentSessionService: agentSessionService,
+		BackofficeReader:    backofficeReader,
+		EventReader:         eventReader,
+		StreamShutdown:      streamContext.Done(),
 	})
 
 	httpServer := &http.Server{

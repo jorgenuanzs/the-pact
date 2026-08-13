@@ -1,0 +1,12 @@
+tenancy_ocid        = "ocid1.tenancy.oc1..replace"
+compartment_ocid    = "ocid1.compartment.oc1..replace-or-use-tenancy-root"
+availability_domain = "replace:EU-MADRID-1-AD-1"
+fault_domain        = null
+ssh_public_key_path = "/absolute/path/to/pact_oci_ed25519.pub"
+ssh_source_cidr     = "203.0.113.10/32"
+
+instance_ocpus    = 1
+instance_memory_gb = 4
+boot_volume_gb     = 50
+data_volume_gb     = 50
+public_web_enabled = false

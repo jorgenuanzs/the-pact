@@ -926,16 +926,17 @@ Un webhook o sincronización detecta una revisión desconocida. Pact:
 Propuesta:
 
 ```text
-.pact/
-  project.yaml
+pact.yaml
+pact/
   policies/
   environments/
   components/
   context/
   adapters/
+.pact/                 # vínculo, caché y runtime local; no versionado
 ```
 
-No se guardan aquí:
+No se guardan en la configuración versionada:
 
 - sesiones;
 - leases;
@@ -2477,7 +2478,7 @@ Debe:
 
 1. detectar repositorio;
 2. crear o vincular proyecto;
-3. proponer `.pact/project.yaml`;
+3. proponer `pact.yaml` como manifiesto compartido y `.pact/` como estado local;
 4. detectar stack y herramientas;
 5. registrar repositorio;
 6. configurar modo de gobierno;
@@ -4383,7 +4384,7 @@ spec:
 
   policies:
     paths:
-      - .pact/policies
+      - pact/policies
 
   validations:
     required:

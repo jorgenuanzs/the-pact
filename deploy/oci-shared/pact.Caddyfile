@@ -1,0 +1,10 @@
+# This block is added to the shared Caddy gateway on nuanzs-infra.
+(pact_app) {
+	encode zstd gzip
+	reverse_proxy pact-server:8080
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+pact.nuanzs.com {
+	import pact_app
+}

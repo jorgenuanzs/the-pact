@@ -1,0 +1,91 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - docker-compose-v2
+  - git
+  - jq
+  - unattended-upgrades
+  - ufw
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/60-pact-hardening.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      X11Forwarding no
+      AllowUsers ubuntu
+
+  - path: /etc/sysctl.d/60-pact-hardening.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.all.accept_source_route = 0
+      net.ipv4.conf.default.accept_source_route = 0
+
+  - path: /usr/local/sbin/pact-prepare-data-volume
+    owner: root:root
+    permissions: "0750"
+    content: |
+      #!/bin/sh
+      set -eu
+
+      device=""
+      attempts=0
+      while [ "$attempts" -lt 120 ]; do
+        for candidate in /dev/oracleoci/oraclevdb /dev/sdb; do
+          if [ -b "$candidate" ]; then
+            device="$candidate"
+            break 2
+          fi
+        done
+        attempts=$((attempts + 1))
+        sleep 5
+      done
+
+      if [ -z "$device" ]; then
+        echo "Pact data volume was not attached within 10 minutes" >&2
+        exit 1
+      fi
+
+      if ! blkid "$device" >/dev/null 2>&1; then
+        mkfs.ext4 -F -L pact-data "$device"
+      fi
+
+      filesystem_uuid="$(blkid -s UUID -o value "$device")"
+      install -d -m 0750 -o root -g docker /srv/pact-data
+      if ! grep -q "UUID=$filesystem_uuid " /etc/fstab; then
+        printf 'UUID=%s /srv/pact-data ext4 defaults,nofail,nodev,nosuid 0 2\n' "$filesystem_uuid" >> /etc/fstab
+      fi
+      mountpoint -q /srv/pact-data || mount /srv/pact-data
+      install -d -m 0750 -o root -g docker /srv/pact-data/postgres
+      install -d -m 0750 -o root -g docker /srv/pact-data/backups
+
+runcmd:
+  - [install, -d, -m, "0750", -o, root, -g, docker, /srv/pact]
+  - [systemctl, enable, --now, docker]
+  - [/usr/local/sbin/pact-prepare-data-volume]
+  - [systemctl, enable, --now, unattended-upgrades]
+  - [systemctl, restart, ssh]
+  - [sysctl, --system]
+  - [ufw, default, deny, incoming]
+  - [ufw, default, allow, outgoing]
+  - [ufw, allow, from, "${ssh_source_ip}", to, any, port, "22", proto, tcp]
+%{ if public_web_enabled ~}
+  - [ufw, allow, "80/tcp"]
+  - [ufw, allow, "443/tcp"]
+%{ endif ~}
+  - [ufw, --force, enable]
+
+final_message: "Pact OCI foundation is ready after $UPTIME seconds"

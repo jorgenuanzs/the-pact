@@ -1,0 +1,14 @@
+apiVersion: pact.dev/v1alpha1
+kind: Project
+
+metadata:
+  name: "the-pact"
+
+spec:
+  governanceMode: observer
+
+  repositories:
+    - name: primary
+      provider: generic-git
+      canonicalRef: "refs/heads/main"
+      path: .
