@@ -289,6 +289,19 @@ estado Git y metadatos locales. Un cambio de huella dirty emite
 `pact.workspace.diff_updated.v1`; un cambio de HEAD sin diff emite
 `pact.git.external_change_detected.v1`.
 
+Un cliente MCP puede consumir la misma vista operativa sin ejecutar el CLI
+manualmente. Desde un checkout conectado, su configuración debe iniciar:
+
+```sh
+pact mcp serve --client test --path /ruta/absoluta/al/checkout
+```
+
+El protocolo se comunica por `stdin`/`stdout`; no deben escribirse logs normales
+en `stdout`. La identidad se carga desde la configuración privada del usuario y
+los roles se siguen validando en Pact Server. Consulta
+[ADR-0008](adr/0008-local-mcp-adapter.md) para conocer el contrato y su frontera
+de privacidad.
+
 ## Crear un proyecto
 
 La creación requiere una clave de idempotencia. Repetir la misma solicitud con
@@ -478,21 +491,19 @@ PostgreSQL permanece en la red privada de Docker Compose y no se publica en una
 interfaz del host. Los clientes hablan con Pact Server, no directamente con la
 base de datos.
 
-Este perfil es exclusivamente local y confiable. Pact Server y el migrador
-todavía comparten el usuario propietario de PostgreSQL; no debe exponerse la API
-a una red ni utilizarse como instalación de equipo hasta separar los roles de
-bootstrap, migración, runtime y workers.
+Pact Server y el migrador todavía comparten el usuario propietario de
+PostgreSQL. Deben separarse los roles de migración, runtime y workers antes de
+considerar el endurecimiento de producción completo.
 
-El CLI ya puede registrar presencia durante la vida de un proceso. Pact Node se
-incorporará posteriormente como un proceso persistente del host. Será quien
-observe repositorios locales y administre worktrees; Pact Server no recibirá un
-montaje del repositorio del usuario ni ejecutará Git dentro del contenedor.
+Pact Node observa el checkout, pero todavía se ejecuta en primer plano y no
+administra worktrees. MCP se ofrece localmente por `stdio`; todavía no existe un
+endpoint MCP remoto con OAuth. Ninguno de ambos impide que una herramienta
+modifique Git directamente: faltan intenciones, scopes y aislamiento para
+coordinar escrituras concurrentes.
 
-Por esta razón, el backoffice actual puede mostrar proyectos y eventos en
-tiempo real, pero no confirmar actividad del código. No existe un endpoint
-genérico para publicar eventos: Pact Node enviará comandos de dominio
-autenticados y Pact Server emitirá los eventos después de validar sus
-invariantes.
+El backoffice muestra actividad observada y eventos en tiempo real, pero es una
+superficie de lectura. Pact Server solo acepta comandos de dominio autenticados;
+no existe un endpoint genérico para inventar eventos desde un cliente.
 
 ## Relación entre local, servidor y PostgreSQL
 
@@ -503,7 +514,7 @@ y cada persona configura su `.pact/config.json` para conectarse a ese endpoint.
 En ambos casos el recorrido es el mismo:
 
 ```text
-agente → Pact Node local → Pact Server → PostgreSQL privado
+agente → adaptador MCP / Pact Node local → Pact Server → PostgreSQL privado
 ```
 
 Los Pact Nodes nunca deben conectarse directamente a PostgreSQL. El servidor es
@@ -511,7 +522,8 @@ la autoridad que autentica, valida permisos e idempotencia, coordina sesiones y
 registra eventos. PostgreSQL permanece en una red privada accesible solamente
 por Pact Server, migradores y workers autorizados.
 
-La instalación remota para equipos utiliza HTTPS, identidad por usuario y roles
-de proyecto. Todavía requiere identidad criptográfica de nodo, autorización
-multi-organización y roles de base de datos separados. El bootstrap local no
+La instalación remota para equipos utiliza HTTPS, identidad personal y roles de
+proyecto. La identidad privada del nodo sigue siendo local al checkout. Todavía
+faltan rotación criptográfica de identidad de nodo, autorización
+multi-organización completa y roles de base de datos separados. El bootstrap no
 debe compartirse ni utilizarse como credencial diaria.

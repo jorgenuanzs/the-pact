@@ -14,6 +14,7 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 )
 
@@ -87,6 +88,20 @@ func (c *Client) ListProjects(ctx context.Context) ([]projects.Project, error) {
 		response.Data.Projects = make([]projects.Project, 0)
 	}
 	return response.Data.Projects, nil
+}
+
+func (c *Client) GetProjectOverview(ctx context.Context, projectID string) (projects.Project, backoffice.Overview, error) {
+	var response struct {
+		Data struct {
+			Project projects.Project `json:"project"`
+			backoffice.Overview
+		} `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/overview"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return projects.Project{}, backoffice.Overview{}, err
+	}
+	return response.Data.Project, response.Data.Overview, nil
 }
 
 func (c *Client) CreateProject(

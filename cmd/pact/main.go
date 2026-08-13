@@ -59,6 +59,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runAgent(args[1:], stdin, stdout, stderr)
 	case "node":
 		return runNode(args[1:], stdout, stderr)
+	case "mcp":
+		return runMCP(args[1:], stderr)
 	case "version":
 		return json.NewEncoder(stdout).Encode(buildinfo.Current())
 	case "help", "-h", "--help":
@@ -335,13 +337,23 @@ func reportObservation(
 	sessionID string,
 	snapshot gitobserve.Snapshot,
 ) error {
+	_, err := submitObservation(ctx, client, sessionID, snapshot)
+	return err
+}
+
+func submitObservation(
+	ctx context.Context,
+	client *pactclient.Client,
+	sessionID string,
+	snapshot gitobserve.Snapshot,
+) (agentsession.ObservationResult, error) {
 	keyBytes := make([]byte, 16)
 	if _, err := rand.Read(keyBytes); err != nil {
-		return fmt.Errorf("create observation idempotency key: %w", err)
+		return agentsession.ObservationResult{}, fmt.Errorf("create observation idempotency key: %w", err)
 	}
 	reportContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, err := client.ObserveRepository(
+	result, err := client.ObserveRepository(
 		reportContext,
 		sessionID,
 		"pact-observe-"+hex.EncodeToString(keyBytes),
@@ -352,9 +364,9 @@ func reportObservation(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("report Git observation: %w", err)
+		return agentsession.ObservationResult{}, fmt.Errorf("report Git observation: %w", err)
 	}
-	return nil
+	return result, nil
 }
 
 func maintainHeartbeat(
@@ -875,5 +887,6 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact logout [--revoke]")
 	fmt.Fprintln(writer, "  pact agent run --client TYPE [--name NAME] [--path PATH] [-- COMMAND ...]")
 	fmt.Fprintln(writer, "  pact node run [--path PATH] [--interval 2s] [--once]")
+	fmt.Fprintln(writer, "  pact mcp serve --client TYPE [--name NAME] [--path PATH]")
 	fmt.Fprintln(writer, "  pact version")
 }

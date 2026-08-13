@@ -26,10 +26,11 @@ El primer vertical técnico ya tiene una base ejecutable:
 - identidad remota del repositorio para conectar varios checkouts sin duplicar proyectos;
 - registro de nodos y sesiones vivas mediante `pact agent run`;
 - Pact Node y observación Git privada mediante `pact node run`;
+- servidor MCP local para entregar contexto operativo seguro a cualquier agente compatible;
 - entorno reproducible mediante Docker Compose.
 
-El siguiente corte ampliará Pact Node con worktrees administrados, intenciones
-y scopes, y expondrá el protocolo a agentes mediante MCP.
+El siguiente corte ampliará la coordinación con intenciones, scopes y worktrees
+administrados.
 
 ## Inicio rápido
 
@@ -78,7 +79,7 @@ Las versiones etiquetadas publican binarios para macOS y Linux, tanto arm64
 como amd64. Por ejemplo, en un Mac con Apple Silicon:
 
 ```sh
-PACT_VERSION=v0.3.0
+PACT_VERSION=v0.4.0
 curl -fL -o pact.tar.gz \
   "https://github.com/jorgenuanzs/the-pact/releases/download/${PACT_VERSION}/pact_darwin_arm64.tar.gz"
 curl -fL -o checksums.txt \
@@ -156,6 +157,43 @@ consulta Git cada dos segundos y mantiene una sesión con heartbeat. PACT envía
 únicamente el estado dirty/clean, rama, revisión, cantidad de rutas y una huella
 SHA-256. Los nombres y contenidos de archivos nunca salen del computador.
 
+## Conectar un agente mediante MCP
+
+Un cliente compatible con Model Context Protocol puede iniciar PACT como un
+servidor local por `stdio`. La configuración equivalente en cada cliente es:
+
+```json
+{
+  "mcpServers": {
+    "pact": {
+      "command": "/ruta/absoluta/a/pact",
+      "args": [
+        "mcp", "serve",
+        "--client", "nombre-del-cliente",
+        "--path", "/ruta/absoluta/al/repositorio"
+      ]
+    }
+  }
+}
+```
+
+El cliente inicia y detiene el proceso: la persona no necesita ejecutar comandos
+de PACT durante la conversación. La máquina sí debe haber completado una vez
+`pact login` y el checkout debe estar conectado mediante `pact init` o
+`pact connect`.
+
+El servidor registra una sesión viva del agente y ofrece tres herramientas:
+
+- `pact.project_context`: proyecto, identidad, sesión, estado Git resumido,
+  trabajo activo, actividad y eventos recientes;
+- `pact.list_projects`: proyectos visibles para la identidad autenticada;
+- `pact.refresh_git_observation`: actualiza explícitamente la observación Git.
+
+El token se lee desde la configuración privada del usuario y nunca forma parte
+del protocolo MCP. Tampoco se exponen rutas del computador, nombres o contenidos
+de archivos, ni la URL remota del repositorio. Los campos sensibles encontrados
+en eventos se sustituyen por `[REDACTED]`.
+
 ## Invitar a otra persona
 
 El owner crea una invitación desde un checkout conectado:
@@ -195,6 +233,8 @@ colaboradores.
 Agente o herramienta local
             │
             ▼
+  PACT MCP ── contexto y herramientas para el agente
+            │
   Pact CLI ── sesión, heartbeat y observación del agente
             │
   Pact Node ── observación Git (worktrees administrados: siguiente corte)
@@ -220,6 +260,7 @@ loopback durante el desarrollo local.
 - [ADR-0005: incorporación y conexión entre máquinas](docs/adr/0005-cli-onboarding-and-machine-connection.md)
 - [ADR-0006: acceso personal, invitaciones y roles](docs/adr/0006-personal-access-and-project-roles.md)
 - [ADR-0007: Pact Node y observación Git privada](docs/adr/0007-pact-node-git-observation.md)
+- [ADR-0008: adaptador MCP local](docs/adr/0008-local-mcp-adapter.md)
 - [Especificación del bucle central v0.1](docs/spec/core-loop-v0.1.md)
 - [Contrato OpenAPI](api/openapi.yaml)
 - [Desarrollo local](docs/development.md)
