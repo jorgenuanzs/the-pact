@@ -6,20 +6,50 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jorgenuanzs/the-pact/internal/access"
 )
 
 type requestIDKey struct{}
+type principalKey struct{}
 
 func (a *API) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scheme, token, found := strings.Cut(r.Header.Get("Authorization"), " ")
-		if !found || !strings.EqualFold(scheme, "Bearer") || !tokenMatches(a.tokenHash, token) {
+		if !found || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" || a.access == nil {
 			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "A valid local API token is required.")
+			writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "A valid Pact access token is required.")
+			return
+		}
+		principal, err := a.access.Authenticate(r.Context(), token)
+		if err != nil {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			a.writeDomainError(w, r, err)
+			return
+		}
+		ctx := context.WithValue(r.Context(), principalKey{}, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *API) requireProjectRole(minimum string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := principalFromContext(r.Context())
+		if !ok || a.access == nil {
+			a.writeDomainError(w, r, access.ErrUnauthorized)
+			return
+		}
+		if err := a.access.RequireProjectRole(r.Context(), principal, r.PathValue("projectID"), minimum); err != nil {
+			a.writeDomainError(w, r, err)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func principalFromContext(ctx context.Context) (access.Principal, bool) {
+	principal, ok := ctx.Value(principalKey{}).(access.Principal)
+	return principal, ok
 }
 
 func (a *API) requestContext(next http.Handler) http.Handler {

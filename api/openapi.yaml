@@ -419,13 +419,149 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/me:
+    get:
+      tags:
+        - Access
+      operationId: getCurrentPrincipal
+      summary: Devuelve la identidad autenticada
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Identidad actual.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrincipalResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/tokens/current:
+    delete:
+      tags:
+        - Access
+      operationId: revokeCurrentAccessToken
+      summary: Revoca inmediatamente el token personal utilizado en la solicitud
+      description: La credencial bootstrap no puede revocarse mediante este endpoint.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Token personal revocado.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/projects/{project_id}/invitations:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      tags:
+        - Access
+      operationId: createProjectInvitation
+      summary: Crea una invitación de proyecto de un solo uso
+      description: |
+        Requiere owner o maintainer. Solo la credencial bootstrap puede emitir
+        una invitación owner para establecer el primer propietario humano.
+        El secreto se devuelve una sola vez y nunca se guarda en texto plano.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+      responses:
+        "201":
+          description: Invitación creada.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedInvitationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/invitations/{invitation_id}:
+    parameters:
+      - $ref: "#/components/parameters/InvitationId"
+    delete:
+      tags:
+        - Access
+      operationId: revokeProjectInvitation
+      summary: Revoca una invitación pendiente
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Invitación revocada.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/invitation-acceptances:
+    post:
+      tags:
+        - Access
+      operationId: acceptProjectInvitation
+      summary: Canjea una invitación por una identidad y un token personal
+      description: No requiere autenticación previa. El secreto de invitación es de un solo uso.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInvitationRequest"
+      responses:
+        "201":
+          description: Invitación aceptada y token personal emitido.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedInvitationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: opaque
-      description: Token local opaco configurado para Pact Server.
+      description: Token personal opaco y revocable, o credencial bootstrap de recuperación.
   parameters:
     ProjectId:
       name: project_id
@@ -440,6 +576,14 @@ components:
       in: path
       required: true
       description: Identificador opaco de la sesión activa.
+      schema:
+        type: string
+        format: uuid
+    InvitationId:
+      name: invitation_id
+      in: path
+      required: true
+      description: Identificador opaco de una invitación.
       schema:
         type: string
         format: uuid
@@ -480,6 +624,181 @@ components:
       schema:
         $ref: "#/components/schemas/EventCursor"
   schemas:
+    PrincipalResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/Principal"
+    Principal:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - organization_id
+        - display_name
+        - principal_type
+        - organization_role
+        - bootstrap
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        principal_type:
+          type: string
+          enum:
+            - human
+            - service
+        organization_role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - member
+        bootstrap:
+          type: boolean
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        role:
+          type: string
+          enum:
+            - owner
+            - maintainer
+            - contributor
+            - viewer
+        expires_in_hours:
+          type: integer
+          minimum: 1
+          maximum: 168
+          default: 24
+    Invitation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - email
+        - role
+        - status
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum:
+            - owner
+            - maintainer
+            - contributor
+            - viewer
+        status:
+          type: string
+          enum:
+            - pending
+            - accepted
+            - revoked
+            - expired
+        expires_at:
+          type: string
+          format: date-time
+    CreatedInvitationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - invitation
+            - secret
+          properties:
+            invitation:
+              $ref: "#/components/schemas/Invitation"
+            secret:
+              type: string
+              writeOnly: true
+              pattern: "^pact_inv_[A-Za-z0-9_-]+$"
+              description: Se muestra una sola vez y debe transferirse por un canal privado.
+    AcceptInvitationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - secret
+        - display_name
+        - token_name
+      properties:
+        secret:
+          type: string
+          writeOnly: true
+          pattern: "^pact_inv_[A-Za-z0-9_-]+$"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        token_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    AcceptedInvitationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - principal
+            - project_id
+            - project_role
+            - access_token
+            - expires_at
+          properties:
+            principal:
+              $ref: "#/components/schemas/Principal"
+            project_id:
+              type: string
+              format: uuid
+            project_role:
+              type: string
+              enum:
+                - owner
+                - maintainer
+                - contributor
+                - viewer
+            access_token:
+              type: string
+              writeOnly: true
+              pattern: "^pact_pat_[A-Za-z0-9_-]+$"
+            expires_at:
+              type: string
+              format: date-time
     LivenessResponse:
       type: object
       additionalProperties: false
@@ -1251,6 +1570,12 @@ components:
           schema:
             type: string
             example: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: La identidad es válida, pero no tiene el rol requerido.
       content:
         application/problem+json:
           schema:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,8 +13,7 @@ import (
 )
 
 const (
-	bootstrapPrincipalID = "00000000-0000-4000-8000-000000000002"
-	sessionTTL           = 45 * time.Second
+	sessionTTL = 45 * time.Second
 )
 
 type PostgresRepository struct {
@@ -27,6 +27,7 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 func (r *PostgresRepository) Start(
 	ctx context.Context,
 	organizationID string,
+	sponsorPrincipalID string,
 	projectID string,
 	input StartInput,
 ) (Session, error) {
@@ -59,7 +60,7 @@ func (r *PostgresRepository) Start(
 	if err != nil {
 		return Session{}, err
 	}
-	agentID, err := upsertAgent(ctx, tx, organizationID, input)
+	agentID, err := upsertAgent(ctx, tx, organizationID, sponsorPrincipalID, input)
 	if err != nil {
 		return Session{}, err
 	}
@@ -118,6 +119,8 @@ func (r *PostgresRepository) Start(
 func (r *PostgresRepository) Heartbeat(
 	ctx context.Context,
 	organizationID string,
+	sponsorPrincipalID string,
+	allowAll bool,
 	sessionID string,
 ) (Session, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -133,18 +136,22 @@ func (r *PostgresRepository) Heartbeat(
 		    expires_at = transaction_timestamp() + ($3 * interval '1 second'),
 		    version = session.version + 1
 		FROM identity.actors AS actor,
-		     identity.nodes AS node
+		     identity.nodes AS node,
+		     identity.agents AS agent
 		WHERE session.organization_id = $1
 		  AND session.id = $2
 		  AND session.status = 'active'
 		  AND actor.organization_id = session.organization_id
 		  AND actor.id = session.actor_id
+		  AND agent.organization_id = session.organization_id
+		  AND agent.id = session.actor_id
+		  AND ($5 OR agent.sponsor_principal_id = $4)
 		  AND node.organization_id = session.organization_id
 		  AND node.id = session.node_id
 		RETURNING session.id, session.project_id, session.actor_id, actor.display_name,
 		          session.node_id, node.name, session.client_type, session.status,
 		          session.started_at, session.last_seen_at, session.expires_at
-	`, organizationID, sessionID, int64(sessionTTL/time.Second)).Scan(
+	`, organizationID, sessionID, int64(sessionTTL/time.Second), sponsorPrincipalID, allowAll).Scan(
 		&session.ID,
 		&session.ProjectID,
 		&session.ActorID,
@@ -179,7 +186,13 @@ func (r *PostgresRepository) Heartbeat(
 	return session, nil
 }
 
-func (r *PostgresRepository) Close(ctx context.Context, organizationID, sessionID string) error {
+func (r *PostgresRepository) Close(
+	ctx context.Context,
+	organizationID string,
+	sponsorPrincipalID string,
+	allowAll bool,
+	sessionID string,
+) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin agent session close: %w", err)
@@ -195,8 +208,16 @@ func (r *PostgresRepository) Close(ctx context.Context, organizationID, sessionI
 		WHERE organization_id = $1
 		  AND id = $2
 		  AND status IN ('starting', 'active', 'stale')
+		  AND (
+		    $4 OR EXISTS (
+		      SELECT 1 FROM identity.agents AS agent
+		      WHERE agent.organization_id = identity.sessions.organization_id
+		        AND agent.id = identity.sessions.actor_id
+		        AND agent.sponsor_principal_id = $3
+		    )
+		  )
 		RETURNING node_id
-	`, organizationID, sessionID).Scan(&nodeID)
+	`, organizationID, sessionID, sponsorPrincipalID, allowAll).Scan(&nodeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -283,10 +304,16 @@ func upsertNode(
 	return nodeID, nil
 }
 
-func upsertAgent(ctx context.Context, tx pgx.Tx, organizationID string, input StartInput) (string, error) {
+func upsertAgent(
+	ctx context.Context,
+	tx pgx.Tx,
+	organizationID string,
+	sponsorPrincipalID string,
+	input StartInput,
+) (string, error) {
 	if _, err := tx.Exec(ctx, `
 		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
-	`, "pact-agent:"+organizationID+":"+input.AgentType+":"+input.AgentName); err != nil {
+	`, "pact-agent:"+organizationID+":"+sponsorPrincipalID+":"+input.AgentType+":"+strings.ToLower(input.AgentName)); err != nil {
 		return "", fmt.Errorf("lock agent identity: %w", err)
 	}
 	var agentID string
@@ -296,7 +323,7 @@ func upsertAgent(ctx context.Context, tx pgx.Tx, organizationID string, input St
 		  AND sponsor_principal_id = $2
 		  AND agent_type = $3
 		  AND lower(name) = lower($4)
-	`, organizationID, bootstrapPrincipalID, input.AgentType, input.AgentName).Scan(&agentID)
+	`, organizationID, sponsorPrincipalID, input.AgentType, input.AgentName).Scan(&agentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `
 			INSERT INTO identity.actors (organization_id, kind, display_name)
@@ -312,7 +339,7 @@ func upsertAgent(ctx context.Context, tx pgx.Tx, organizationID string, input St
 				declared_capabilities
 			)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, agentID, organizationID, bootstrapPrincipalID, input.AgentName, input.AgentType, []byte(`{"pact.cli.session.v1":true}`))
+		`, agentID, organizationID, sponsorPrincipalID, input.AgentName, input.AgentType, []byte(`{"pact.cli.session.v1":true}`))
 		if err != nil {
 			return "", fmt.Errorf("create agent identity: %w", err)
 		}

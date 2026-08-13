@@ -50,7 +50,7 @@ func TestAgentSessionLifecycleAppearsInBackoffice(t *testing.T) {
 		config.DefaultLocalOrganizationID,
 		agentsession.NewPostgresRepository(pool),
 	)
-	session, err := service.Start(ctx, projectResult.Project.ID, agentsession.StartInput{
+	session, err := service.Start(ctx, "00000000-0000-4000-8000-000000000002", projectResult.Project.ID, agentsession.StartInput{
 		NodeKey:    "node-" + suffix,
 		NodeName:   "Integration computer",
 		AgentName:  "Kimi",
@@ -63,7 +63,7 @@ func TestAgentSessionLifecycleAppearsInBackoffice(t *testing.T) {
 	if session.Status != "active" || session.ActorName != "Kimi" {
 		t.Fatalf("session = %#v", session)
 	}
-	if _, err := service.Heartbeat(ctx, session.ID); err != nil {
+	if _, err := service.Heartbeat(ctx, "00000000-0000-4000-8000-000000000002", true, session.ID); err != nil {
 		t.Fatalf("heartbeat session: %v", err)
 	}
 	overview, err := backoffice.NewPostgresReader(pool).Get(
@@ -80,7 +80,7 @@ func TestAgentSessionLifecycleAppearsInBackoffice(t *testing.T) {
 	if overview.ActiveWork[0].ActorName != "Kimi" || overview.ActiveWork[0].ClientType != "kimi-cli" {
 		t.Fatalf("active work = %#v", overview.ActiveWork[0])
 	}
-	if err := service.Close(ctx, session.ID); err != nil {
+	if err := service.Close(ctx, "00000000-0000-4000-8000-000000000002", true, session.ID); err != nil {
 		t.Fatalf("close session: %v", err)
 	}
 	overview, err = backoffice.NewPostgresReader(pool).Get(

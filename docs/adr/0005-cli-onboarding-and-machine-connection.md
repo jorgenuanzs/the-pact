@@ -64,15 +64,14 @@ guarda en `.pact/config.json`, junto con la URL del servidor y sin credenciales.
 
 ## Autenticación
 
-El token único actual es una credencial de bootstrap para una instalación
-privada. Se guarda fuera del repositorio, en `~/.config/pact/config.json`, con
-permisos `0600`. No es el modelo final para equipos.
+El token configurado en el servidor es una credencial bootstrap de recuperación
+y se guarda fuera del repositorio. ADR-0006 incorporó invitaciones de un solo
+uso, identidades personales, roles por organización y proyecto, vencimiento y
+revocación. Un colaborador recibe su propio token y no comparte el bootstrap.
 
-Antes de invitar colaboradores externos, Pact incorporará identidad personal,
-OIDC o device flow, invitaciones de un solo uso, roles por organización y
-proyecto, revocación y almacenamiento de credenciales en el llavero del sistema.
-Un colaborador recibirá su propia identidad; no se compartirá el token del
-administrador.
+OIDC, device flow y almacenamiento nativo en el llavero siguen siendo la
+evolución prevista para reemplazar la emisión local y proteger la credencial en
+reposo con servicios del sistema operativo.
 
 ## Agentes
 
@@ -104,6 +103,5 @@ la identidad con la que ese computador inició sesión en Pact Server.
 - `.pact/` puede reconstruirse después de clonar o borrar el estado local.
 - conectar es seguro por defecto y no crea proyectos por un error tipográfico;
 - un cliente de IA puede publicar presencia sin entregar su conversación;
-- la colaboración entre máquinas propias ya funciona con la credencial de
-  bootstrap, pero invitar personas externas requiere autenticación individual;
+- la colaboración entre personas utiliza identidades y tokens individuales;
 - ver una sesión activa no equivale todavía a observar modificaciones de código.

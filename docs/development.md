@@ -48,8 +48,8 @@ pact.yaml          manifiesto compartido, debe versionarse con Git
 ```
 
 La configuración local contiene la URL de Pact Server y el UUID remoto del
-proyecto, pero no tokens ni credenciales de PostgreSQL. La credencial de
-bootstrap del usuario se guarda fuera de todos los repositorios en
+proyecto, pero no tokens ni credenciales de PostgreSQL. La credencial personal
+o bootstrap se guarda fuera de todos los repositorios en
 `~/.config/pact/config.json`, con permisos `0600`.
 
 Para conectar otro checkout que recibió `pact.yaml` mediante Git:
@@ -77,6 +77,42 @@ la conversación ni la salida del proceso. Para una prueba sin un cliente de IA:
 ```sh
 ./bin/pact agent run --client test -- sleep 30
 ```
+
+## Acceso personal e invitaciones
+
+La credencial `PACT_LOCAL_API_TOKEN` es el bootstrap de recuperación. Para crear
+la primera identidad owner desde un proyecto conectado:
+
+```sh
+./bin/pact invite create \
+  --email owner@example.com \
+  --role owner
+```
+
+Solo el bootstrap puede emitir `owner`. Un owner o maintainer puede invitar
+colaboradores con `maintainer`, `contributor` o `viewer`, según sus permisos.
+La invitación dura 24 horas por defecto y admite `--expires` entre `1h` y
+`168h`.
+
+El colaborador consume el secreto mediante stdin:
+
+```sh
+printf '%s' "$PACT_INVITATION" | ./bin/pact join \
+  --server http://127.0.0.1:8080 \
+  --name "Local collaborator" \
+  --invite-stdin
+```
+
+Puede comprobar y retirar su identidad así:
+
+```sh
+./bin/pact whoami
+./bin/pact logout --revoke
+```
+
+PostgreSQL conserva solamente digests de invitaciones y tokens. El secreto no
+se envía en URLs y las respuestas que lo muestran declaran `Cache-Control:
+no-store`. Consulta [ADR-0006](adr/0006-personal-access-and-project-roles.md).
 
 ## Preparación
 
@@ -194,8 +230,8 @@ http://127.0.0.1:8080/admin/
 ```
 
 `/admin` redirige a la ruta canónica `/admin/`. La página y sus recursos
-estáticos no contienen el token ni datos del proyecto. Introduce en la interfaz
-el valor de `PACT_LOCAL_API_TOKEN` configurado en `.env`.
+estáticos no contienen el token ni datos del proyecto. Introduce un token
+personal; el bootstrap de `.env` debe reservarse para recuperación.
 
 El navegador conserva el token únicamente en `sessionStorage` y lo envía en el
 encabezado Bearer de cada consulta. No se almacena en `localStorage`, cookies,
@@ -461,7 +497,7 @@ la autoridad que autentica, valida permisos e idempotencia, coordina sesiones y
 registra eventos. PostgreSQL permanece en una red privada accesible solamente
 por Pact Server, migradores y workers autorizados.
 
-La instalación remota para equipos requerirá HTTPS, identidad por usuario y
-nodo, autorización multi-tenant y roles de base de datos separados. El token
-local de desarrollo no debe reutilizarse para exponer el servidor actual a una
-red compartida.
+La instalación remota para equipos utiliza HTTPS, identidad por usuario y roles
+de proyecto. Todavía requiere identidad criptográfica de nodo, autorización
+multi-organización y roles de base de datos separados. El bootstrap local no
+debe compartirse ni utilizarse como credencial diaria.

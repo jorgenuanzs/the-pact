@@ -3,8 +3,6 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
@@ -34,21 +33,33 @@ type ProjectService interface {
 }
 
 type AgentSessionService interface {
-	Start(context.Context, string, agentsession.StartInput) (agentsession.Session, error)
-	Heartbeat(context.Context, string) (agentsession.Session, error)
-	Close(context.Context, string) error
+	Start(context.Context, string, string, agentsession.StartInput) (agentsession.Session, error)
+	Heartbeat(context.Context, string, bool, string) (agentsession.Session, error)
+	Close(context.Context, string, bool, string) error
+}
+
+type AccessService interface {
+	Authenticate(context.Context, string) (access.Principal, error)
+	RequireProjectRole(context.Context, access.Principal, string, string) error
+	VisibleProjectIDs(context.Context, access.Principal) (map[string]struct{}, error)
+	CanCreateProject(access.Principal) bool
+	CreateInvitation(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
+	AcceptInvitation(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
+	RevokeInvitation(context.Context, access.Principal, string) error
+	RevokeCurrentToken(context.Context, access.Principal) error
+	GrantProjectOwner(context.Context, access.Principal, string) error
 }
 
 type ReadinessCheck func(context.Context) error
 
 type Config struct {
 	Logger               *slog.Logger
-	APIToken             string
 	OrganizationID       string
 	Build                buildinfo.Info
 	Readiness            ReadinessCheck
 	ProjectService       ProjectService
 	AgentSessionService  AgentSessionService
+	AccessService        AccessService
 	BackofficeReader     backoffice.Reader
 	EventReader          eventlog.Reader
 	StreamShutdown       <-chan struct{}
@@ -58,12 +69,12 @@ type Config struct {
 
 type API struct {
 	logger               *slog.Logger
-	tokenHash            [sha256.Size]byte
 	organizationID       string
 	build                buildinfo.Info
 	readiness            ReadinessCheck
 	projects             ProjectService
 	agentSessions        AgentSessionService
+	access               AccessService
 	backoffice           backoffice.Reader
 	events               eventlog.Reader
 	streamShutdown       <-chan struct{}
@@ -81,12 +92,12 @@ func New(cfg Config) http.Handler {
 
 	api := &API{
 		logger:               cfg.Logger,
-		tokenHash:            sha256.Sum256([]byte(cfg.APIToken)),
 		organizationID:       cfg.OrganizationID,
 		build:                cfg.Build,
 		readiness:            cfg.Readiness,
 		projects:             cfg.ProjectService,
 		agentSessions:        cfg.AgentSessionService,
+		access:               cfg.AccessService,
 		backoffice:           cfg.BackofficeReader,
 		events:               cfg.EventReader,
 		streamShutdown:       cfg.StreamShutdown,
@@ -102,13 +113,18 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /admin/", adminui.Handler())
 	mux.Handle("GET /v1/projects", api.requireAuth(http.HandlerFunc(api.handleListProjects)))
 	mux.Handle("POST /v1/projects", api.requireAuth(http.HandlerFunc(api.handleCreateProject)))
-	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleGetProject)))
-	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(http.HandlerFunc(api.handleProjectOverview)))
-	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(http.HandlerFunc(api.handleListEvents)))
-	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(http.HandlerFunc(api.handleStreamEvents)))
-	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(http.HandlerFunc(api.handleStartAgentSession)))
+	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetProject))))
+	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleProjectOverview))))
+	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
+	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
+	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartAgentSession))))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/heartbeat", api.requireAuth(http.HandlerFunc(api.handleAgentHeartbeat)))
 	mux.Handle("DELETE /v1/agent-sessions/{sessionID}", api.requireAuth(http.HandlerFunc(api.handleCloseAgentSession)))
+	mux.Handle("POST /v1/projects/{projectID}/invitations", api.requireAuth(http.HandlerFunc(api.handleCreateInvitation)))
+	mux.Handle("DELETE /v1/invitations/{invitationID}", api.requireAuth(http.HandlerFunc(api.handleRevokeInvitation)))
+	mux.HandleFunc("POST /v1/invitation-acceptances", api.handleAcceptInvitation)
+	mux.Handle("GET /v1/me", api.requireAuth(http.HandlerFunc(api.handleMe)))
+	mux.Handle("DELETE /v1/me/tokens/current", api.requireAuth(http.HandlerFunc(api.handleRevokeCurrentToken)))
 	mux.Handle("/livez", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/readyz", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/version", api.methodNotAllowed(http.MethodGet))
@@ -122,6 +138,11 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/heartbeat", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}", api.methodNotAllowed(http.MethodDelete))
+	mux.Handle("/v1/projects/{projectID}/invitations", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/invitations/{invitationID}", api.methodNotAllowed(http.MethodDelete))
+	mux.Handle("/v1/invitation-acceptances", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/me", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/me/tokens/current", api.methodNotAllowed(http.MethodDelete))
 	mux.HandleFunc("/", api.handleNotFound)
 
 	return api.requestContext(api.accessLog(api.recoverPanic(mux)))
@@ -157,12 +178,32 @@ func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		a.writeDomainError(w, r, err)
 		return
 	}
+	principal, _ := principalFromContext(r.Context())
+	visible, err := a.access.VisibleProjectIDs(r.Context(), principal)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if visible != nil {
+		filtered := make([]projects.Project, 0, len(projectList))
+		for _, project := range projectList {
+			if _, ok := visible[project.ID]; ok {
+				filtered = append(filtered, project)
+			}
+		}
+		projectList = filtered
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
 		"projects": projectList,
 	}})
 }
 
 func (a *API) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if a.access == nil || !a.access.CanCreateProject(principal) {
+		a.writeDomainError(w, r, access.ErrForbidden)
+		return
+	}
 	if !hasJSONContentType(r.Header.Get("Content-Type")) {
 		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
 		return
@@ -176,6 +217,10 @@ func (a *API) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	result, err := a.projects.Create(r.Context(), r.Header.Get("Idempotency-Key"), input)
 	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if err := a.access.GrantProjectOwner(r.Context(), principal, result.Project.ID); err != nil {
 		a.writeDomainError(w, r, err)
 		return
 	}
@@ -210,7 +255,8 @@ func (a *API) handleStartAgentSession(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
 		return
 	}
-	session, err := a.agentSessions.Start(r.Context(), r.PathValue("projectID"), input)
+	principal, _ := principalFromContext(r.Context())
+	session, err := a.agentSessions.Start(r.Context(), principal.ID, r.PathValue("projectID"), input)
 	if err != nil {
 		a.writeDomainError(w, r, err)
 		return
@@ -224,7 +270,9 @@ func (a *API) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
 		return
 	}
-	session, err := a.agentSessions.Heartbeat(r.Context(), r.PathValue("sessionID"))
+	principal, _ := principalFromContext(r.Context())
+	allowAll := principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin"
+	session, err := a.agentSessions.Heartbeat(r.Context(), principal.ID, allowAll, r.PathValue("sessionID"))
 	if err != nil {
 		a.writeDomainError(w, r, err)
 		return
@@ -237,7 +285,83 @@ func (a *API) handleCloseAgentSession(w http.ResponseWriter, r *http.Request) {
 		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
 		return
 	}
-	if err := a.agentSessions.Close(r.Context(), r.PathValue("sessionID")); err != nil {
+	principal, _ := principalFromContext(r.Context())
+	allowAll := principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin"
+	if err := a.agentSessions.Close(r.Context(), principal.ID, allowAll, r.PathValue("sessionID")); err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) handleCreateInvitation(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input struct {
+		Email          string `json:"email"`
+		Role           string `json:"role"`
+		ExpiresInHours int    `json:"expires_in_hours"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	expiresAfter := time.Duration(input.ExpiresInHours) * time.Hour
+	if input.ExpiresInHours == 0 {
+		expiresAfter = 24 * time.Hour
+	}
+	principal, _ := principalFromContext(r.Context())
+	created, err := a.access.CreateInvitation(r.Context(), principal, r.PathValue("projectID"), access.CreateInvitationInput{
+		Email: input.Email, Role: input.Role, ExpiresAfter: expiresAfter,
+	})
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Location", "/v1/invitations/"+created.Invitation.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": created})
+}
+
+func (a *API) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input access.AcceptInvitationInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	accepted, err := a.access.AcceptInvitation(r.Context(), input)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, map[string]any{"data": accepted})
+}
+
+func (a *API) handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if err := a.access.RevokeInvitation(r.Context(), principal, r.PathValue("invitationID")); err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": principal})
+}
+
+func (a *API) handleRevokeCurrentToken(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if err := a.access.RevokeCurrentToken(r.Context(), principal); err != nil {
 		a.writeDomainError(w, r, err)
 		return
 	}
@@ -508,11 +632,25 @@ func sseEventName(value string) string {
 func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
 	var validationErr *projects.ValidationError
 	var agentValidationErr *agentsession.ValidationError
+	var accessValidationErr *access.ValidationError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", validationErr.Error())
 	case errors.As(err, &agentValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", agentValidationErr.Error())
+	case errors.As(err, &accessValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", accessValidationErr.Error())
+	case errors.Is(err, access.ErrUnauthorized):
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "A valid Pact access token is required.")
+	case errors.Is(err, access.ErrForbidden):
+		writeProblem(w, r, http.StatusForbidden, "forbidden", "Forbidden", "The current identity does not have permission for this operation.")
+	case errors.Is(err, access.ErrInvitationInvalid):
+		writeProblem(w, r, http.StatusUnauthorized, "invitation_invalid", "Invalid invitation", err.Error())
+	case errors.Is(err, access.ErrInvitationExists):
+		writeProblem(w, r, http.StatusConflict, "invitation_exists", "Invitation already exists", err.Error())
+	case errors.Is(err, access.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "access_resource_not_found", "Access resource not found", err.Error())
 	case errors.Is(err, agentsession.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "agent_session_not_found", "Agent session not found", err.Error())
 	case errors.Is(err, projects.ErrNotFound):
@@ -611,9 +749,4 @@ func newRequestID() string {
 	value[8] = (value[8] & 0x3f) | 0x80
 	encoded := hex.EncodeToString(value[:])
 	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:]
-}
-
-func tokenMatches(expected [sha256.Size]byte, supplied string) bool {
-	actual := sha256.Sum256([]byte(supplied))
-	return subtle.ConstantTimeCompare(expected[:], actual[:]) == 1
 }

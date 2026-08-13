@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
@@ -19,6 +20,61 @@ import (
 )
 
 const testToken = "this-is-a-long-local-test-token"
+
+type fakeAccessService struct {
+	require      func(context.Context, access.Principal, string, string) error
+	visible      func(context.Context, access.Principal) (map[string]struct{}, error)
+	accept       func(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
+	createInvite func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
+}
+
+func (fakeAccessService) Authenticate(_ context.Context, token string) (access.Principal, error) {
+	if token != testToken {
+		return access.Principal{}, access.ErrUnauthorized
+	}
+	return access.Principal{
+		ID: access.BootstrapPrincipalID, OrganizationID: "00000000-0000-4000-8000-000000000001",
+		DisplayName: "Test administrator", PrincipalType: "human", OrganizationRole: "owner", Bootstrap: true,
+	}, nil
+}
+
+func (f fakeAccessService) RequireProjectRole(ctx context.Context, principal access.Principal, projectID, role string) error {
+	if f.require != nil {
+		return f.require(ctx, principal, projectID, role)
+	}
+	return nil
+}
+
+func (f fakeAccessService) VisibleProjectIDs(ctx context.Context, principal access.Principal) (map[string]struct{}, error) {
+	if f.visible != nil {
+		return f.visible(ctx, principal)
+	}
+	return nil, nil
+}
+
+func (fakeAccessService) CanCreateProject(access.Principal) bool { return true }
+
+func (f fakeAccessService) CreateInvitation(ctx context.Context, principal access.Principal, projectID string, input access.CreateInvitationInput) (access.CreatedInvitation, error) {
+	if f.createInvite != nil {
+		return f.createInvite(ctx, principal, projectID, input)
+	}
+	return access.CreatedInvitation{}, nil
+}
+
+func (f fakeAccessService) AcceptInvitation(ctx context.Context, input access.AcceptInvitationInput) (access.AcceptedInvitation, error) {
+	if f.accept != nil {
+		return f.accept(ctx, input)
+	}
+	return access.AcceptedInvitation{}, nil
+}
+
+func (fakeAccessService) RevokeInvitation(context.Context, access.Principal, string) error {
+	return nil
+}
+func (fakeAccessService) RevokeCurrentToken(context.Context, access.Principal) error { return nil }
+func (fakeAccessService) GrantProjectOwner(context.Context, access.Principal, string) error {
+	return nil
+}
 
 type fakeProjectService struct {
 	create func(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
@@ -167,6 +223,52 @@ func TestListProjectsReturnsAnEmptyArray(t *testing.T) {
 	}
 	if body.Data.Projects == nil || len(body.Data.Projects) != 0 {
 		t.Fatalf("projects = %#v", body.Data.Projects)
+	}
+}
+
+func TestListProjectsFiltersInaccessibleProjects(t *testing.T) {
+	service := fakeProjectService{
+		list: func(context.Context) ([]projects.Project, error) {
+			return []projects.Project{{ID: "visible"}, {ID: "hidden"}}, nil
+		},
+	}
+	handler := testHandlerWithAccess(t, service, fakeAccessService{
+		visible: func(context.Context, access.Principal) (map[string]struct{}, error) {
+			return map[string]struct{}{"visible": {}}, nil
+		},
+	})
+	request := authenticatedRequest(http.MethodGet, "/v1/projects", "")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "hidden") || !strings.Contains(response.Body.String(), "visible") {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAcceptInvitationDoesNotRequireAuthenticationAndDisablesCaching(t *testing.T) {
+	handler := testHandlerWithAccess(t, fakeProjectService{}, fakeAccessService{
+		accept: func(_ context.Context, input access.AcceptInvitationInput) (access.AcceptedInvitation, error) {
+			if input.Secret != "pact_inv_test" || input.DisplayName != "Ada" {
+				t.Fatalf("input = %#v", input)
+			}
+			return access.AcceptedInvitation{AccessToken: "pact_pat_secret"}, nil
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/invitation-acceptances", bytes.NewBufferString(`{
+		"secret":"pact_inv_test","display_name":"Ada","token_name":"Laptop"
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status = %d, Cache-Control = %q, body = %s", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "pact_pat_secret") {
+		t.Fatalf("body = %s", response.Body.String())
 	}
 }
 
@@ -522,13 +624,27 @@ func testHandlerWithBackoffice(
 	t.Helper()
 	return New(Config{
 		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
-		APIToken:         testToken,
 		OrganizationID:   "00000000-0000-4000-8000-000000000001",
 		Build:            buildinfo.Info{Version: "test"},
 		Readiness:        func(context.Context) error { return nil },
 		ProjectService:   projectService,
+		AccessService:    fakeAccessService{},
 		BackofficeReader: backofficeReader,
 		EventReader:      eventReader,
+	})
+}
+
+func testHandlerWithAccess(t *testing.T, projectService ProjectService, accessService AccessService) http.Handler {
+	t.Helper()
+	return New(Config{
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID:   "00000000-0000-4000-8000-000000000001",
+		Build:            buildinfo.Info{Version: "test"},
+		Readiness:        func(context.Context) error { return nil },
+		ProjectService:   projectService,
+		AccessService:    accessService,
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
 	})
 }
 

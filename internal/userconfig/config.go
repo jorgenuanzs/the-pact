@@ -94,6 +94,17 @@ func Save(serverURL, apiToken string) (string, error) {
 	return path, nil
 }
 
+func Delete() error {
+	path, err := configPath()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("delete Pact user configuration: %w", err)
+	}
+	return nil
+}
+
 func NormalizeServerURL(raw string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {

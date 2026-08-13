@@ -34,6 +34,11 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 		lock.Lock()
 		defer lock.Unlock()
 		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id": "00000000-0000-4000-8000-000000000002", "organization_id": "00000000-0000-4000-8000-000000000001",
+				"display_name": "Test administrator", "principal_type": "human", "organization_role": "owner", "bootstrap": true,
+			}})
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/projects":
 			projectList := make([]projects.Project, 0)
 			if remoteProject != nil {

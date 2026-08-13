@@ -212,7 +212,7 @@ docker run \
   --cpus 0.50 \
   --env PACT_TEST_DATABASE_URL=postgres://pact:pact-integration-password@postgres:5432/pact_test?sslmode=disable \
   "${integration_image}" \
-  go test -tags=integration ./internal/projects ./internal/agentsession
+  go test -tags=integration ./internal/projects ./internal/access ./internal/agentsession
 cleanup_integration
 integration_database_container=""
 integration_network=""

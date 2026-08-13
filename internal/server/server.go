@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
@@ -66,6 +67,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	agentSessionService := agentsession.NewService(cfg.LocalOrganization, agentSessionRepository)
 	eventReader := eventlog.NewPostgresReader(pool)
 	backofficeReader := backoffice.NewPostgresReader(pool)
+	accessRepository := access.NewPostgresRepository(pool)
+	accessService := access.NewService(cfg.LocalOrganization, cfg.LocalAPIToken, accessRepository)
 	requestContext, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
 	streamContext, cancelStreams := context.WithCancel(context.Background())
@@ -73,12 +76,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	handler := httpapi.New(httpapi.Config{
 		Logger:              logger,
-		APIToken:            cfg.LocalAPIToken,
 		OrganizationID:      cfg.LocalOrganization,
 		Build:               buildinfo.Current(),
 		Readiness:           pool.Ping,
 		ProjectService:      projectService,
 		AgentSessionService: agentSessionService,
+		AccessService:       accessService,
 		BackofficeReader:    backofficeReader,
 		EventReader:         eventReader,
 		StreamShutdown:      streamContext.Done(),

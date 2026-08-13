@@ -22,12 +22,13 @@ El primer vertical técnico ya tiene una base ejecutable:
 - recuperación de eventos por cursor y stream SSE reanudable;
 - backoffice local para consultar proyectos, trabajo activo y eventos;
 - CLI de acceso y bootstrap con `pact login`, `pact init` y `pact connect`;
+- identidades personales, invitaciones de un solo uso, roles y revocación;
 - identidad remota del repositorio para conectar varios checkouts sin duplicar proyectos;
 - registro de nodos y sesiones vivas mediante `pact agent run`;
 - entorno reproducible mediante Docker Compose.
 
-El siguiente corte ampliará las identidades, intenciones y scopes; después
-llegará Pact Node para observar Git y administrar worktrees desde el host.
+El siguiente corte incorporará Pact Node para observar Git y administrar
+worktrees; después ampliará intenciones, scopes e integraciones MCP.
 
 ## Inicio rápido
 
@@ -51,7 +52,7 @@ Abre el backoffice local en:
 http://127.0.0.1:8080/admin/
 ```
 
-La interfaz solicita el token `PACT_LOCAL_API_TOKEN` configurado en `.env`.
+La interfaz solicita un token personal o el bootstrap configurado en `.env`.
 Lo conserva únicamente en `sessionStorage` dentro de la pestaña y lo utiliza
 como Bearer para consultar la API; no viene incluido en los archivos del panel
 ni se añade a la URL.
@@ -93,8 +94,8 @@ Para construir el CLI desde el repositorio sin instalar Go en el host:
 make cli
 ```
 
-Inicia sesión una vez por computador. Durante el bootstrap privado, el token se
-lee desde la entrada estándar para que no quede en el historial del shell:
+Inicia sesión una vez por computador. Para el propietario inicial, el bootstrap
+se lee desde la entrada estándar para que no quede en el historial del shell:
 
 ```sh
 printf '%s' "$PACT_API_TOKEN" | ./bin/pact login \
@@ -119,7 +120,6 @@ Un colaborador conecta otro checkout del mismo proyecto así:
 ```sh
 git clone https://github.com/example/repository.git
 cd repository
-pact login --server https://pact.example.com --token-stdin
 pact connect
 ```
 
@@ -145,6 +145,39 @@ agente. El comando después de `--` puede ser cualquier ejecutable local.
 Este wrapper hace visible quién está conectado, pero todavía no observa los
 cambios del repositorio. Hasta que exista Pact Node, el backoffice mantiene la
 actividad de código en `unobserved` aunque muestre una sesión activa.
+
+## Invitar a otra persona
+
+El owner crea una invitación desde un checkout conectado:
+
+```sh
+pact invite create \
+  --email persona@example.com \
+  --role contributor
+```
+
+PACT muestra una sola vez un secreto `pact_inv_...`. Debe enviarse por un canal
+privado y nunca añadirse a Git, una URL o un chat público. En el otro computador:
+
+```sh
+printf '%s' "$PACT_INVITATION" | pact join \
+  --server https://pact.example.com \
+  --name "Nombre de la persona" \
+  --invite-stdin
+
+git clone git@github.com:example/repository.git
+cd repository
+pact connect
+pact agent run --client kimi -- kimi
+```
+
+`pact join` consume la invitación y guarda un token personal. `pact whoami`
+muestra la identidad actual y `pact logout --revoke` retira inmediatamente ese
+token del servidor antes de borrarlo del computador.
+
+La credencial bootstrap queda reservada para recuperación y para establecer al
+primer owner mediante una invitación `--role owner`; no debe compartirse con
+colaboradores.
 
 ## Arquitectura del primer corte
 
@@ -175,6 +208,7 @@ loopback durante el desarrollo local.
 - [ADR-0003: actividad de código observada](docs/adr/0003-observed-code-activity.md)
 - [ADR-0004: bootstrap local y vínculo con el servidor](docs/adr/0004-local-project-bootstrap.md)
 - [ADR-0005: incorporación y conexión entre máquinas](docs/adr/0005-cli-onboarding-and-machine-connection.md)
+- [ADR-0006: acceso personal, invitaciones y roles](docs/adr/0006-personal-access-and-project-roles.md)
 - [Especificación del bucle central v0.1](docs/spec/core-loop-v0.1.md)
 - [Contrato OpenAPI](api/openapi.yaml)
 - [Desarrollo local](docs/development.md)

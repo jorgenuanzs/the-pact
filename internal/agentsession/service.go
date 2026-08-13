@@ -20,9 +20,9 @@ func (e *ValidationError) Error() string {
 }
 
 type Repository interface {
-	Start(context.Context, string, string, StartInput) (Session, error)
-	Heartbeat(context.Context, string, string) (Session, error)
-	Close(context.Context, string, string) error
+	Start(context.Context, string, string, string, StartInput) (Session, error)
+	Heartbeat(context.Context, string, string, bool, string) (Session, error)
+	Close(context.Context, string, string, bool, string) error
 }
 
 type Service struct {
@@ -34,7 +34,8 @@ func NewService(organizationID string, repository Repository) *Service {
 	return &Service{organizationID: organizationID, repository: repository}
 }
 
-func (s *Service) Start(ctx context.Context, projectID string, input StartInput) (Session, error) {
+func (s *Service) Start(ctx context.Context, sponsorPrincipalID, projectID string, input StartInput) (Session, error) {
+	sponsorPrincipalID = strings.TrimSpace(sponsorPrincipalID)
 	projectID = strings.TrimSpace(projectID)
 	input.NodeKey = strings.TrimSpace(input.NodeKey)
 	input.NodeName = strings.TrimSpace(input.NodeName)
@@ -42,6 +43,9 @@ func (s *Service) Start(ctx context.Context, projectID string, input StartInput)
 	input.AgentType = strings.ToLower(strings.TrimSpace(input.AgentType))
 	input.ClientType = strings.ToLower(strings.TrimSpace(input.ClientType))
 	if err := validateUUID("project_id", projectID); err != nil {
+		return Session{}, err
+	}
+	if err := validateUUID("sponsor_principal_id", sponsorPrincipalID); err != nil {
 		return Session{}, err
 	}
 	for field, value := range map[string]string{
@@ -62,23 +66,31 @@ func (s *Service) Start(ctx context.Context, projectID string, input StartInput)
 	if len(input.AgentType) > 100 || len(input.ClientType) > 100 {
 		return Session{}, &ValidationError{Field: "client_type", Message: "must contain at most 100 characters"}
 	}
-	return s.repository.Start(ctx, s.organizationID, projectID, input)
+	return s.repository.Start(ctx, s.organizationID, sponsorPrincipalID, projectID, input)
 }
 
-func (s *Service) Heartbeat(ctx context.Context, sessionID string) (Session, error) {
+func (s *Service) Heartbeat(ctx context.Context, sponsorPrincipalID string, allowAll bool, sessionID string) (Session, error) {
+	sponsorPrincipalID = strings.TrimSpace(sponsorPrincipalID)
 	sessionID = strings.TrimSpace(sessionID)
+	if err := validateUUID("sponsor_principal_id", sponsorPrincipalID); err != nil {
+		return Session{}, err
+	}
 	if err := validateUUID("session_id", sessionID); err != nil {
 		return Session{}, err
 	}
-	return s.repository.Heartbeat(ctx, s.organizationID, sessionID)
+	return s.repository.Heartbeat(ctx, s.organizationID, sponsorPrincipalID, allowAll, sessionID)
 }
 
-func (s *Service) Close(ctx context.Context, sessionID string) error {
+func (s *Service) Close(ctx context.Context, sponsorPrincipalID string, allowAll bool, sessionID string) error {
+	sponsorPrincipalID = strings.TrimSpace(sponsorPrincipalID)
 	sessionID = strings.TrimSpace(sessionID)
+	if err := validateUUID("sponsor_principal_id", sponsorPrincipalID); err != nil {
+		return err
+	}
 	if err := validateUUID("session_id", sessionID); err != nil {
 		return err
 	}
-	return s.repository.Close(ctx, s.organizationID, sessionID)
+	return s.repository.Close(ctx, s.organizationID, sponsorPrincipalID, allowAll, sessionID)
 }
 
 func validateUUID(field, value string) error {

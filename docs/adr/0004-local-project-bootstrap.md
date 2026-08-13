@@ -53,9 +53,10 @@ sesión mediante `pact agent run`. Más adelante podrá contener:
 - cachés regenerables;
 - referencias a credenciales almacenadas en el llavero del sistema.
 
-Los secretos no se escribirán en `.pact/`. Se obtendrán del llavero, de un
-gestor de secretos o de una identidad de carga. La URL del servidor tampoco
-puede incluir credenciales.
+Los secretos no se escriben en `.pact/`. El CLI actual guarda el token fuera de
+los repositorios, en su configuración global con permisos `0600`; el llavero,
+un gestor de secretos o una identidad de carga reemplazarán ese fallback. La
+URL del servidor tampoco puede incluir credenciales.
 
 ### `pact init`
 
@@ -106,10 +107,10 @@ Cada Node establece una conexión saliente con el mismo Pact Server. El servidor
 autentica actores y nodos, coordina el estado común, registra eventos y publica
 actualizaciones. PostgreSQL no se expone a las máquinas del equipo.
 
-En una instalación compartida deberán existir TLS, OIDC o credenciales de nodo
-rotatorias, autorización por organización/proyecto, roles PostgreSQL separados
-y políticas de red. El token local actual no cumple esos requisitos y no debe
-utilizarse como autenticación de producción.
+Una instalación compartida requiere TLS, identidad y autorización por
+organización/proyecto. ADR-0006 añadió tokens personales y roles de proyecto;
+OIDC, credenciales de nodo rotatorias, roles PostgreSQL separados y políticas
+de red continúan pendientes.
 
 ## Autoridades
 
