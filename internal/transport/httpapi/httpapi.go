@@ -19,6 +19,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
@@ -37,6 +38,14 @@ type AgentSessionService interface {
 	Heartbeat(context.Context, string, bool, string) (agentsession.Session, error)
 	Observe(context.Context, string, string, string, agentsession.ObservationInput) (agentsession.ObservationResult, error)
 	Close(context.Context, string, bool, string) error
+}
+
+type CoordinationService interface {
+	CheckScopes(context.Context, string, []coordination.ScopeInput) (coordination.ScopeCheckResult, error)
+	Start(context.Context, string, bool, string, string, coordination.StartInput) (coordination.StartResult, error)
+	AttachWorkspace(context.Context, string, bool, string, string, coordination.WorkspaceInput) (coordination.WorkspaceResult, error)
+	UpdateStatus(context.Context, string, bool, string, string, coordination.StatusInput) (coordination.StatusResult, error)
+	List(context.Context, string) ([]coordination.WorkItem, error)
 }
 
 type AccessService interface {
@@ -60,6 +69,7 @@ type Config struct {
 	Readiness            ReadinessCheck
 	ProjectService       ProjectService
 	AgentSessionService  AgentSessionService
+	CoordinationService  CoordinationService
 	AccessService        AccessService
 	BackofficeReader     backoffice.Reader
 	EventReader          eventlog.Reader
@@ -75,6 +85,7 @@ type API struct {
 	readiness            ReadinessCheck
 	projects             ProjectService
 	agentSessions        AgentSessionService
+	coordination         CoordinationService
 	access               AccessService
 	backoffice           backoffice.Reader
 	events               eventlog.Reader
@@ -98,6 +109,7 @@ func New(cfg Config) http.Handler {
 		readiness:            cfg.Readiness,
 		projects:             cfg.ProjectService,
 		agentSessions:        cfg.AgentSessionService,
+		coordination:         cfg.CoordinationService,
 		access:               cfg.AccessService,
 		backoffice:           cfg.BackofficeReader,
 		events:               cfg.EventReader,
@@ -119,6 +131,11 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
 	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartAgentSession))))
+	mux.Handle("POST /v1/projects/{projectID}/scope-checks", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleScopeCheck))))
+	mux.Handle("GET /v1/projects/{projectID}/work-items", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListWork))))
+	mux.Handle("POST /v1/projects/{projectID}/work-items", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartWork))))
+	mux.Handle("POST /v1/intents/{intentID}/workspace", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspace)))
+	mux.Handle("POST /v1/intents/{intentID}/status", api.requireAuth(http.HandlerFunc(api.handleUpdateIntentStatus)))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/heartbeat", api.requireAuth(http.HandlerFunc(api.handleAgentHeartbeat)))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/repository-observations", api.requireAuth(http.HandlerFunc(api.handleRepositoryObservation)))
 	mux.Handle("DELETE /v1/agent-sessions/{sessionID}", api.requireAuth(http.HandlerFunc(api.handleCloseAgentSession)))
@@ -138,6 +155,10 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/scope-checks", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/work-items", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/intents/{intentID}/workspace", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/intents/{intentID}/status", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/heartbeat", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/repository-observations", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}", api.methodNotAllowed(http.MethodDelete))
@@ -268,13 +289,143 @@ func (a *API) handleStartAgentSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"data": session})
 }
 
+func (a *API) handleScopeCheck(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.coordination == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	var input struct {
+		Scopes []coordination.ScopeInput `json:"scopes"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	result, err := a.coordination.CheckScopes(r.Context(), r.PathValue("projectID"), input.Scopes)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (a *API) handleListWork(w http.ResponseWriter, r *http.Request) {
+	if a.coordination == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	items, err := a.coordination.List(r.Context(), r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"work_items": items}})
+}
+
+func (a *API) handleStartWork(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.coordination == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	var input coordination.StartInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.coordination.Start(
+		r.Context(), principal.ID, principalCanManageAll(principal),
+		r.PathValue("projectID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/intents/"+result.Intent.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (a *API) handleAttachWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.coordination == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	var input coordination.WorkspaceInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.coordination.AttachWorkspace(
+		r.Context(), principal.ID, principalCanManageAll(principal),
+		r.PathValue("intentID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/intents/"+r.PathValue("intentID")+"/workspace")
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (a *API) handleUpdateIntentStatus(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.coordination == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	var input coordination.StatusInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.coordination.UpdateStatus(
+		r.Context(), principal.ID, principalCanManageAll(principal),
+		r.PathValue("intentID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func principalCanManageAll(principal access.Principal) bool {
+	return principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin"
+}
+
 func (a *API) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if a.agentSessions == nil {
 		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
 		return
 	}
 	principal, _ := principalFromContext(r.Context())
-	allowAll := principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin"
+	allowAll := principalCanManageAll(principal)
 	session, err := a.agentSessions.Heartbeat(r.Context(), principal.ID, allowAll, r.PathValue("sessionID"))
 	if err != nil {
 		a.writeDomainError(w, r, err)
@@ -318,7 +469,7 @@ func (a *API) handleCloseAgentSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal, _ := principalFromContext(r.Context())
-	allowAll := principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin"
+	allowAll := principalCanManageAll(principal)
 	if err := a.agentSessions.Close(r.Context(), principal.ID, allowAll, r.PathValue("sessionID")); err != nil {
 		a.writeDomainError(w, r, err)
 		return
@@ -416,6 +567,13 @@ func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 		a.writeDomainError(w, r, err)
 		return
 	}
+	if a.coordination != nil {
+		overview.WorkItems, err = a.coordination.List(r.Context(), project.ID)
+		if err != nil {
+			a.writeDomainError(w, r, err)
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
 		"project":       project,
@@ -423,6 +581,7 @@ func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 		"counts":        overview.Counts,
 		"active_work":   overview.ActiveWork,
 		"recent_events": overview.RecentEvents,
+		"work_items":    overview.WorkItems,
 		"generated_at":  overview.GeneratedAt,
 	}})
 }
@@ -665,6 +824,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var validationErr *projects.ValidationError
 	var agentValidationErr *agentsession.ValidationError
 	var accessValidationErr *access.ValidationError
+	var coordinationValidationErr *coordination.ValidationError
+	var scopeConflictErr *coordination.ScopeConflictError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", validationErr.Error())
@@ -672,11 +833,29 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", agentValidationErr.Error())
 	case errors.As(err, &accessValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", accessValidationErr.Error())
+	case errors.As(err, &coordinationValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", coordinationValidationErr.Error())
+	case errors.As(err, &scopeConflictErr):
+		writeScopeConflict(w, r, scopeConflictErr)
 	case errors.Is(err, access.ErrUnauthorized):
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "A valid Pact access token is required.")
 	case errors.Is(err, access.ErrForbidden):
 		writeProblem(w, r, http.StatusForbidden, "forbidden", "Forbidden", "The current identity does not have permission for this operation.")
+	case errors.Is(err, coordination.ErrForbidden):
+		writeProblem(w, r, http.StatusForbidden, "coordination_forbidden", "Forbidden", err.Error())
+	case errors.Is(err, coordination.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "coordinated_work_not_found", "Coordinated work not found", err.Error())
+	case errors.Is(err, coordination.ErrVersionConflict):
+		writeProblem(w, r, http.StatusConflict, "intent_version_conflict", "Intent changed", err.Error())
+	case errors.Is(err, coordination.ErrInvalidTransition):
+		writeProblem(w, r, http.StatusConflict, "invalid_intent_transition", "Invalid intent transition", err.Error())
+	case errors.Is(err, coordination.ErrWorkspaceExists):
+		writeProblem(w, r, http.StatusConflict, "workspace_exists", "Workspace already exists", err.Error())
+	case errors.Is(err, coordination.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, coordination.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
 	case errors.Is(err, access.ErrInvitationInvalid):
 		writeProblem(w, r, http.StatusUnauthorized, "invitation_invalid", "Invalid invitation", err.Error())
 	case errors.Is(err, access.ErrInvitationExists):
@@ -703,6 +882,18 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		a.logger.ErrorContext(r.Context(), "request failed", "error", err)
 		writeProblem(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", "The request could not be completed.")
 	}
+}
+
+func writeScopeConflict(w http.ResponseWriter, r *http.Request, conflict *coordination.ScopeConflictError) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"type":  "https://the-pact.dev/problems/scope_conflict",
+		"title": "Scope already reserved", "status": http.StatusConflict,
+		"detail": conflict.Error(), "instance": r.URL.Path,
+		"code": "scope_conflict", "request_id": requestIDFromContext(r.Context()),
+		"overlaps": conflict.Overlaps,
+	})
 }
 
 func eventPage(r *http.Request) (int64, int, error) {

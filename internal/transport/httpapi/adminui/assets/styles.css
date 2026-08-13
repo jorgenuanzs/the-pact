@@ -1129,6 +1129,189 @@ button:disabled {
   align-items: start;
 }
 
+.workboard-panel {
+  margin-bottom: 18px;
+}
+
+.workboard-header,
+.workboard-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workboard-summary {
+  gap: 14px;
+}
+
+.workboard-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.workboard-item {
+  display: grid;
+  grid-template-columns: minmax(165px, 0.72fr) minmax(280px, 1.65fr) minmax(150px, 0.63fr);
+  gap: 22px;
+  align-items: start;
+  padding: 19px 21px;
+  border-bottom: 1px solid var(--paper-200);
+  border-left: 3px solid var(--blue);
+}
+
+.workboard-item:last-child {
+  border-bottom: 0;
+}
+
+.workboard-item.status-blocked {
+  border-left-color: var(--red);
+}
+
+.workboard-item.status-submitted {
+  border-left-color: var(--amber);
+}
+
+.workboard-item.status-completed,
+.workboard-item.status-cancelled,
+.workboard-item.status-abandoned {
+  border-left-color: var(--paper-300);
+  opacity: 0.74;
+}
+
+.workboard-presence {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.presence-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  background: var(--paper-300);
+  border-radius: 50%;
+}
+
+.presence-dot.is-live {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgb(12 114 73 / 10%);
+  animation: live-pulse 1.8s ease-out infinite;
+}
+
+.workboard-presence strong,
+.workboard-presence span,
+.workboard-location code,
+.workboard-location span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workboard-presence strong {
+  color: var(--ink-800);
+  font-size: 0.73rem;
+}
+
+.workboard-presence span,
+.workboard-location span {
+  margin-top: 5px;
+  color: var(--ink-500);
+  font-size: 0.6rem;
+}
+
+.workboard-main {
+  min-width: 0;
+}
+
+.workboard-title-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.workboard-title-row > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-900);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intent-status {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.intent-status.status-blocked {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.intent-status.status-submitted {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.intent-status.status-completed {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.workboard-main > p {
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: var(--ink-600);
+  font-size: 0.67rem;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.scope-chip,
+.scope-more {
+  padding: 3px 6px;
+  color: var(--ink-700);
+  background: var(--paper-100);
+  border: 1px solid var(--paper-300);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.55rem;
+}
+
+.scope-chip.mode-exclusive {
+  border-left: 2px solid var(--ink-700);
+}
+
+.scope-chip.mode-shared {
+  border-left: 2px solid var(--blue);
+}
+
+.workboard-location {
+  min-width: 0;
+  text-align: right;
+}
+
+.workboard-location code {
+  color: var(--ink-700);
+  font-size: 0.62rem;
+}
+
 .dashboard-primary {
   display: grid;
   gap: 18px;
@@ -1602,6 +1785,15 @@ button:disabled {
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .workboard-item {
+    grid-template-columns: minmax(150px, 0.7fr) minmax(260px, 1.3fr);
+  }
+
+  .workboard-location {
+    grid-column: 2;
+    text-align: left;
+  }
 }
 
 @media (max-width: 620px) {
@@ -1719,6 +1911,25 @@ button:disabled {
   .work-item {
     grid-template-columns: 1fr;
     gap: 11px;
+  }
+
+  .workboard-header {
+    align-items: flex-start;
+  }
+
+  .workboard-summary {
+    flex-direction: column-reverse;
+    gap: 7px;
+    align-items: flex-end;
+  }
+
+  .workboard-item {
+    grid-template-columns: 1fr;
+    gap: 13px;
+  }
+
+  .workboard-location {
+    grid-column: auto;
   }
 
   .work-meta {

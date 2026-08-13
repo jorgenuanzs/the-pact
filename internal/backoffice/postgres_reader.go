@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 )
 
 const (
@@ -68,6 +69,7 @@ func (r *PostgresReader) Get(
 		},
 		ActiveWork:   make([]ActiveWork, 0),
 		RecentEvents: make([]RecentEvent, 0),
+		WorkItems:    make([]coordination.WorkItem, 0),
 		GeneratedAt:  asOf,
 	}
 
@@ -202,6 +204,7 @@ func (r *PostgresReader) loadCounts(
 				WHERE organization_id = $1
 				  AND project_id = $2
 				  AND status = 'active'
+				  AND expires_at > $3
 			),
 			(
 				SELECT count(*)
@@ -428,18 +431,22 @@ func (r *PostgresReader) loadRecentEvents(
 ) ([]RecentEvent, error) {
 	rows, err := database.Query(ctx, `
 		SELECT
-			id,
-			project_sequence,
-			event_type,
-			actor_id,
-			session_id,
-			intent_id,
-			occurred_at,
-			payload
-		FROM platform.events
-		WHERE organization_id = $1
-		  AND project_id = $2
-		ORDER BY project_sequence DESC
+			event.id,
+			event.project_sequence,
+			event.event_type,
+			event.actor_id,
+			actor.display_name,
+			event.session_id,
+			event.intent_id,
+			event.occurred_at,
+			event.payload
+		FROM platform.events AS event
+		LEFT JOIN identity.actors AS actor
+		  ON actor.organization_id = event.organization_id
+		 AND actor.id = event.actor_id
+		WHERE event.organization_id = $1
+		  AND event.project_id = $2
+		ORDER BY event.project_sequence DESC
 		LIMIT $3
 	`, organizationID, projectID, recentEventLimit)
 	if err != nil {
@@ -458,6 +465,7 @@ func (r *PostgresReader) loadRecentEvents(
 			&sequence,
 			&event.Type,
 			&event.ActorID,
+			&event.ActorName,
 			&event.SessionID,
 			&event.IntentID,
 			&event.OccurredAt,

@@ -3,6 +3,8 @@ package backoffice
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 )
 
 const (
@@ -21,11 +23,12 @@ const (
 )
 
 type Overview struct {
-	CodeActivity CodeActivity  `json:"code_activity"`
-	Counts       Counts        `json:"counts"`
-	ActiveWork   []ActiveWork  `json:"active_work"`
-	RecentEvents []RecentEvent `json:"recent_events"`
-	GeneratedAt  time.Time     `json:"generated_at"`
+	CodeActivity CodeActivity            `json:"code_activity"`
+	Counts       Counts                  `json:"counts"`
+	ActiveWork   []ActiveWork            `json:"active_work"`
+	RecentEvents []RecentEvent           `json:"recent_events"`
+	WorkItems    []coordination.WorkItem `json:"work_items"`
+	GeneratedAt  time.Time               `json:"generated_at"`
 }
 
 type CodeActivity struct {
@@ -79,6 +82,7 @@ type RecentEvent struct {
 	Sequence   string          `json:"sequence"`
 	Type       string          `json:"type"`
 	ActorID    *string         `json:"actor_id"`
+	ActorName  *string         `json:"actor_name"`
 	SessionID  *string         `json:"session_id"`
 	IntentID   *string         `json:"intent_id"`
 	OccurredAt time.Time       `json:"occurred_at"`

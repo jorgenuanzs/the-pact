@@ -15,6 +15,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 )
 
@@ -27,10 +28,11 @@ type Client struct {
 }
 
 type Problem struct {
-	Status int    `json:"status"`
-	Code   string `json:"code"`
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+	Status   int                         `json:"status"`
+	Code     string                      `json:"code"`
+	Title    string                      `json:"title"`
+	Detail   string                      `json:"detail"`
+	Overlaps []coordination.ScopeOverlap `json:"overlaps,omitempty"`
 }
 
 func (p *Problem) Error() string {
@@ -102,6 +104,93 @@ func (c *Client) GetProjectOverview(ctx context.Context, projectID string) (proj
 		return projects.Project{}, backoffice.Overview{}, err
 	}
 	return response.Data.Project, response.Data.Overview, nil
+}
+
+func (c *Client) CheckScopes(
+	ctx context.Context,
+	projectID string,
+	scopes []coordination.ScopeInput,
+) (coordination.ScopeCheckResult, error) {
+	var response struct {
+		Data coordination.ScopeCheckResult `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/scope-checks"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Body: map[string]any{"scopes": scopes},
+	}, &response); err != nil {
+		return coordination.ScopeCheckResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) StartWork(
+	ctx context.Context,
+	projectID string,
+	idempotencyKey string,
+	input coordination.StartInput,
+) (coordination.StartResult, error) {
+	var response struct {
+		Data coordination.StartResult `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/work-items"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return coordination.StartResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) AttachWorkspace(
+	ctx context.Context,
+	intentID string,
+	idempotencyKey string,
+	input coordination.WorkspaceInput,
+) (coordination.WorkspaceResult, error) {
+	var response struct {
+		Data coordination.WorkspaceResult `json:"data"`
+	}
+	path := "/v1/intents/" + url.PathEscape(intentID) + "/workspace"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return coordination.WorkspaceResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) UpdateWorkStatus(
+	ctx context.Context,
+	intentID string,
+	idempotencyKey string,
+	input coordination.StatusInput,
+) (coordination.StatusResult, error) {
+	var response struct {
+		Data coordination.StatusResult `json:"data"`
+	}
+	path := "/v1/intents/" + url.PathEscape(intentID) + "/status"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return coordination.StatusResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) ListWork(ctx context.Context, projectID string) ([]coordination.WorkItem, error) {
+	var response struct {
+		Data struct {
+			WorkItems []coordination.WorkItem `json:"work_items"`
+		} `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/work-items"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.WorkItems == nil {
+		response.Data.WorkItems = make([]coordination.WorkItem, 0)
+	}
+	return response.Data.WorkItems, nil
 }
 
 func (c *Client) CreateProject(

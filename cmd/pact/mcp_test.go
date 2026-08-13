@@ -17,6 +17,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
@@ -53,6 +54,21 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 			ID: "event-1", Sequence: "7", Type: "pact.project.created.v1", OccurredAt: now,
 			Data: json.RawMessage(`{"root_repository":{"remote_url":"https://token@example.com/repo.git"},"api_token":"must-not-leak","name":"Footfall"}`),
 		}},
+		WorkItems: []coordination.WorkItem{{
+			Intent: coordination.Intent{
+				ID: "intent-1", ProjectID: projectID, Title: "Improve API", Goal: "Safer endpoint",
+				Status: "active", StatusDetail: map[string]any{}, BaseRevision: strings.Repeat("a", 40), Version: 1,
+			},
+			ResponsibleName: "Codex", SessionLive: true,
+			Scopes: []coordination.ScopeClaim{{
+				Resource: coordination.ResourceRef{Kind: "path", Locator: "internal/api"},
+				Mode:     "exclusive", Status: "active",
+			}},
+			Workspace: &coordination.Workspace{
+				ID: "workspace-1", IntentID: "intent-1", SessionID: sessionID,
+				GitBranch: "pact/intent-improve-api", PathRef: privatePath, Status: "ready",
+			},
+		}},
 		GeneratedAt: now,
 	}
 	principal := access.Principal{
@@ -77,6 +93,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 				"project": project, "code_activity": overview.CodeActivity, "counts": overview.Counts,
 				"active_work": overview.ActiveWork, "recent_events": overview.RecentEvents,
+				"work_items":   overview.WorkItems,
 				"generated_at": overview.GeneratedAt,
 			}})
 		case "/v1/agent-sessions/" + sessionID + "/repository-observations":
@@ -145,7 +162,10 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 		}
 		toolNames[tool.Name] = true
 	}
-	for _, expected := range []string{"pact.project_context", "pact.list_projects", "pact.refresh_git_observation"} {
+	for _, expected := range []string{
+		"pact.project_context", "pact.list_projects", "pact.refresh_git_observation",
+		"pact.check_scopes", "pact.start_work", "pact.list_work", "pact.update_work",
+	} {
 		if !toolNames[expected] {
 			t.Errorf("MCP tool %q was not registered", expected)
 		}
@@ -163,7 +183,10 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	contextJSON := string(encoded)
-	for _, expected := range []string{"Footfall", "codex-mcp", `"changed_paths":1`, `"remote_url":"[REDACTED]"`, `"api_token":"[REDACTED]"`} {
+	for _, expected := range []string{
+		"Footfall", "codex-mcp", "Improve API", "internal/api", "pact/intent-improve-api",
+		`"changed_paths":1`, `"remote_url":"[REDACTED]"`, `"api_token":"[REDACTED]"`,
+	} {
 		if !strings.Contains(contextJSON, expected) {
 			t.Errorf("project context does not contain %q: %s", expected, contextJSON)
 		}

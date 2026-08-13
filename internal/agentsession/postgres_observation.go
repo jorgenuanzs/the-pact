@@ -14,6 +14,7 @@ import (
 
 const (
 	workspaceDiffEventType = "pact.workspace.diff_updated.v1"
+	workspaceHeadEventType = "pact.workspace.head_updated.v1"
 	externalGitEventType   = "pact.git.external_change_detected.v1"
 )
 
@@ -40,13 +41,24 @@ func (r *PostgresRepository) Observe(
 		projectID string
 		actorID   string
 		nodeID    string
+		intentID  *string
 	)
+	var workspaceID any
+	if input.WorkspaceID != nil {
+		workspaceID = *input.WorkspaceID
+	}
 	err = tx.QueryRow(ctx, `
-		SELECT session.project_id, session.actor_id, session.node_id
+		SELECT session.project_id, session.actor_id, session.node_id, workspace.intent_id
 		FROM identity.sessions AS session
 		JOIN identity.agents AS agent
 		  ON agent.organization_id = session.organization_id
 		 AND agent.id = session.actor_id
+		LEFT JOIN coordination.workspaces AS workspace
+		  ON workspace.organization_id = session.organization_id
+		 AND workspace.project_id = session.project_id
+		 AND workspace.session_id = session.id
+		 AND workspace.id = $4::uuid
+		 AND workspace.status IN ('provisioning', 'ready', 'active', 'frozen')
 		WHERE session.organization_id = $1
 		  AND session.id = $2
 		  AND agent.sponsor_principal_id = $3
@@ -54,8 +66,9 @@ func (r *PostgresRepository) Observe(
 		  AND session.expires_at > transaction_timestamp()
 		  AND session.announced_capabilities
 		      @> '{"workspace.diff.observe.v1": true}'::jsonb
+		  AND ($4::uuid IS NULL OR workspace.id IS NOT NULL)
 		FOR UPDATE OF session
-	`, organizationID, sessionID, sponsorPrincipalID).Scan(&projectID, &actorID, &nodeID)
+	`, organizationID, sessionID, sponsorPrincipalID, workspaceID).Scan(&projectID, &actorID, &nodeID, &intentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ObservationResult{}, ErrNotFound
 	}
@@ -92,8 +105,9 @@ func (r *PostgresRepository) Observe(
 		WHERE organization_id = $1
 		  AND project_id = $2
 		  AND session_id = $3
+		  AND workspace_id IS NOT DISTINCT FROM $4::uuid
 		FOR UPDATE
-	`, organizationID, projectID, sessionID).Scan(
+	`, organizationID, projectID, sessionID, workspaceID).Scan(
 		&observation.ID, &previousDirty, &previousFingerprint, &previousRevision,
 	)
 	if err == nil {
@@ -105,23 +119,24 @@ func (r *PostgresRepository) Observe(
 	if existed {
 		err = tx.QueryRow(ctx, `
 			UPDATE coordination.repository_observations
-			SET worktree_dirty = $4,
-			    diff_fingerprint = $5,
-			    changed_paths = $6,
-			    git_revision = NULLIF($7, ''),
-			    git_branch = NULLIF($8, ''),
+			SET worktree_dirty = $5,
+			    diff_fingerprint = $6,
+			    changed_paths = $7,
+			    git_revision = NULLIF($8, ''),
+			    git_branch = NULLIF($9, ''),
 			    version = version + 1,
 			    observed_at = transaction_timestamp()
 			WHERE organization_id = $1
 			  AND project_id = $2
 			  AND session_id = $3
+			  AND workspace_id IS NOT DISTINCT FROM $4::uuid
 			RETURNING id, project_id, session_id, actor_id, node_id,
-			          worktree_dirty, encode(diff_fingerprint, 'hex'), changed_paths,
+			          workspace_id, worktree_dirty, encode(diff_fingerprint, 'hex'), changed_paths,
 			          COALESCE(git_revision, ''), COALESCE(git_branch, ''), version, observed_at
-		`, organizationID, projectID, sessionID, input.Dirty, fingerprint, input.ChangedPaths,
+		`, organizationID, projectID, sessionID, workspaceID, input.Dirty, fingerprint, input.ChangedPaths,
 			input.HeadRevision, input.Branch).Scan(
 			&observation.ID, &observation.ProjectID, &observation.SessionID,
-			&observation.ActorID, &observation.NodeID, &observation.Dirty,
+			&observation.ActorID, &observation.NodeID, &observation.WorkspaceID, &observation.Dirty,
 			&observation.DiffFingerprint, &observation.ChangedPaths,
 			&observation.HeadRevision, &observation.Branch,
 			&observation.Version, &observation.ObservedAt,
@@ -130,16 +145,16 @@ func (r *PostgresRepository) Observe(
 		err = tx.QueryRow(ctx, `
 			INSERT INTO coordination.repository_observations (
 				organization_id, project_id, session_id, actor_id, node_id,
-				worktree_dirty, diff_fingerprint, changed_paths, git_revision, git_branch
+				workspace_id, worktree_dirty, diff_fingerprint, changed_paths, git_revision, git_branch
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''))
+			VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''))
 			RETURNING id, project_id, session_id, actor_id, node_id,
-			          worktree_dirty, encode(diff_fingerprint, 'hex'), changed_paths,
+			          workspace_id, worktree_dirty, encode(diff_fingerprint, 'hex'), changed_paths,
 			          COALESCE(git_revision, ''), COALESCE(git_branch, ''), version, observed_at
-		`, organizationID, projectID, sessionID, actorID, nodeID, input.Dirty, fingerprint,
+		`, organizationID, projectID, sessionID, actorID, nodeID, workspaceID, input.Dirty, fingerprint,
 			input.ChangedPaths, input.HeadRevision, input.Branch).Scan(
 			&observation.ID, &observation.ProjectID, &observation.SessionID,
-			&observation.ActorID, &observation.NodeID, &observation.Dirty,
+			&observation.ActorID, &observation.NodeID, &observation.WorkspaceID, &observation.Dirty,
 			&observation.DiffFingerprint, &observation.ChangedPaths,
 			&observation.HeadRevision, &observation.Branch,
 			&observation.Version, &observation.ObservedAt,
@@ -148,6 +163,7 @@ func (r *PostgresRepository) Observe(
 	if err != nil {
 		return ObservationResult{}, fmt.Errorf("store repository observation: %w", err)
 	}
+	observation.IntentID = intentID
 
 	result := ObservationResult{Observation: observation}
 	diffChanged := input.Dirty && (!existed || !previousDirty || !bytes.Equal(previousFingerprint, fingerprint))
@@ -160,7 +176,11 @@ func (r *PostgresRepository) Observe(
 	if diffChanged {
 		eventType = workspaceDiffEventType
 	} else if headChanged {
-		eventType = externalGitEventType
+		if observation.WorkspaceID != nil {
+			eventType = workspaceHeadEventType
+		} else {
+			eventType = externalGitEventType
+		}
 	}
 	if eventType != "" {
 		eventID, appendErr := appendObservationEvent(
@@ -217,28 +237,37 @@ func appendObservationEvent(
 ) (string, error) {
 	var projectSequence int64
 	err := tx.QueryRow(ctx, `
-		UPDATE platform.project_event_counters
-		SET last_sequence = last_sequence + 1,
-		    updated_at = transaction_timestamp()
-		WHERE organization_id = $1 AND project_id = $2
-		RETURNING last_sequence
+		WITH next_sequence AS (
+			UPDATE platform.project_event_counters
+			SET last_sequence = last_sequence + 1,
+			    updated_at = transaction_timestamp()
+			WHERE organization_id = $1 AND project_id = $2
+			RETURNING last_sequence
+		)
+		UPDATE identity.projects AS project
+		SET event_sequence = next_sequence.last_sequence
+		FROM next_sequence
+		WHERE project.organization_id = $1 AND project.id = $2
+		RETURNING next_sequence.last_sequence
 	`, organizationID, observation.ProjectID).Scan(&projectSequence)
 	if err != nil {
 		return "", fmt.Errorf("allocate repository observation event sequence: %w", err)
 	}
 	payload, err := json.Marshal(struct {
-		ObservationID   string `json:"observation_id"`
-		NodeID          string `json:"node_id"`
-		Dirty           bool   `json:"dirty"`
-		ChangedPaths    int    `json:"changed_paths"`
-		DiffFingerprint string `json:"diff_fingerprint"`
-		HeadRevision    string `json:"head_revision,omitempty"`
-		Branch          string `json:"branch,omitempty"`
+		ObservationID   string  `json:"observation_id"`
+		NodeID          string  `json:"node_id"`
+		Dirty           bool    `json:"dirty"`
+		ChangedPaths    int     `json:"changed_paths"`
+		DiffFingerprint string  `json:"diff_fingerprint"`
+		HeadRevision    string  `json:"head_revision,omitempty"`
+		Branch          string  `json:"branch,omitempty"`
+		WorkspaceID     *string `json:"workspace_id,omitempty"`
 	}{
 		ObservationID: observation.ID, NodeID: observation.NodeID,
 		Dirty: observation.Dirty, ChangedPaths: observation.ChangedPaths,
 		DiffFingerprint: observation.DiffFingerprint,
 		HeadRevision:    observation.HeadRevision, Branch: observation.Branch,
+		WorkspaceID: observation.WorkspaceID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode repository observation event: %w", err)
@@ -248,18 +277,18 @@ func appendObservationEvent(
 		INSERT INTO platform.events (
 			organization_id, project_id, project_sequence, event_type,
 			event_version, aggregate_type, aggregate_id, aggregate_version,
-			actor_id, session_id, command_id, correlation_id, git_revision,
+			actor_id, session_id, intent_id, command_id, correlation_id, git_revision,
 			payload, payload_hash
 		)
 		VALUES (
 			$1, $2, $3, $4, 1, 'repository_observation', $5, $6,
-			$7, $8, $9, $9, NULLIF($10, ''), $11,
-			sha256(convert_to(($11::jsonb)::text, 'UTF8'))
+			$7, $8, $9, $10, $10, NULLIF($11, ''), $12,
+			sha256(convert_to(($12::jsonb)::text, 'UTF8'))
 		)
 		RETURNING id
 	`, organizationID, observation.ProjectID, projectSequence, eventType,
 		observation.ID, observation.Version, observation.ActorID, observation.SessionID,
-		commandID, observation.HeadRevision, payload).Scan(&eventID)
+		observation.IntentID, commandID, observation.HeadRevision, payload).Scan(&eventID)
 	if err != nil {
 		return "", fmt.Errorf("append repository observation event: %w", err)
 	}

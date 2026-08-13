@@ -16,6 +16,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 )
@@ -115,6 +116,34 @@ type fakeAgentSessionService struct {
 	observe func(context.Context, string, string, string, agentsession.ObservationInput) (agentsession.ObservationResult, error)
 }
 
+type fakeCoordinationService struct {
+	check     func(context.Context, string, []coordination.ScopeInput) (coordination.ScopeCheckResult, error)
+	start     func(context.Context, string, bool, string, string, coordination.StartInput) (coordination.StartResult, error)
+	workspace func(context.Context, string, bool, string, string, coordination.WorkspaceInput) (coordination.WorkspaceResult, error)
+	status    func(context.Context, string, bool, string, string, coordination.StatusInput) (coordination.StatusResult, error)
+	list      func(context.Context, string) ([]coordination.WorkItem, error)
+}
+
+func (f fakeCoordinationService) CheckScopes(ctx context.Context, projectID string, scopes []coordination.ScopeInput) (coordination.ScopeCheckResult, error) {
+	return f.check(ctx, projectID, scopes)
+}
+
+func (f fakeCoordinationService) Start(ctx context.Context, principalID string, allowAll bool, projectID, key string, input coordination.StartInput) (coordination.StartResult, error) {
+	return f.start(ctx, principalID, allowAll, projectID, key, input)
+}
+
+func (f fakeCoordinationService) AttachWorkspace(ctx context.Context, principalID string, allowAll bool, intentID, key string, input coordination.WorkspaceInput) (coordination.WorkspaceResult, error) {
+	return f.workspace(ctx, principalID, allowAll, intentID, key, input)
+}
+
+func (f fakeCoordinationService) UpdateStatus(ctx context.Context, principalID string, allowAll bool, intentID, key string, input coordination.StatusInput) (coordination.StatusResult, error) {
+	return f.status(ctx, principalID, allowAll, intentID, key, input)
+}
+
+func (f fakeCoordinationService) List(ctx context.Context, projectID string) ([]coordination.WorkItem, error) {
+	return f.list(ctx, projectID)
+}
+
 func (fakeAgentSessionService) Start(context.Context, string, string, agentsession.StartInput) (agentsession.Session, error) {
 	return agentsession.Session{}, nil
 }
@@ -197,6 +226,66 @@ func TestRepositoryObservationUsesAuthenticatedSessionAndIdempotency(t *testing.
 
 	if response.Code != http.StatusOK || response.Header().Get("Idempotency-Replayed") != "true" {
 		t.Fatalf("status = %d, replayed = %q, body = %s", response.Code, response.Header().Get("Idempotency-Replayed"), response.Body.String())
+	}
+}
+
+func TestStartWorkUsesAuthenticatedPrincipalAndReturnsLocation(t *testing.T) {
+	const (
+		projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+		intentID  = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+		sessionID = "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
+	)
+	handler := New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AccessService: fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+		CoordinationService: fakeCoordinationService{start: func(_ context.Context, principalID string, allowAll bool, receivedProjectID, key string, input coordination.StartInput) (coordination.StartResult, error) {
+			if principalID != access.BootstrapPrincipalID || !allowAll || receivedProjectID != projectID || key != "work-1" {
+				t.Fatalf("principal=%q allowAll=%v project=%q key=%q", principalID, allowAll, receivedProjectID, key)
+			}
+			if input.SessionID != sessionID || input.Title != "Change API" || len(input.Scopes) != 1 {
+				t.Fatalf("input = %#v", input)
+			}
+			return coordination.StartResult{Intent: coordination.Intent{ID: intentID, ProjectID: projectID, Status: "active", Version: 1}, Replayed: true}, nil
+		}},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/projects/"+projectID+"/work-items", `{"session_id":"`+sessionID+`","title":"Change API","goal":"Safer API","base_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scopes":[{"kind":"path","locator":"internal/api"}]}`)
+	request.Header.Set("Idempotency-Key", "work-1")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/v1/intents/"+intentID || response.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("status=%d location=%q replayed=%q body=%s", response.Code, response.Header().Get("Location"), response.Header().Get("Idempotency-Replayed"), response.Body.String())
+	}
+}
+
+func TestStartWorkReturnsStructuredScopeConflict(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	overlap := coordination.ScopeOverlap{
+		Requested:        coordination.ScopeInput{Kind: "file", Locator: "internal/api.go", Mode: "exclusive"},
+		ExistingIntentID: "018f784a-68c1-7b0f-8f2a-cfc255f99e2e", ExistingActor: "Kimi",
+		ExistingScope: coordination.ScopeInput{Kind: "path", Locator: "internal", Mode: "exclusive"}, Blocking: true,
+	}
+	handler := New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AccessService: fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+		CoordinationService: fakeCoordinationService{start: func(context.Context, string, bool, string, string, coordination.StartInput) (coordination.StartResult, error) {
+			return coordination.StartResult{}, &coordination.ScopeConflictError{Overlaps: []coordination.ScopeOverlap{overlap}}
+		}},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/projects/"+projectID+"/work-items", `{}`)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"code":"scope_conflict"`) || !strings.Contains(response.Body.String(), `"existing_actor":"Kimi"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

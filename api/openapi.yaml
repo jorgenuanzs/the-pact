@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pact API
-  version: 0.3.0
+  version: 0.5.0
   description: |
     API del primer recorrido vertical de Pact.
 
@@ -16,6 +16,7 @@ tags:
   - name: Projects
   - name: Events
   - name: Agents
+  - name: Coordination
   - name: Access
 paths:
   /livez:
@@ -375,6 +376,185 @@ paths:
           $ref: "#/components/responses/UnsupportedMediaType"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/scope-checks:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      tags:
+        - Coordination
+      operationId: checkProjectScopes
+      summary: Comprueba si unos scopes se solapan con trabajo vigente
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScopeCheckRequest"
+      responses:
+        "200":
+          description: Resultado de la comprobación; `blocked` indica un solapamiento exclusivo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeCheckResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/projects/{project_id}/work-items:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Coordination
+      operationId: listProjectWork
+      summary: Lista el trabajo coordinado e histórico del proyecto
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Intenciones con responsable, scopes, workspace y presencia.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkItemListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Coordination
+      operationId: startProjectWork
+      summary: Declara una intención y reserva sus scopes
+      description: |
+        Los scopes son exclusivos por defecto. PACT serializa la comprobación y
+        la creación por proyecto para impedir que dos solicitudes concurrentes
+        obtengan la misma reserva. `allow_overlap` es una anulación explícita y
+        queda registrada en el evento durable.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartWorkRequest"
+      responses:
+        "201":
+          description: Intención activa y leases de scopes creados.
+          headers:
+            Location:
+              schema:
+                type: string
+            Idempotency-Replayed:
+              schema:
+                type: string
+                const: "true"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartWorkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Scope reservado o conflicto de idempotencia.
+          content:
+            application/problem+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ScopeConflictProblem"
+                  - $ref: "#/components/schemas/Problem"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/intents/{intent_id}/workspace:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags:
+        - Coordination
+      operationId: attachIntentWorkspace
+      summary: Registra el worktree aislado de una intención
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachWorkspaceRequest"
+      responses:
+        "201":
+          description: Workspace listo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/intents/{intent_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags:
+        - Coordination
+      operationId: updateIntentStatus
+      summary: Actualiza el estado y resumen durable de una intención
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateIntentStatusRequest"
+      responses:
+        "200":
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
   /v1/agent-sessions/{session_id}/heartbeat:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -627,6 +807,14 @@ components:
       in: path
       required: true
       description: Identificador opaco de la sesión activa.
+      schema:
+        type: string
+        format: uuid
+    IntentId:
+      name: intent_id
+      in: path
+      required: true
+      description: Identificador opaco de la intención coordinada.
       schema:
         type: string
         format: uuid
@@ -1183,6 +1371,548 @@ components:
         expires_at:
           type: string
           format: date-time
+    ScopeInput:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - locator
+      properties:
+        kind:
+          type: string
+          enum:
+            - repository
+            - path
+            - file
+        locator:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Ruta relativa al repositorio; para `repository`, PACT la normaliza a `.`.
+        mode:
+          type: string
+          enum:
+            - exclusive
+            - shared
+          default: exclusive
+    ResourceRef:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - locator
+      properties:
+        id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - repository
+            - path
+            - file
+        locator:
+          type: string
+    ScopeClaim:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - intent_id
+        - resource
+        - origin
+        - mode
+        - status
+        - version
+        - created_at
+        - updated_at
+        - last_renewed_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        intent_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        resource:
+          $ref: "#/components/schemas/ResourceRef"
+        origin:
+          type: string
+          enum:
+            - declared
+            - observed
+            - inferred
+            - verified
+        mode:
+          type: string
+          enum:
+            - exclusive
+            - shared
+        status:
+          type: string
+          enum:
+            - active
+            - released
+            - superseded
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_renewed_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    ScopeOverlap:
+      type: object
+      additionalProperties: false
+      required:
+        - requested
+        - existing_claim_id
+        - existing_intent_id
+        - existing_title
+        - existing_status
+        - existing_actor_id
+        - existing_actor
+        - existing_scope
+        - blocking
+        - reason
+        - expires_at
+      properties:
+        requested:
+          $ref: "#/components/schemas/ScopeInput"
+        existing_claim_id:
+          type: string
+          format: uuid
+        existing_intent_id:
+          type: string
+          format: uuid
+        existing_title:
+          type: string
+        existing_status:
+          type: string
+        existing_actor_id:
+          type: string
+          format: uuid
+        existing_actor:
+          type: string
+        existing_scope:
+          $ref: "#/components/schemas/ScopeInput"
+        blocking:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - repository_scope
+            - exact_scope
+            - path_hierarchy
+        expires_at:
+          type: string
+          format: date-time
+    ScopeCheckRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - scopes
+      properties:
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ScopeInput"
+    ScopeCheckResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - scopes
+            - overlaps
+            - blocked
+          properties:
+            scopes:
+              type: array
+              items:
+                $ref: "#/components/schemas/ScopeInput"
+            overlaps:
+              type: array
+              items:
+                $ref: "#/components/schemas/ScopeOverlap"
+            blocked:
+              type: boolean
+    Intent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - title
+        - goal
+        - success_criteria
+        - status
+        - status_detail
+        - base_revision
+        - responsible_agent_id
+        - created_by_actor_id
+        - version
+        - created_at
+        - updated_at
+        - status_changed_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        success_criteria:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 1000
+        status:
+          type: string
+          enum:
+            - draft
+            - active
+            - blocked
+            - submitted
+            - completed
+            - cancelled
+            - abandoned
+        summary:
+          type: string
+          maxLength: 10000
+        status_detail:
+          type: object
+          additionalProperties: true
+        base_revision:
+          type: string
+          pattern: "^[0-9a-f]{7,64}$"
+        responsible_agent_id:
+          type: string
+          format: uuid
+        created_by_actor_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        status_changed_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    Workspace:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - repository_id
+        - intent_id
+        - session_id
+        - base_revision
+        - path_ref
+        - git_branch
+        - status
+        - status_detail
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        intent_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        base_revision:
+          type: string
+        path_ref:
+          type: string
+          description: Referencia local relativa y opaca para otros actores.
+        git_branch:
+          type: string
+        status:
+          type: string
+          enum:
+            - provisioning
+            - ready
+            - active
+            - frozen
+            - archived
+            - failed
+        status_detail:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        frozen_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+    WorkItem:
+      type: object
+      additionalProperties: false
+      required:
+        - intent
+        - responsible_name
+        - scopes
+        - session_live
+      properties:
+        intent:
+          $ref: "#/components/schemas/Intent"
+        responsible_name:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeClaim"
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        session_live:
+          type: boolean
+        session_last_seen_at:
+          type: string
+          format: date-time
+    WorkItemListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - work_items
+          properties:
+            work_items:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkItem"
+    StartWorkRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - title
+        - goal
+        - base_revision
+        - scopes
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        success_criteria:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 1000
+        base_revision:
+          type: string
+          pattern: "^[0-9a-fA-F]{7,64}$"
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ScopeInput"
+        allow_overlap:
+          type: boolean
+          default: false
+    StartWorkResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - intent
+            - claims
+            - overlaps
+            - event_id
+            - replayed
+          properties:
+            intent:
+              $ref: "#/components/schemas/Intent"
+            claims:
+              type: array
+              items:
+                $ref: "#/components/schemas/ScopeClaim"
+            overlaps:
+              type: array
+              items:
+                $ref: "#/components/schemas/ScopeOverlap"
+            event_id:
+              type: string
+              format: uuid
+            replayed:
+              type: boolean
+    AttachWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - base_revision
+        - path_ref
+        - git_branch
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        base_revision:
+          type: string
+          pattern: "^[0-9a-fA-F]{7,64}$"
+        path_ref:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        git_branch:
+          type: string
+          minLength: 1
+          maxLength: 255
+    WorkspaceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - workspace
+            - event_id
+            - replayed
+          properties:
+            workspace:
+              $ref: "#/components/schemas/Workspace"
+            event_id:
+              type: string
+              format: uuid
+            replayed:
+              type: boolean
+    UpdateIntentStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - status
+        - expected_version
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - active
+            - blocked
+            - submitted
+            - completed
+            - cancelled
+            - abandoned
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+        summary:
+          type: string
+          maxLength: 10000
+        reason:
+          type: string
+          maxLength: 2000
+    IntentStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - intent
+            - event_id
+            - replayed
+          properties:
+            intent:
+              $ref: "#/components/schemas/Intent"
+            event_id:
+              type: string
+              format: uuid
+            replayed:
+              type: boolean
     RepositoryObservationRequest:
       type: object
       additionalProperties: false
@@ -1201,6 +1931,10 @@ components:
           type: integer
           minimum: 0
           maximum: 1000000
+        workspace_id:
+          type: string
+          format: uuid
+          description: Workspace gestionado al que pertenece la observación, si existe.
         head_revision:
           type: string
           minLength: 7
@@ -1232,6 +1966,7 @@ components:
               type: string
               enum:
                 - pact.workspace.diff_updated.v1
+                - pact.workspace.head_updated.v1
                 - pact.git.external_change_detected.v1
             replayed:
               type: boolean
@@ -1263,6 +1998,12 @@ components:
           type: string
           format: uuid
         node_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        intent_id:
           type: string
           format: uuid
         dirty:
@@ -1305,6 +2046,7 @@ components:
         - counts
         - active_work
         - recent_events
+        - work_items
         - generated_at
       properties:
         project:
@@ -1321,6 +2063,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RecentEvent"
+        work_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkItem"
         generated_at:
           type: string
           format: date-time
@@ -1538,6 +2284,7 @@ components:
         - sequence
         - type
         - actor_id
+        - actor_name
         - session_id
         - intent_id
         - occurred_at
@@ -1556,6 +2303,10 @@ components:
             - string
             - "null"
           format: uuid
+        actor_name:
+          type:
+            - string
+            - "null"
         session_id:
           type:
             - string
@@ -1685,6 +2436,18 @@ components:
         data:
           type: object
           additionalProperties: true
+    ScopeConflictProblem:
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required:
+            - overlaps
+          properties:
+            overlaps:
+              type: array
+              minItems: 1
+              items:
+                $ref: "#/components/schemas/ScopeOverlap"
     Problem:
       type: object
       description: Error compatible con Problem Details para HTTP APIs.

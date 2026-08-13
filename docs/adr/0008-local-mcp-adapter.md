@@ -61,6 +61,14 @@ estados observados de Git definidos en ADR-0003.
 - La autorización continúa en Pact Server mediante el token personal y los
   roles de proyecto. MCP es un adaptador, no una autoridad paralela.
 
+## Evolución posterior
+
+ADR-0009 amplía este contrato con `pact.check_scopes`, `pact.start_work`,
+`pact.list_work` y `pact.update_work`. El adaptador crea worktrees reales y
+observa cada workspace por separado. La frontera de privacidad de este ADR se
+mantiene: solo el agente asignado recibe su ruta absoluta; el contexto
+compartido omite rutas locales.
+
 ## Límites conscientes
 
 - El transporte inicial es local por `stdio`; aún no existe un endpoint MCP
@@ -72,7 +80,8 @@ estados observados de Git definidos en ADR-0003.
 - El contexto es una vista estructurada de PACT; recursos MCP, prompts y
   suscripciones se añadirán solo cuando exista una necesidad de producto.
 - Un agente conserva acceso normal al checkout según los permisos del sistema
-  operativo. MCP informa y coordina, pero aún no impone scopes ni worktrees.
+  operativo. MCP coordina scopes y worktrees, pero todavía no puede impedir que
+  un cliente ignore el protocolo y escriba fuera del workspace asignado.
 
 ## Consecuencias
 

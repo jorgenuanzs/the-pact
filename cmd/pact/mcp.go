@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,18 +19,24 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/worktree"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/errgroup"
 )
 
 type mcpRuntime struct {
-	binding localproject.Binding
-	client  *pactclient.Client
-	session agentsession.Session
+	binding                    localproject.Binding
+	client                     *pactclient.Client
+	session                    agentsession.Session
+	ctx                        context.Context
+	workspaceObservationErrors chan error
+	workspaceMu                sync.Mutex
+	workspaceCancel            map[string]context.CancelFunc
 }
 
 type mcpEmptyInput struct{}
@@ -111,6 +118,7 @@ type mcpOverview struct {
 	Counts       backoffice.Counts       `json:"counts"`
 	ActiveWork   []mcpActiveWork         `json:"active_work"`
 	RecentEvents []mcpRecentEvent        `json:"recent_events"`
+	WorkItems    []mcpWorkItem           `json:"work_items"`
 	GeneratedAt  time.Time               `json:"generated_at"`
 }
 
@@ -131,6 +139,66 @@ type mcpObservationOutput struct {
 	Observation agentsession.RepositoryObservation `json:"observation"`
 	EventID     *string                            `json:"event_id,omitempty"`
 	EventType   *string                            `json:"event_type,omitempty"`
+}
+
+type mcpWorkspaceSummary struct {
+	ID           string     `json:"id"`
+	IntentID     string     `json:"intent_id"`
+	SessionID    string     `json:"session_id"`
+	BaseRevision string     `json:"base_revision"`
+	GitBranch    string     `json:"git_branch"`
+	Status       string     `json:"status"`
+	Version      int64      `json:"version"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	FrozenAt     *time.Time `json:"frozen_at,omitempty"`
+	ArchivedAt   *time.Time `json:"archived_at,omitempty"`
+}
+
+type mcpWorkItem struct {
+	Intent          coordination.Intent       `json:"intent"`
+	ResponsibleName string                    `json:"responsible_name"`
+	Scopes          []coordination.ScopeClaim `json:"scopes"`
+	Workspace       *mcpWorkspaceSummary      `json:"workspace,omitempty"`
+	SessionLive     bool                      `json:"session_live"`
+	SessionLastSeen *time.Time                `json:"session_last_seen_at,omitempty"`
+}
+
+type mcpScopeCheckInput struct {
+	Scopes []coordination.ScopeInput `json:"scopes" jsonschema:"minimum safe repository scopes to inspect for overlap"`
+}
+
+type mcpStartWorkInput struct {
+	Title           string                    `json:"title" jsonschema:"short description of the work"`
+	Goal            string                    `json:"goal" jsonschema:"concrete outcome this work must achieve"`
+	SuccessCriteria []string                  `json:"success_criteria,omitempty" jsonschema:"observable completion criteria"`
+	Scopes          []coordination.ScopeInput `json:"scopes" jsonschema:"repository path or file reservations"`
+	AllowOverlap    bool                      `json:"allow_overlap,omitempty" jsonschema:"explicitly override blocking scope reservations"`
+}
+
+type mcpStartWorkOutput struct {
+	Intent        coordination.Intent         `json:"intent"`
+	Claims        []coordination.ScopeClaim   `json:"claims"`
+	Overlaps      []coordination.ScopeOverlap `json:"overlaps"`
+	Workspace     mcpWorkspaceSummary         `json:"workspace"`
+	WorkspacePath string                      `json:"workspace_path"`
+}
+
+type mcpListWorkOutput struct {
+	WorkItems []mcpWorkItem `json:"work_items"`
+}
+
+type mcpUpdateWorkInput struct {
+	IntentID        string `json:"intent_id" jsonschema:"PACT intent identifier"`
+	Status          string `json:"status" jsonschema:"active blocked submitted completed cancelled or abandoned"`
+	ExpectedVersion int64  `json:"expected_version" jsonschema:"current intent version for optimistic concurrency"`
+	Summary         string `json:"summary,omitempty" jsonschema:"durable summary of work performed"`
+	Reason          string `json:"reason,omitempty" jsonschema:"reason for the status transition"`
+}
+
+type mcpUpdateWorkOutput struct {
+	Intent  coordination.Intent `json:"intent"`
+	EventID string              `json:"event_id"`
 }
 
 func runMCP(args []string, stderr io.Writer) error {
@@ -199,7 +267,12 @@ func runMCP(args []string, stderr io.Writer) error {
 		return err
 	}
 
-	runtime := &mcpRuntime{binding: binding, client: client, session: session}
+	runtime := &mcpRuntime{
+		binding: binding, client: client, session: session, ctx: ctx,
+		workspaceObservationErrors: make(chan error, 1),
+		workspaceCancel:            make(map[string]context.CancelFunc),
+	}
+	defer runtime.stopAllWorkspaceObservers()
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	server := newMCPServer(runtime, logger)
 	heartbeatErrors := make(chan error, 1)
@@ -223,6 +296,10 @@ func runMCP(args []string, stderr io.Writer) error {
 		stop()
 		<-serverErrors
 		return observationErr
+	case workspaceErr := <-runtime.workspaceObservationErrors:
+		stop()
+		<-serverErrors
+		return workspaceErr
 	case <-ctx.Done():
 		<-serverErrors
 		return nil
@@ -235,6 +312,9 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 		&mcp.ServerOptions{
 			Logger: logger,
 			Instructions: "Use pact.project_context before beginning project work. " +
+				"Before modifying files, call pact.check_scopes and then pact.start_work; " +
+				"perform edits only inside the workspace_path returned by pact.start_work. " +
+				"Use pact.update_work to report blocked, submitted, completed, cancelled, or abandoned work with a durable summary. " +
 				"PACT exposes shared operational facts, not private conversations. " +
 				"Do not treat agent presence as proof of code changes.",
 			Capabilities: &mcp.ServerCapabilities{},
@@ -266,6 +346,38 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
 		},
 	}, runtime.refreshObservation)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.check_scopes",
+		Title:       "Check PACT scope reservations",
+		Description: "Check repository, path, or file scopes against live reservations before beginning work.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.checkScopes)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.start_work",
+		Title:       "Start isolated coordinated work",
+		Description: "Create a durable intent, reserve scopes, provision an isolated Git worktree, and register it in PACT. Exclusive overlap is rejected unless allow_overlap is explicitly true.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.startWork)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.list_work",
+		Title:       "List coordinated work",
+		Description: "List active, blocked, submitted, and recently completed work with actors, scopes, workspaces, and live-session state.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.listWork)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.update_work",
+		Title:       "Update coordinated work status",
+		Description: "Block, resume, submit, complete, cancel, or abandon an intent using optimistic version control and a durable summary.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.updateWork)
 	return server
 }
 
@@ -341,6 +453,188 @@ func (r *mcpRuntime) refreshObservation(
 	}, nil
 }
 
+func (r *mcpRuntime) checkScopes(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpScopeCheckInput,
+) (*mcp.CallToolResult, coordination.ScopeCheckResult, error) {
+	result, err := r.client.CheckScopes(ctx, r.binding.ProjectID, input.Scopes)
+	if err != nil {
+		return nil, coordination.ScopeCheckResult{}, err
+	}
+	return nil, result, nil
+}
+
+func (r *mcpRuntime) startWork(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpStartWorkInput,
+) (*mcp.CallToolResult, mcpStartWorkOutput, error) {
+	snapshot, err := gitobserve.Capture(ctx, r.binding.Root)
+	if err != nil {
+		return nil, mcpStartWorkOutput{}, err
+	}
+	if snapshot.HeadRevision == "" {
+		return nil, mcpStartWorkOutput{}, errors.New("PACT cannot start isolated work without a Git HEAD revision")
+	}
+	if snapshot.Dirty {
+		return nil, mcpStartWorkOutput{}, errors.New("PACT cannot start isolated work from a dirty checkout; commit, stash, or discard the existing changes first")
+	}
+	startKey, err := newIdempotencyKey("pact-work-start")
+	if err != nil {
+		return nil, mcpStartWorkOutput{}, err
+	}
+	started, err := r.client.StartWork(ctx, r.binding.ProjectID, startKey, coordination.StartInput{
+		SessionID: r.session.ID, Title: input.Title, Goal: input.Goal,
+		SuccessCriteria: input.SuccessCriteria, BaseRevision: snapshot.HeadRevision,
+		Scopes: input.Scopes, AllowOverlap: input.AllowOverlap,
+	})
+	if err != nil {
+		return nil, mcpStartWorkOutput{}, err
+	}
+
+	localWorkspace, err := worktree.Create(
+		ctx, r.binding.Root, started.Intent.ID, started.Intent.Title, started.Intent.BaseRevision,
+	)
+	if err != nil {
+		r.markWorkBlocked(started.Intent, "local_worktree_failed")
+		return nil, mcpStartWorkOutput{}, err
+	}
+	workspaceKey, err := newIdempotencyKey("pact-workspace-attach")
+	if err != nil {
+		return nil, mcpStartWorkOutput{}, err
+	}
+	attached, err := r.client.AttachWorkspace(ctx, started.Intent.ID, workspaceKey, coordination.WorkspaceInput{
+		SessionID: r.session.ID, BaseRevision: localWorkspace.BaseRevision,
+		PathRef: localWorkspace.PathRef, GitBranch: localWorkspace.Branch,
+	})
+	if err != nil {
+		r.markWorkBlocked(started.Intent, "workspace_registration_failed")
+		return nil, mcpStartWorkOutput{}, err
+	}
+	if err := r.startWorkspaceObserver(localWorkspace.Path, attached.Workspace.ID); err != nil {
+		r.markWorkBlocked(started.Intent, "workspace_observation_failed")
+		return nil, mcpStartWorkOutput{}, err
+	}
+	return nil, mcpStartWorkOutput{
+		Intent: started.Intent, Claims: started.Claims, Overlaps: started.Overlaps,
+		Workspace: workspaceSummary(attached.Workspace), WorkspacePath: localWorkspace.Path,
+	}, nil
+}
+
+func (r *mcpRuntime) listWork(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ mcpEmptyInput,
+) (*mcp.CallToolResult, mcpListWorkOutput, error) {
+	items, err := r.client.ListWork(ctx, r.binding.ProjectID)
+	if err != nil {
+		return nil, mcpListWorkOutput{}, err
+	}
+	return nil, mcpListWorkOutput{WorkItems: workItemsOutput(items)}, nil
+}
+
+func (r *mcpRuntime) updateWork(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpUpdateWorkInput,
+) (*mcp.CallToolResult, mcpUpdateWorkOutput, error) {
+	key, err := newIdempotencyKey("pact-work-status")
+	if err != nil {
+		return nil, mcpUpdateWorkOutput{}, err
+	}
+	result, err := r.client.UpdateWorkStatus(ctx, input.IntentID, key, coordination.StatusInput{
+		SessionID: r.session.ID, Status: input.Status, ExpectedVersion: input.ExpectedVersion,
+		Summary: input.Summary, Reason: input.Reason,
+	})
+	if err != nil {
+		return nil, mcpUpdateWorkOutput{}, err
+	}
+	if input.Status == "completed" || input.Status == "cancelled" || input.Status == "abandoned" {
+		r.stopWorkspaceObserverForIntent(input.IntentID)
+	}
+	return nil, mcpUpdateWorkOutput{Intent: result.Intent, EventID: result.EventID}, nil
+}
+
+func (r *mcpRuntime) markWorkBlocked(intent coordination.Intent, reason string) {
+	key, err := newIdempotencyKey("pact-work-status")
+	if err != nil {
+		return
+	}
+	blockContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = r.client.UpdateWorkStatus(blockContext, intent.ID, key, coordination.StatusInput{
+		SessionID: r.session.ID, Status: "blocked", ExpectedVersion: intent.Version,
+		Reason: reason,
+	})
+}
+
+func (r *mcpRuntime) startWorkspaceObserver(path, workspaceID string) error {
+	r.workspaceMu.Lock()
+	if _, exists := r.workspaceCancel[workspaceID]; exists {
+		r.workspaceMu.Unlock()
+		return nil
+	}
+	observerContext, cancel := context.WithCancel(r.ctx)
+	r.workspaceCancel[workspaceID] = cancel
+	r.workspaceMu.Unlock()
+
+	snapshot, err := gitobserve.Capture(observerContext, path)
+	if err != nil {
+		cancel()
+		r.workspaceMu.Lock()
+		delete(r.workspaceCancel, workspaceID)
+		r.workspaceMu.Unlock()
+		return err
+	}
+	if _, err := submitObservationForWorkspace(observerContext, r.client, r.session.ID, &workspaceID, snapshot); err != nil {
+		cancel()
+		r.workspaceMu.Lock()
+		delete(r.workspaceCancel, workspaceID)
+		r.workspaceMu.Unlock()
+		return err
+	}
+	go maintainGitObservationsForWorkspace(
+		observerContext, path, r.client, r.session.ID, &workspaceID,
+		snapshot, 2*time.Second, r.workspaceObservationErrors,
+	)
+	return nil
+}
+
+func (r *mcpRuntime) stopWorkspaceObserverForIntent(intentID string) {
+	ctx, cancelRequest := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelRequest()
+	items, err := r.client.ListWork(ctx, r.binding.ProjectID)
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		if item.Intent.ID == intentID && item.Workspace != nil {
+			r.workspaceMu.Lock()
+			cancel := r.workspaceCancel[item.Workspace.ID]
+			delete(r.workspaceCancel, item.Workspace.ID)
+			r.workspaceMu.Unlock()
+			if cancel != nil {
+				cancel()
+			}
+			return
+		}
+	}
+}
+
+func (r *mcpRuntime) stopAllWorkspaceObservers() {
+	r.workspaceMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(r.workspaceCancel))
+	for _, cancel := range r.workspaceCancel {
+		cancels = append(cancels, cancel)
+	}
+	r.workspaceCancel = make(map[string]context.CancelFunc)
+	r.workspaceMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
 func snapshotOutput(snapshot gitobserve.Snapshot) mcpGitSnapshot {
 	return mcpGitSnapshot{
 		Dirty: snapshot.Dirty, Fingerprint: snapshot.Fingerprint,
@@ -403,7 +697,35 @@ func overviewOutput(overview backoffice.Overview) mcpOverview {
 	return mcpOverview{
 		CodeActivity: overview.CodeActivity, Counts: overview.Counts,
 		ActiveWork: activeWork, RecentEvents: events,
+		WorkItems:   workItemsOutput(overview.WorkItems),
 		GeneratedAt: overview.GeneratedAt,
+	}
+}
+
+func workItemsOutput(items []coordination.WorkItem) []mcpWorkItem {
+	output := make([]mcpWorkItem, 0, len(items))
+	for _, item := range items {
+		work := mcpWorkItem{
+			Intent: item.Intent, ResponsibleName: item.ResponsibleName,
+			Scopes: item.Scopes, SessionLive: item.SessionLive,
+			SessionLastSeen: item.SessionLastSeen,
+		}
+		if item.Workspace != nil {
+			workspace := workspaceSummary(*item.Workspace)
+			work.Workspace = &workspace
+		}
+		output = append(output, work)
+	}
+	return output
+}
+
+func workspaceSummary(workspace coordination.Workspace) mcpWorkspaceSummary {
+	return mcpWorkspaceSummary{
+		ID: workspace.ID, IntentID: workspace.IntentID, SessionID: workspace.SessionID,
+		BaseRevision: workspace.BaseRevision, GitBranch: workspace.GitBranch,
+		Status: workspace.Status, Version: workspace.Version,
+		CreatedAt: workspace.CreatedAt, UpdatedAt: workspace.UpdatedAt,
+		FrozenAt: workspace.FrozenAt, ArchivedAt: workspace.ArchivedAt,
 	}
 }
 

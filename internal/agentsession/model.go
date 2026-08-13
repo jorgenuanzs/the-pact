@@ -26,11 +26,12 @@ type Session struct {
 }
 
 type ObservationInput struct {
-	Dirty           bool   `json:"dirty"`
-	DiffFingerprint string `json:"diff_fingerprint"`
-	ChangedPaths    int    `json:"changed_paths"`
-	HeadRevision    string `json:"head_revision,omitempty"`
-	Branch          string `json:"branch,omitempty"`
+	WorkspaceID     *string `json:"workspace_id,omitempty"`
+	Dirty           bool    `json:"dirty"`
+	DiffFingerprint string  `json:"diff_fingerprint"`
+	ChangedPaths    int     `json:"changed_paths"`
+	HeadRevision    string  `json:"head_revision,omitempty"`
+	Branch          string  `json:"branch,omitempty"`
 }
 
 type RepositoryObservation struct {
@@ -39,6 +40,8 @@ type RepositoryObservation struct {
 	SessionID       string    `json:"session_id"`
 	ActorID         string    `json:"actor_id"`
 	NodeID          string    `json:"node_id"`
+	WorkspaceID     *string   `json:"workspace_id,omitempty"`
+	IntentID        *string   `json:"intent_id,omitempty"`
 	Dirty           bool      `json:"dirty"`
 	DiffFingerprint string    `json:"diff_fingerprint"`
 	ChangedPaths    int       `json:"changed_paths"`

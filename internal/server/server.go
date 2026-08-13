@@ -14,6 +14,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/config"
+	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
@@ -65,6 +66,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	projectService := projects.NewService(cfg.LocalOrganization, projectRepository)
 	agentSessionRepository := agentsession.NewPostgresRepository(pool)
 	agentSessionService := agentsession.NewService(cfg.LocalOrganization, agentSessionRepository)
+	coordinationRepository := coordination.NewPostgresRepository(pool)
+	coordinationService := coordination.NewService(cfg.LocalOrganization, coordinationRepository)
 	eventReader := eventlog.NewPostgresReader(pool)
 	backofficeReader := backoffice.NewPostgresReader(pool)
 	accessRepository := access.NewPostgresRepository(pool)
@@ -81,6 +84,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		Readiness:           pool.Ping,
 		ProjectService:      projectService,
 		AgentSessionService: agentSessionService,
+		CoordinationService: coordinationService,
 		AccessService:       accessService,
 		BackofficeReader:    backofficeReader,
 		EventReader:         eventReader,

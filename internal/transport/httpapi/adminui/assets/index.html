@@ -25,7 +25,7 @@
       <div class="topbar-actions">
         <span class="environment-chip" title="Este backoffice se conecta al Pact Server del mismo origen">
           <span class="environment-dot" aria-hidden="true"></span>
-          Servidor local
+          Pact Server
         </span>
         <span id="global-connection" class="connection-chip" aria-live="polite">
           <span class="connection-dot" aria-hidden="true"></span>
@@ -40,7 +40,7 @@
     <main id="main-content">
       <section id="auth-view" class="auth-view" aria-labelledby="auth-title">
         <div class="auth-intro">
-          <p class="eyebrow">CONTROL PLANE · LOCAL</p>
+          <p class="eyebrow">CONTROL PLANE · EN VIVO</p>
           <h1 id="auth-title">Observa el proyecto mientras sucede.</h1>
           <p class="auth-copy">
             Pact reúne coordinación, trabajo activo y eventos en una sola superficie.
@@ -261,6 +261,29 @@
                 <strong id="metric-changesets">—</strong>
                 <p>Esperando integración</p>
               </article>
+            </section>
+
+            <section class="panel workboard-panel" aria-labelledby="workboard-title">
+              <header class="panel-header workboard-header">
+                <div>
+                  <p class="section-kicker">TRABAJO COORDINADO</p>
+                  <h2 id="workboard-title">Quién trabaja, en qué y dónde</h2>
+                </div>
+                <div class="workboard-summary">
+                  <span id="workboard-live-count" class="live-label">
+                    <span aria-hidden="true"></span>
+                    0 en vivo
+                  </span>
+                  <span id="workboard-count" class="count-chip">—</span>
+                </div>
+              </header>
+
+              <div id="workboard-list" class="workboard-list"></div>
+              <div id="workboard-empty" class="panel-empty" hidden>
+                <span class="empty-line" aria-hidden="true"></span>
+                <h3>Aún no hay trabajo declarado</h3>
+                <p>Cuando un agente inicie una intención con scopes, aparecerá aquí.</p>
+              </div>
             </section>
 
             <div class="dashboard-grid">

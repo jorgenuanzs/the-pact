@@ -67,6 +67,10 @@
     activeWorkList: document.querySelector("#active-work-list"),
     activeWorkEmpty: document.querySelector("#active-work-empty"),
     activeWorkCount: document.querySelector("#active-work-count"),
+    workboardList: document.querySelector("#workboard-list"),
+    workboardEmpty: document.querySelector("#workboard-empty"),
+    workboardCount: document.querySelector("#workboard-count"),
+    workboardLiveCount: document.querySelector("#workboard-live-count"),
     eventList: document.querySelector("#event-list"),
     eventEmpty: document.querySelector("#event-empty"),
     generatedAt: document.querySelector("#generated-at"),
@@ -114,6 +118,32 @@
     initializing: "Inicializando",
     active: "Activo",
     archived: "Archivado",
+  };
+
+  const intentStatusCopy = {
+    draft: "Borrador",
+    active: "En curso",
+    blocked: "Bloqueado",
+    submitted: "En revisión",
+    completed: "Completado",
+    cancelled: "Cancelado",
+    abandoned: "Abandonado",
+  };
+
+  const eventTypeCopy = {
+    "pact.intent.started.v1": "Trabajo iniciado",
+    "pact.workspace.ready.v1": "Workspace preparado",
+    "pact.intent.active.v1": "Trabajo reanudado",
+    "pact.intent.blocked.v1": "Trabajo bloqueado",
+    "pact.intent.submitted.v1": "Trabajo enviado a revisión",
+    "pact.intent.completed.v1": "Trabajo completado",
+    "pact.intent.cancelled.v1": "Trabajo cancelado",
+    "pact.intent.abandoned.v1": "Trabajo abandonado",
+    "pact.workspace.diff_updated.v1": "Código modificado",
+    "pact.workspace.head_updated.v1": "Workspace avanzó de revisión",
+    "pact.git.external_change_detected.v1": "Cambio externo detectado",
+    "pact.session.started.v1": "Agente conectado",
+    "pact.session.closed.v1": "Agente desconectado",
   };
 
   class APIError extends Error {
@@ -417,6 +447,7 @@
     renderActivity(null);
     renderCounts(null);
     renderActiveWork([]);
+    renderWorkItems([]);
     renderEvents([]);
     elements.generatedAt.textContent = "Actualizando estado…";
     setStreamStatus("stopped", "Preparando flujo");
@@ -492,6 +523,9 @@
     renderCounts(overview.counts);
     renderActiveWork(
       Array.isArray(overview.active_work) ? overview.active_work : [],
+    );
+    renderWorkItems(
+      Array.isArray(overview.work_items) ? overview.work_items : [],
     );
     renderEvents(state.events);
 
@@ -594,7 +628,7 @@
       context.className = "work-context";
       const contextTitle = document.createElement("strong");
       contextTitle.textContent = valueOrDash(
-        item.intent_title || item.workspace_branch || item.node_name,
+        item.intent_title || item.workspace_branch || "Conectado, sin trabajo declarado",
       );
       const contextDetail = document.createElement("span");
       contextDetail.textContent = [
@@ -603,7 +637,7 @@
         item.workspace_branch,
       ]
         .filter(Boolean)
-        .join(" · ") || "Sin contexto de trabajo asociado";
+        .join(" · ") || valueOrDash(item.node_name);
       context.append(contextTitle, contextDetail);
 
       const meta = document.createElement("div");
@@ -620,6 +654,90 @@
 
       row.append(actor, context, meta);
       elements.activeWorkList.append(row);
+    }
+  }
+
+  function renderWorkItems(items) {
+    elements.workboardList.replaceChildren();
+    elements.workboardCount.textContent = formatInteger(items.length);
+    elements.workboardEmpty.hidden = items.length !== 0;
+    const isCurrent = (item) =>
+      item.session_live && ["active", "blocked"].includes(item.intent?.status);
+    const liveCount = items.filter(isCurrent).length;
+    elements.workboardLiveCount.classList.toggle("is-live", liveCount > 0);
+    elements.workboardLiveCount.lastChild.textContent =
+      `${formatInteger(liveCount)} ${liveCount === 1 ? "en vivo" : "en vivo"}`;
+
+    for (const item of items) {
+      const intent = item.intent || {};
+      const workspace = item.workspace || null;
+      const live = isCurrent(item);
+      const card = document.createElement("article");
+      card.className = `workboard-item status-${intent.status || "unknown"}`;
+
+      const presence = document.createElement("div");
+      presence.className = "workboard-presence";
+      const liveDot = document.createElement("span");
+      liveDot.className = `presence-dot${live ? " is-live" : ""}`;
+      liveDot.setAttribute("aria-hidden", "true");
+      const identity = document.createElement("div");
+      const person = document.createElement("strong");
+      person.textContent = valueOrDash(item.responsible_name);
+      const seen = document.createElement("span");
+      seen.textContent = live
+        ? intent.status === "blocked" ? "Conectado · bloqueado" : "Trabajando ahora"
+        : item.session_last_seen_at
+          ? `Última señal ${formatRelativeDate(item.session_last_seen_at)}`
+          : "Sin sesión activa";
+      identity.append(person, seen);
+      presence.append(liveDot, identity);
+
+      const main = document.createElement("div");
+      main.className = "workboard-main";
+      const titleRow = document.createElement("div");
+      titleRow.className = "workboard-title-row";
+      const title = document.createElement("strong");
+      title.textContent = valueOrDash(intent.title);
+      const status = document.createElement("span");
+      status.className = `intent-status status-${intent.status || "unknown"}`;
+      status.textContent = intentStatusCopy[intent.status] || valueOrDash(intent.status);
+      titleRow.append(title, status);
+      const goal = document.createElement("p");
+      goal.textContent = valueOrDash(intent.summary || intent.goal);
+      main.append(titleRow, goal);
+
+      const scopeList = document.createElement("div");
+      scopeList.className = "scope-list";
+      const scopes = Array.isArray(item.scopes) ? item.scopes : [];
+      for (const claim of scopes.slice(0, 5)) {
+        const chip = document.createElement("code");
+        const resource = claim.resource || {};
+        chip.className = `scope-chip mode-${claim.mode || "exclusive"}`;
+        chip.textContent = `${resource.kind || "scope"}:${resource.locator || "—"}`;
+        chip.title = `${claim.mode || "exclusive"} · ${claim.status || "—"}`;
+        scopeList.append(chip);
+      }
+      if (scopes.length > 5) {
+        const more = document.createElement("span");
+        more.className = "scope-more";
+        more.textContent = `+${formatInteger(scopes.length - 5)}`;
+        scopeList.append(more);
+      }
+      main.append(scopeList);
+
+      const location = document.createElement("div");
+      location.className = "workboard-location";
+      const branch = document.createElement("code");
+      branch.textContent = workspace?.git_branch || "Workspace pendiente";
+      branch.title = workspace?.git_branch || "";
+      const revision = document.createElement("span");
+      revision.textContent = intent.base_revision
+        ? `base ${shortenIdentifier(intent.base_revision, 10)}`
+        : "Base no declarada";
+      location.append(branch, revision);
+
+      card.append(presence, main, location);
+      elements.workboardList.append(card);
     }
   }
 
@@ -649,7 +767,7 @@
       titleRow.className = "event-title-row";
       const type = document.createElement("strong");
       type.className = "event-type";
-      type.textContent = valueOrDash(event.type);
+      type.textContent = eventTypeCopy[event.type] || valueOrDash(event.type);
       type.title = event.type || "";
       const time = document.createElement("time");
       time.className = "event-time";
@@ -664,7 +782,7 @@
 
       const meta = document.createElement("div");
       meta.className = "event-meta";
-      appendEventMeta(meta, "Actor", event.actor_id);
+      appendEventMeta(meta, "Actor", event.actor_name || event.actor_id, event.actor_id);
       appendEventMeta(meta, "Sesión", event.session_id);
       appendEventMeta(meta, "Intent", event.intent_id);
 
@@ -701,12 +819,12 @@
     }
   }
 
-  function appendEventMeta(container, label, value) {
+  function appendEventMeta(container, label, value, fullValue = value) {
     if (!value) return;
     const span = document.createElement("span");
     const code = document.createElement("code");
-    code.textContent = shortenIdentifier(value, 8);
-    code.title = value;
+    code.textContent = value === fullValue ? shortenIdentifier(value, 8) : value;
+    code.title = fullValue || value;
     span.append(`${label} `, code);
     container.append(span);
   }

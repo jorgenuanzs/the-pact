@@ -495,11 +495,12 @@ Pact Server y el migrador todavía comparten el usuario propietario de
 PostgreSQL. Deben separarse los roles de migración, runtime y workers antes de
 considerar el endurecimiento de producción completo.
 
-Pact Node observa el checkout, pero todavía se ejecuta en primer plano y no
-administra worktrees. MCP se ofrece localmente por `stdio`; todavía no existe un
-endpoint MCP remoto con OAuth. Ninguno de ambos impide que una herramienta
-modifique Git directamente: faltan intenciones, scopes y aislamiento para
-coordinar escrituras concurrentes.
+Pact Node todavía se ejecuta en primer plano. MCP se ofrece localmente por
+`stdio`; todavía no existe un endpoint MCP remoto con OAuth. Los agentes MCP
+pueden declarar intenciones, reservar scopes y crear worktrees aislados en
+`.pact/worktrees/<intent-id>`. PACT no es un sandbox del sistema operativo: una
+herramienta con permisos sobre el checkout puede ignorar el protocolo, aunque
+Pact Node seguirá observando y registrando esos cambios externos.
 
 El backoffice muestra actividad observada y eventos en tiempo real, pero es una
 superficie de lectura. Pact Server solo acepta comandos de dominio autenticados;

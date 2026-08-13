@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	sessionTTL = 45 * time.Second
+	sessionTTL    = 45 * time.Second
+	scopeLeaseTTL = 60 * time.Second
 )
 
 type PostgresRepository struct {
@@ -180,6 +181,18 @@ func (r *PostgresRepository) Heartbeat(
 	`, organizationID, session.NodeID); err != nil {
 		return Session{}, fmt.Errorf("heartbeat Pact node: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE coordination.scope_claims
+		SET last_renewed_at = transaction_timestamp(),
+		    expires_at = transaction_timestamp() + ($3 * interval '1 second'),
+		    updated_at = transaction_timestamp(),
+		    version = version + 1
+		WHERE organization_id = $1
+		  AND session_id = $2
+		  AND status = 'active'
+	`, organizationID, sessionID, int64(scopeLeaseTTL/time.Second)); err != nil {
+		return Session{}, fmt.Errorf("renew coordinated scope leases: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Session{}, fmt.Errorf("commit agent heartbeat: %w", err)
 	}
@@ -240,6 +253,18 @@ func (r *PostgresRepository) Close(
 		  )
 	`, organizationID, nodeID); err != nil {
 		return fmt.Errorf("mark Pact node offline: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE coordination.scope_claims
+		SET status = 'released',
+		    released_at = transaction_timestamp(),
+		    updated_at = transaction_timestamp(),
+		    version = version + 1
+		WHERE organization_id = $1
+		  AND session_id = $2
+		  AND status = 'active'
+	`, organizationID, sessionID); err != nil {
+		return fmt.Errorf("release coordinated scope leases: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit agent session close: %w", err)

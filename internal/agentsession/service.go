@@ -102,6 +102,10 @@ func (s *Service) Observe(
 	input.DiffFingerprint = strings.ToLower(strings.TrimSpace(input.DiffFingerprint))
 	input.HeadRevision = strings.ToLower(strings.TrimSpace(input.HeadRevision))
 	input.Branch = strings.TrimSpace(input.Branch)
+	if input.WorkspaceID != nil {
+		trimmed := strings.TrimSpace(*input.WorkspaceID)
+		input.WorkspaceID = &trimmed
+	}
 	if err := validateUUID("sponsor_principal_id", sponsorPrincipalID); err != nil {
 		return ObservationResult{}, err
 	}
@@ -129,6 +133,8 @@ func (s *Service) Observe(
 		return ObservationResult{}, &ValidationError{Field: "head_revision", Message: "must be a hexadecimal Git object ID"}
 	case len(input.Branch) > 255:
 		return ObservationResult{}, &ValidationError{Field: "branch", Message: "must contain at most 255 characters"}
+	case input.WorkspaceID != nil && validateUUID("workspace_id", *input.WorkspaceID) != nil:
+		return ObservationResult{}, &ValidationError{Field: "workspace_id", Message: "must be a UUID"}
 	}
 	if _, err := hex.DecodeString(input.DiffFingerprint); err != nil {
 		return ObservationResult{}, &ValidationError{Field: "diff_fingerprint", Message: "must be a SHA-256 hexadecimal digest"}

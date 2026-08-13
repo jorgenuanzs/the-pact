@@ -294,6 +294,19 @@ func maintainGitObservations(
 	interval time.Duration,
 	errorsChannel chan<- error,
 ) {
+	maintainGitObservationsForWorkspace(ctx, root, client, sessionID, nil, previous, interval, errorsChannel)
+}
+
+func maintainGitObservationsForWorkspace(
+	ctx context.Context,
+	root string,
+	client *pactclient.Client,
+	sessionID string,
+	workspaceID *string,
+	previous gitobserve.Snapshot,
+	interval time.Duration,
+	errorsChannel chan<- error,
+) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -305,7 +318,7 @@ func maintainGitObservations(
 			current, err := gitobserve.Capture(captureContext, root)
 			cancel()
 			if err == nil && current != previous {
-				err = reportObservation(ctx, client, sessionID, current)
+				_, err = submitObservationForWorkspace(ctx, client, sessionID, workspaceID, current)
 				if err == nil {
 					previous = current
 				}
@@ -347,18 +360,29 @@ func submitObservation(
 	sessionID string,
 	snapshot gitobserve.Snapshot,
 ) (agentsession.ObservationResult, error) {
-	keyBytes := make([]byte, 16)
-	if _, err := rand.Read(keyBytes); err != nil {
-		return agentsession.ObservationResult{}, fmt.Errorf("create observation idempotency key: %w", err)
+	return submitObservationForWorkspace(ctx, client, sessionID, nil, snapshot)
+}
+
+func submitObservationForWorkspace(
+	ctx context.Context,
+	client *pactclient.Client,
+	sessionID string,
+	workspaceID *string,
+	snapshot gitobserve.Snapshot,
+) (agentsession.ObservationResult, error) {
+	idempotencyKey, err := newIdempotencyKey("pact-observe")
+	if err != nil {
+		return agentsession.ObservationResult{}, err
 	}
 	reportContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	result, err := client.ObserveRepository(
 		reportContext,
 		sessionID,
-		"pact-observe-"+hex.EncodeToString(keyBytes),
+		idempotencyKey,
 		agentsession.ObservationInput{
-			Dirty: snapshot.Dirty, DiffFingerprint: snapshot.Fingerprint,
+			WorkspaceID: workspaceID,
+			Dirty:       snapshot.Dirty, DiffFingerprint: snapshot.Fingerprint,
 			ChangedPaths: snapshot.ChangedPaths, HeadRevision: snapshot.HeadRevision,
 			Branch: snapshot.Branch,
 		},
@@ -367,6 +391,14 @@ func submitObservation(
 		return agentsession.ObservationResult{}, fmt.Errorf("report Git observation: %w", err)
 	}
 	return result, nil
+}
+
+func newIdempotencyKey(prefix string) (string, error) {
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return "", fmt.Errorf("create %s idempotency key: %w", prefix, err)
+	}
+	return prefix + "-" + hex.EncodeToString(keyBytes), nil
 }
 
 func maintainHeartbeat(
