@@ -65,3 +65,19 @@ jobs:
           GOOS: windows
           GOARCH: ${{ matrix.goarch }}
         run: go build -buildvcs=false -trimpath -o pact.exe ./cmd/pact
+
+  smoke-installer-windows:
+    name: Install latest release on Windows
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install from the private GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/install-windows.ps1 `
+            -InstallDir (Join-Path $env:RUNNER_TEMP "Pact") `
+            -NoPathUpdate
+          & (Join-Path $env:RUNNER_TEMP "Pact\pact.exe") help

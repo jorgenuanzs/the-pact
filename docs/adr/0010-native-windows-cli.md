@@ -24,6 +24,9 @@ Pact ofrece un cliente nativo para Windows 10 y 11 en `amd64` y `arm64`:
 - `install-pact.ps1` detecta la arquitectura, descarga el artefacto de GitHub,
   valida su SHA-256, instala en `%LOCALAPPDATA%\Programs\Pact` y actualiza el
   `PATH` del usuario;
+- si el repositorio es privado, el instalador reutiliza `gh auth token` o acepta
+  `GH_TOKEN`, `GITHUB_TOKEN` y `-GitHubToken`; descarga los artefactos mediante
+  la API autenticada sin persistir esa credencial;
 - la credencial personal se guarda en `%APPDATA%\Pact\config.json`, fuera de
   los repositorios y bajo las ACL del perfil del usuario;
 - `.pact/`, `pact.yaml` y `.codex/config.toml` conservan el mismo significado
@@ -41,6 +44,10 @@ Pact ofrece un cliente nativo para Windows 10 y 11 en `amd64` y `arm64`:
 Git for Windows es una dependencia explícita. Pact no incorpora un cliente Git
 alternativo ni ejecuta una base de datos local: el CLI se comunica por HTTPS con
 el Pact Server compartido.
+
+La incorporación al catálogo comunitario de WinGet queda condicionada a que
+los ZIP tengan una URL pública estable. Los manifiestos se generan desde la
+release desde ahora para que ese paso no requiera rediseñar el paquete.
 
 ## Consecuencias
 

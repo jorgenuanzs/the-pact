@@ -78,22 +78,36 @@ entorno.
 Las versiones etiquetadas publican binarios nativos para Windows, macOS y
 Linux, tanto arm64 como amd64.
 
-En Windows 10 u 11, instala Git for Windows y ejecuta lo siguiente en
-PowerShell. El instalador detecta la arquitectura, verifica el SHA-256 publicado
-y agrega Pact al `PATH` del usuario:
+En Windows 10 u 11, instala Git for Windows. Como este repositorio es privado,
+el flujo recomendado utiliza GitHub CLI para descargar el instalador sin clonar
+el código. El instalador reutiliza la sesión de `gh`, detecta la arquitectura,
+verifica el SHA-256 publicado y agrega Pact al `PATH` del usuario:
 
 ```powershell
-$installer = Join-Path $env:TEMP "install-pact.ps1"
-Invoke-WebRequest `
-  "https://github.com/jorgenuanzs/the-pact/releases/latest/download/install-pact.ps1" `
-  -OutFile $installer
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
-Remove-Item $installer
+winget install --id GitHub.cli --exact
+gh auth login
+
+$installerDir = Join-Path $env:TEMP "pact-installer"
+New-Item -ItemType Directory -Force $installerDir | Out-Null
+gh release download `
+  --repo jorgenuanzs/the-pact `
+  --pattern install-pact.ps1 `
+  --dir $installerDir `
+  --clobber
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File (Join-Path $installerDir "install-pact.ps1")
 ```
 
+Como alternativa automatizada, el instalador acepta `-GitHubToken` y lee
+`GH_TOKEN` o `GITHUB_TOKEN`. El token solo requiere acceso de lectura a
+`Contents` y no se guarda en Pact. Si el repositorio se hace público, el script
+puede descargarse directamente desde la URL de la release sin autenticación.
+
 Cada release también genera el manifiesto portable de WinGet para
-`Nuanzs.Pact`. Cuando Microsoft acepte la primera publicación en el repositorio
-comunitario, las siguientes versiones podrán instalarse o actualizarse con:
+`Nuanzs.Pact`. La fuente comunitaria de WinGet exige artefactos públicos; por
+eso el manifiesto podrá enviarse a Microsoft cuando decidamos publicar el
+repositorio o alojar los ZIP en una URL pública estable. Después de su
+aceptación, las versiones podrán instalarse o actualizarse con:
 
 ```powershell
 winget install --id Nuanzs.Pact --exact
@@ -103,7 +117,7 @@ winget upgrade --id Nuanzs.Pact --exact
 En macOS o Linux, por ejemplo en un Mac con Apple Silicon:
 
 ```sh
-PACT_VERSION=v0.6.0
+PACT_VERSION=v0.6.1
 curl -fL -o pact.tar.gz \
   "https://github.com/jorgenuanzs/the-pact/releases/download/${PACT_VERSION}/pact_darwin_arm64.tar.gz"
 curl -fL -o checksums.txt \
