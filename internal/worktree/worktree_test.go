@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -45,7 +46,7 @@ func TestCreateBuildsIsolatedIdempotentGitWorktree(t *testing.T) {
 		if statErr != nil {
 			t.Fatalf("worktree runtime %s: %v", name, statErr)
 		}
-		if info.Mode().Perm() != 0o600 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Fatalf("worktree runtime %s mode = %o", name, info.Mode().Perm())
 		}
 	}

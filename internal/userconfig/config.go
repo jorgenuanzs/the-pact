@@ -131,11 +131,7 @@ func configPath() (string, error) {
 		}
 		return filepath.Join(absolute, "config.json"), nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-	return filepath.Join(home, ".config", "pact", "config.json"), nil
+	return defaultConfigPath()
 }
 
 func isLoopbackHost(host string) bool {

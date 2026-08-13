@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -86,7 +87,7 @@ func TestEnableCodexPreservesExistingConfigurationAndUpdatesManagedBlock(t *test
 	}
 	if info, err := os.Stat(configPath); err != nil {
 		t.Fatal(err)
-	} else if info.Mode().Perm() != 0o640 {
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("config mode = %o, want 640", info.Mode().Perm())
 	}
 }

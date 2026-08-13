@@ -14,6 +14,10 @@ expone operaciones para crear o seleccionar organizaciones.
 - Git;
 - `curl` para ejecutar los ejemplos.
 
+Estos requisitos corresponden al desarrollo del servidor. Un colaborador que
+solo utiliza el CLI nativo en Windows necesita Git for Windows y `pact.exe`; su
+PostgreSQL continúa viviendo junto al Pact Server central.
+
 No es necesario instalar Go en el host para utilizar los comandos del
 repositorio: la compilación y las pruebas se ejecutan en contenedores.
 
@@ -50,7 +54,9 @@ pact.yaml          manifiesto compartido, debe versionarse con Git
 La configuración local contiene la URL de Pact Server y el UUID remoto del
 proyecto, pero no tokens ni credenciales de PostgreSQL. La credencial personal
 o bootstrap se guarda fuera de todos los repositorios en
-`~/.config/pact/config.json`, con permisos `0600`.
+`~/.config/pact/config.json` en macOS y Linux, o en
+`%APPDATA%\Pact\config.json` en Windows. Unix aplica permisos `0600`; Windows
+protege el archivo mediante las ACL heredadas del perfil privado del usuario.
 
 Para conectar otro checkout que recibió `pact.yaml` mediante Git:
 
@@ -70,7 +76,8 @@ Para registrar una sesión mientras se ejecuta un agente local:
 ./bin/pact agent run --client kimi -- kimi
 ```
 
-El CLI crea `.pact/node.json` con permisos `0600`, registra el nodo y el actor,
+El CLI crea `.pact/node.json` como estado privado local (`0600` en Unix),
+registra el nodo y el actor,
 mantiene un heartbeat y cierra la sesión cuando termina el comando. No captura
 la conversación ni la salida del proceso. Para una prueba sin un cliente de IA:
 

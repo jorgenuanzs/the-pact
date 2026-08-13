@@ -12,10 +12,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
@@ -23,6 +21,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
+	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
@@ -172,7 +171,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := lifecycle.NotifyContext(context.Background())
 	defer stop()
 	startContext, cancelStart := context.WithTimeout(ctx, 15*time.Second)
 	session, err := client.StartAgentSession(startContext, binding.ProjectID, agentsession.StartInput{
@@ -251,7 +250,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return observationErr
 	case <-ctx.Done():
 		if command.Process != nil {
-			_ = command.Process.Signal(os.Interrupt)
+			_ = lifecycle.InterruptProcess(command.Process)
 		}
 		select {
 		case <-commandResult:
@@ -306,7 +305,7 @@ func runNode(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := lifecycle.NotifyContext(context.Background())
 	defer stop()
 	startContext, cancelStart := context.WithTimeout(ctx, 15*time.Second)
 	session, err := client.StartAgentSession(startContext, binding.ProjectID, agentsession.StartInput{
@@ -540,7 +539,7 @@ func runLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "Logged in to %s\n", normalizedServer)
 	fmt.Fprintf(stdout, "  identity            %s (%s)\n", principal.DisplayName, principal.OrganizationRole)
 	fmt.Fprintf(stdout, "  user configuration  %s\n", path)
-	fmt.Fprintln(stdout, "The token was stored outside project repositories with mode 0600.")
+	fmt.Fprintln(stdout, "The token was stored outside project repositories in the user's private configuration.")
 	return nil
 }
 

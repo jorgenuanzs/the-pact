@@ -10,7 +10,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -19,6 +27,14 @@ jobs:
           cache: true
       - run: go vet ./...
       - run: go test ./...
+      - name: Validate Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '[scriptblock]::Create((Get-Content -Raw scripts/install-windows.ps1)) | Out-Null'
+      - name: Validate WinGet manifest generator
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash -n scripts/generate-winget-manifests.sh
 
   build:
     needs: test
@@ -35,6 +51,10 @@ jobs:
             goarch: arm64
           - goos: linux
             goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -50,31 +70,71 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: |
           mkdir -p dist
+          BINARY=pact
+          if [[ "${GOOS}" == "windows" ]]; then
+            BINARY=pact.exe
+          fi
           go build \
             -buildvcs=false \
             -trimpath \
             -ldflags="-s -w -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Version=${VERSION} -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Commit=${COMMIT} -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o pact \
+            -o "${BINARY}" \
             ./cmd/pact
-          tar -czf "dist/pact_${GOOS}_${GOARCH}.tar.gz" pact
+          if [[ "${GOOS}" == "windows" ]]; then
+            zip -j "dist/pact_${GOOS}_${GOARCH}.zip" "${BINARY}"
+          else
+            tar -czf "dist/pact_${GOOS}_${GOARCH}.tar.gz" "${BINARY}"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: pact-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*.tar.gz
+          path: dist/*
           if-no-files-found: error
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           pattern: pact-*
           path: dist
           merge-multiple: true
       - name: Create checksums
-        run: cd dist && sha256sum *.tar.gz > checksums.txt
+        run: |
+          cp scripts/install-windows.ps1 dist/install-pact.ps1
+          cd dist
+          sha256sum pact_*.tar.gz pact_*.zip > checksums.txt
+          AMD64_SHA="$(sha256sum pact_windows_amd64.zip | cut -d ' ' -f 1)"
+          ARM64_SHA="$(sha256sum pact_windows_arm64.zip | cut -d ' ' -f 1)"
+          cd ..
+          bash scripts/generate-winget-manifests.sh \
+            "${GITHUB_REF_NAME}" \
+            "${AMD64_SHA}" \
+            "${ARM64_SHA}" \
+            dist/winget
+          cd dist/winget
+          zip -j ../winget_manifests.zip ./*.yaml
+          cd ..
+          rm -rf winget
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --generate-notes --verify-tag
+
+  smoke-windows:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the published release
+        shell: pwsh
+        env:
+          PACT_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          ./scripts/install-windows.ps1 `
+            -Version $env:PACT_RELEASE_TAG `
+            -InstallDir (Join-Path $env:RUNNER_TEMP "Pact") `
+            -NoPathUpdate
+          & (Join-Path $env:RUNNER_TEMP "Pact\pact.exe") help

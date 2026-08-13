@@ -55,6 +55,9 @@ func LoadBinding(startPath string) (Binding, error) {
 	if !validUUID(config.ProjectID) {
 		return Binding{}, errors.New("project is not connected to a valid remote project")
 	}
+	if err := ensurePlatformGitConfig(root); err != nil {
+		return Binding{}, err
+	}
 	if err := os.Chmod(configPath, 0o600); err != nil {
 		return Binding{}, fmt.Errorf("secure local Pact configuration: %w", err)
 	}

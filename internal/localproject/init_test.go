@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,12 +63,12 @@ func TestInitCreatesSharedManifestAndPrivateLocalState(t *testing.T) {
 	}
 	if info, err := os.Stat(configPath); err != nil {
 		t.Fatal(err)
-	} else if info.Mode().Perm() != 0o600 {
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("config mode = %o, want 600", info.Mode().Perm())
 	}
 	if info, err := os.Stat(filepath.Join(root, localDirectory)); err != nil {
 		t.Fatal(err)
-	} else if info.Mode().Perm() != 0o700 {
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Fatalf("local directory mode = %o, want 700", info.Mode().Perm())
 	}
 

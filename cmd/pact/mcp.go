@@ -8,11 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
@@ -21,6 +18,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
+	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
@@ -247,7 +245,7 @@ func runMCP(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := lifecycle.NotifyContext(context.Background())
 	defer stop()
 	startContext, cancelStart := context.WithTimeout(ctx, 15*time.Second)
 	session, err := client.StartAgentSession(startContext, binding.ProjectID, agentsession.StartInput{

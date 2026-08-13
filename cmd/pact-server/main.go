@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/config"
+	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/server"
@@ -45,7 +44,7 @@ func run(args []string) error {
 	logger := newLogger(cfg.LogLevel)
 	slog.SetDefault(logger)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := lifecycle.NotifyContext(context.Background())
 	defer stop()
 
 	if command == "serve" {

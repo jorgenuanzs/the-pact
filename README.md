@@ -75,11 +75,35 @@ entorno.
 
 ## Conectar un repositorio
 
-Las versiones etiquetadas publican binarios para macOS y Linux, tanto arm64
-como amd64. Por ejemplo, en un Mac con Apple Silicon:
+Las versiones etiquetadas publican binarios nativos para Windows, macOS y
+Linux, tanto arm64 como amd64.
+
+En Windows 10 u 11, instala Git for Windows y ejecuta lo siguiente en
+PowerShell. El instalador detecta la arquitectura, verifica el SHA-256 publicado
+y agrega Pact al `PATH` del usuario:
+
+```powershell
+$installer = Join-Path $env:TEMP "install-pact.ps1"
+Invoke-WebRequest `
+  "https://github.com/jorgenuanzs/the-pact/releases/latest/download/install-pact.ps1" `
+  -OutFile $installer
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
+Remove-Item $installer
+```
+
+Cada release también genera el manifiesto portable de WinGet para
+`Nuanzs.Pact`. Cuando Microsoft acepte la primera publicación en el repositorio
+comunitario, las siguientes versiones podrán instalarse o actualizarse con:
+
+```powershell
+winget install --id Nuanzs.Pact --exact
+winget upgrade --id Nuanzs.Pact --exact
+```
+
+En macOS o Linux, por ejemplo en un Mac con Apple Silicon:
 
 ```sh
-PACT_VERSION=v0.5.0
+PACT_VERSION=v0.6.0
 curl -fL -o pact.tar.gz \
   "https://github.com/jorgenuanzs/the-pact/releases/download/${PACT_VERSION}/pact_darwin_arm64.tar.gz"
 curl -fL -o checksums.txt \
@@ -90,7 +114,7 @@ mkdir -p "$HOME/.local/bin"
 install -m 755 pact "$HOME/.local/bin/pact"
 ```
 
-Para construir el CLI desde el repositorio sin instalar Go en el host:
+Para construir el CLI desde el repositorio sin instalar Go en macOS o Linux:
 
 ```sh
 make cli
@@ -104,6 +128,19 @@ printf '%s' "$PACT_API_TOKEN" | ./bin/pact login \
   --server https://pact.example.com \
   --token-stdin
 ```
+
+En PowerShell, el comando equivalente es:
+
+```powershell
+$env:PACT_API_TOKEN | pact login `
+  --server https://pact.example.com `
+  --token-stdin
+```
+
+La configuración privada vive en `%APPDATA%\Pact\config.json` en Windows y en
+`~/.config/pact/config.json` en macOS y Linux. No se guarda dentro de ningún
+repositorio. El computador del colaborador solo necesita el CLI y Git; se
+conecta al Pact Server central y no necesita ejecutar PostgreSQL localmente.
 
 Después, el propietario inicializa el proyecto desde cualquier ruta de su
 repositorio Git:
@@ -171,7 +208,8 @@ se excluye localmente mediante `.git/info/exclude`. No ensucia Git ni aparece en
 otros proyectos. Codex CLI, la extensión de VS Code y la aplicación de
 escritorio comparten esta configuración; hay que reiniciarlos después del alta.
 El comando es idempotente, por lo que se puede repetir después de actualizar el
-binario de PACT.
+binario de PACT. El mismo comando funciona de forma nativa en Windows y escribe
+correctamente las rutas absolutas de `pact.exe` en el archivo TOML.
 
 Un cliente compatible con Model Context Protocol puede iniciar PACT como un
 servidor local por `stdio`. Para clientes que aún no tienen automatización, la

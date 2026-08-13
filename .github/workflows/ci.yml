@@ -1,0 +1,67 @@
+name: Pact CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Validate Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '[scriptblock]::Create((Get-Content -Raw scripts/install-windows.ps1)) | Out-Null'
+      - name: Validate WinGet manifest generator
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash -n scripts/generate-winget-manifests.sh
+          OUTPUT_DIRECTORY="$(mktemp -d)"
+          HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          bash scripts/generate-winget-manifests.sh v1.2.3 "$HASH" "$HASH" "$OUTPUT_DIRECTORY"
+          test -f "$OUTPUT_DIRECTORY/Nuanzs.Pact.installer.yaml"
+          grep -q 'PackageVersion: 1.2.3' "$OUTPUT_DIRECTORY/Nuanzs.Pact.yaml"
+
+  build-windows:
+    name: Build Windows (${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch:
+          - amd64
+          - arm64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-compile native Windows CLI
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -buildvcs=false -trimpath -o pact.exe ./cmd/pact

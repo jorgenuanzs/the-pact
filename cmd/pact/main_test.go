@@ -185,7 +185,7 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	if err := run(
-		[]string{"agent", "run", "--client", "kimi", "--path", collaboratorRoot, "--", "true"},
+		[]string{"agent", "run", "--client", "kimi", "--path", collaboratorRoot, "--", "git", "--version"},
 		strings.NewReader(""),
 		&stdout,
 		&stderr,
