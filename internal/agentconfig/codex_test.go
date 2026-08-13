@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -24,9 +25,9 @@ func TestEnableCodexCreatesIdempotentMachineLocalConfiguration(t *testing.T) {
 	for _, expected := range []string{
 		managedStart,
 		"[mcp_servers.pact]",
-		`command = "` + pactCommand + `"`,
+		"command = " + strconv.Quote(pactCommand),
 		`"--client", "codex"`,
-		`cwd = "` + root + `"`,
+		"cwd = " + strconv.Quote(root),
 		managedEnd,
 	} {
 		if !strings.Contains(content, expected) {
@@ -79,10 +80,10 @@ func TestEnableCodexPreservesExistingConfigurationAndUpdatesManagedBlock(t *test
 		t.Fatalf("result = %#v", result)
 	}
 	content := readTestFile(t, configPath)
-	if !strings.Contains(content, "[features]\nweb_search = true") || !strings.Contains(content, secondCommand) {
+	if !strings.Contains(content, "[features]\nweb_search = true") || !strings.Contains(content, strconv.Quote(secondCommand)) {
 		t.Fatalf("updated config = %s", content)
 	}
-	if strings.Contains(content, firstCommand) || strings.Count(content, managedStart) != 1 {
+	if strings.Contains(content, strconv.Quote(firstCommand)) || strings.Count(content, managedStart) != 1 {
 		t.Fatalf("stale or duplicate managed block:\n%s", content)
 	}
 	if info, err := os.Stat(configPath); err != nil {
