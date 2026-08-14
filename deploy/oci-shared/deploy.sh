@@ -43,6 +43,7 @@ COPYFILE_DISABLE=1 tar \
   --exclude='./build' \
   --exclude='./coverage' \
   --exclude='./dist' \
+  --exclude='./infra/secrets' \
   --exclude='./infra/oci-madrid/.terraform' \
   --exclude='./infra/oci-madrid/terraform.tfstate*' \
   --exclude='./infra/oci-madrid/*.tfvars' \
