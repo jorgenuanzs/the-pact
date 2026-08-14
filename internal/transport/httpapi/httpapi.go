@@ -171,6 +171,7 @@ func New(cfg Config) http.Handler {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", api.handleAdminRedirect)
 	mux.HandleFunc("GET /livez", api.handleLive)
 	mux.HandleFunc("GET /readyz", api.handleReady)
 	mux.HandleFunc("GET /version", api.handleVersion)
@@ -215,6 +216,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /v1/invitation-acceptances", api.handleAcceptInvitation)
 	mux.Handle("GET /v1/me", api.requireAuth(http.HandlerFunc(api.handleMe)))
 	mux.Handle("DELETE /v1/me/tokens/current", api.requireAuth(http.HandlerFunc(api.handleRevokeCurrentToken)))
+	mux.Handle("/{$}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/livez", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/readyz", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/version", api.methodNotAllowed(http.MethodGet))

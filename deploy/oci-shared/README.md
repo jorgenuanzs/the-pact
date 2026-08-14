@@ -35,6 +35,8 @@ state, or local build output.
 
 Set `PACT_DEPLOY_HOST` and `PACT_SSH_KEY` explicitly before deploying. No
 production host or private-key path is stored in this repository.
+New runtime settings are added to an existing `runtime.env` with safe defaults;
+configured values and secrets are never replaced.
 The server keeps the two newest PACT images and ten newest source releases. It
 prunes only the dedicated `the-pact-builder-prod` cache and PACT-labelled
 containers; PostgreSQL volumes are never removed automatically.
