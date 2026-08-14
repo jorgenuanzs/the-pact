@@ -146,7 +146,21 @@ Every release contains checksummed native binaries for:
 | macOS | `amd64`, `arm64` |
 | Linux | `amd64`, `arm64` |
 
-### macOS and Linux
+### Homebrew (macOS and Linux)
+
+Install Pact from the official tap:
+
+```sh
+brew install jorgenuanzs/pact/pact
+pact version
+```
+
+The fully qualified command automatically adds the tap and trusts only the Pact
+formula. See the
+[official Pact tap](https://github.com/jorgenuanzs/homebrew-pact) for upgrade,
+uninstall, and `Brewfile` instructions.
+
+### Installer script (macOS and Linux)
 
 Download and inspect the installer, then run it:
 
