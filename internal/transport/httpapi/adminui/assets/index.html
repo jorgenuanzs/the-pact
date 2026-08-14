@@ -230,6 +230,28 @@
               </dl>
             </section>
 
+            <section id="repository-sync-panel" class="repository-sync-panel state-never" aria-labelledby="repository-sync-title">
+              <div>
+                <p class="section-kicker">FUENTE CANÓNICA · GITHUB</p>
+                <div class="repository-sync-heading">
+                  <h2 id="repository-sync-title">Estado del repositorio</h2>
+                  <span id="repository-sync-status" class="sync-status-chip">Sin verificar</span>
+                </div>
+                <p id="repository-sync-description" class="repository-sync-description">
+                  Pact aún no ha verificado la rama canónica directamente con el proveedor.
+                </p>
+              </div>
+              <dl class="repository-sync-facts">
+                <div><dt>Repositorio</dt><dd id="repository-sync-name">—</dd></div>
+                <div><dt>Rama</dt><dd id="repository-sync-branch">—</dd></div>
+                <div><dt>Commit</dt><dd><code id="repository-sync-revision">—</code></dd></div>
+                <div><dt>Última verificación</dt><dd id="repository-sync-time">—</dd></div>
+              </dl>
+              <button id="sync-repository" class="secondary-button" type="button">
+                Verificar con GitHub
+              </button>
+            </section>
+
             <section class="metric-grid" aria-label="Indicadores principales">
               <article class="metric-card">
                 <div class="metric-head">

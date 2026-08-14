@@ -20,6 +20,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -84,6 +85,19 @@ type fakeProjectService struct {
 	create func(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
 	get    func(context.Context, string) (projects.Project, error)
 	list   func(context.Context) ([]projects.Project, error)
+}
+
+type fakeRepositorySyncService struct {
+	get  func(context.Context, string) (repositorysync.State, error)
+	sync func(context.Context, string, string, string) (repositorysync.Result, error)
+}
+
+func (f fakeRepositorySyncService) Get(ctx context.Context, projectID string) (repositorysync.State, error) {
+	return f.get(ctx, projectID)
+}
+
+func (f fakeRepositorySyncService) Sync(ctx context.Context, principalID, projectID, key string) (repositorysync.Result, error) {
+	return f.sync(ctx, principalID, projectID, key)
 }
 
 type fakeWorkspaceService struct {
@@ -246,6 +260,53 @@ func TestProtectedEndpointRequiresToken(t *testing.T) {
 	}
 	if response.Header().Get("WWW-Authenticate") != "Bearer" {
 		t.Fatalf("WWW-Authenticate = %q", response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestRepositorySyncRequiresMaintainerAndForwardsIdempotency(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	var requiredRole string
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		RepositorySyncService: fakeRepositorySyncService{
+			get: func(context.Context, string) (repositorysync.State, error) {
+				return repositorysync.State{}, nil
+			},
+			sync: func(_ context.Context, principalID, receivedProjectID, key string) (repositorysync.Result, error) {
+				if principalID != access.BootstrapPrincipalID || receivedProjectID != projectID || key != "sync-key" {
+					t.Fatalf("unexpected sync arguments: %q %q %q", principalID, receivedProjectID, key)
+				}
+				return repositorysync.Result{State: repositorysync.State{
+					ProjectID: projectID, Status: repositorysync.StatusSynced,
+					Provider: "github", Visibility: "private",
+				}}, nil
+			},
+		},
+		AccessService: fakeAccessService{require: func(_ context.Context, _ access.Principal, receivedProjectID, role string) error {
+			if receivedProjectID != projectID {
+				t.Fatalf("project role check = %q", receivedProjectID)
+			}
+			requiredRole = role
+			return nil
+		}},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) {
+			return backoffice.Overview{}, nil
+		}},
+		EventReader: fakeEventReader{},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/projects/"+projectID+"/repository-sync", `{}`)
+	request.Header.Set("Idempotency-Key", "sync-key")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if requiredRole != "maintainer" {
+		t.Fatalf("required role = %q", requiredRole)
 	}
 }
 

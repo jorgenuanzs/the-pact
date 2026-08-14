@@ -19,6 +19,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -93,6 +94,33 @@ func (c *Client) ListProjects(ctx context.Context) ([]projects.Project, error) {
 		response.Data.Projects = make([]projects.Project, 0)
 	}
 	return response.Data.Projects, nil
+}
+
+func (c *Client) GetRepositorySync(ctx context.Context, projectID string) (repositorysync.State, error) {
+	var response struct {
+		Data repositorysync.State `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/repository-sync"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return repositorysync.State{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) SyncRepository(
+	ctx context.Context, projectID, idempotencyKey string,
+) (repositorysync.Result, error) {
+	var response struct {
+		Data repositorysync.Result `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/repository-sync"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey},
+		Body:    map[string]any{},
+	}, &response); err != nil {
+		return repositorysync.Result{}, err
+	}
+	return response.Data, nil
 }
 
 func (c *Client) ListWorkspaces(ctx context.Context) ([]workspaces.Workspace, error) {

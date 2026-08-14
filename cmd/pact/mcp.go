@@ -25,6 +25,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 	"github.com/jorgenuanzs/the-pact/internal/worktree"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -129,13 +130,14 @@ type mcpOverview struct {
 }
 
 type mcpProjectContextOutput struct {
-	Project   mcpProject                  `json:"project"`
-	Workspace *mcpSharedWorkspace         `json:"workspace,omitempty"`
-	Knowledge *knowledge.WorkspaceContext `json:"knowledge,omitempty"`
-	Principal access.Principal            `json:"principal"`
-	Session   mcpSessionSummary           `json:"session"`
-	Git       mcpGitSnapshot              `json:"git"`
-	Overview  mcpOverview                 `json:"overview"`
+	Project        mcpProject                  `json:"project"`
+	Workspace      *mcpSharedWorkspace         `json:"workspace,omitempty"`
+	Knowledge      *knowledge.WorkspaceContext `json:"knowledge,omitempty"`
+	Principal      access.Principal            `json:"principal"`
+	Session        mcpSessionSummary           `json:"session"`
+	Git            mcpGitSnapshot              `json:"git"`
+	Overview       mcpOverview                 `json:"overview"`
+	RepositorySync repositorysync.State        `json:"repository_sync"`
 }
 
 type mcpProjectListOutput struct {
@@ -436,6 +438,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 				"Its workspace field identifies the durable shared context boundary for this project. " +
 				"Use pact.workspace_context when you need the current accepted decisions, requirements, constraints, questions, risks, and sources. " +
 				"Register durable sources with pact.add_resource and propose reusable facts with pact.propose_record instead of copying private conversations. " +
+				"Use pact.get_repository_sync to distinguish the last GitHub-verified canonical commit from this checkout's local HEAD; maintainers may call pact.sync_repository when a fresh verification is necessary. " +
 				"Before modifying files, call pact.check_scopes and then pact.start_work; " +
 				"perform edits only inside the worktree_path returned by pact.start_work. " +
 				"Use pact.update_work to report blocked, submitted, completed, cancelled, or abandoned work with a durable summary. " +
@@ -447,6 +450,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 		},
 	)
 	closedWorld := false
+	openWorld := true
 	nonDestructive := false
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.project_context",
@@ -529,6 +533,22 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 		},
 	}, runtime.refreshObservation)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.get_repository_sync",
+		Title:       "Get canonical repository sync state",
+		Description: "Return PACT's last verified GitHub default branch, canonical commit, visibility, sync status, and timestamps for the connected project.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.getRepositorySync)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.sync_repository",
+		Title:       "Synchronize canonical repository state",
+		Description: "Ask Pact Server to verify the connected project's canonical branch and commit directly with GitHub. Requires project maintainer access.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &openWorld,
+		},
+	}, runtime.syncRepository)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.check_scopes",
 		Title:       "Check PACT scope reservations",
 		Description: "Check repository, path, or file scopes against live reservations before beginning work.",
@@ -609,16 +629,30 @@ func (r *mcpRuntime) projectContext(
 	_ mcpEmptyInput,
 ) (*mcp.CallToolResult, mcpProjectContextOutput, error) {
 	var (
-		principal     access.Principal
-		project       projects.Project
-		workspaceList []workspaces.Workspace
-		overview      backoffice.Overview
-		snapshot      gitobserve.Snapshot
+		principal       access.Principal
+		project         projects.Project
+		workspaceList   []workspaces.Workspace
+		overview        backoffice.Overview
+		snapshot        gitobserve.Snapshot
+		repositoryState repositorysync.State
 	)
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		var err error
 		principal, err = r.client.Me(groupContext)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		repositoryState, err = r.client.GetRepositorySync(groupContext, r.binding.ProjectID)
+		var problem *pactclient.Problem
+		if errors.As(err, &problem) && problem.Status == http.StatusNotFound {
+			repositoryState = repositorysync.State{
+				ProjectID: r.binding.ProjectID, Provider: "unknown",
+				Status: repositorysync.StatusUnavailable, Visibility: "unknown",
+			}
+			return nil
+		}
 		return err
 	})
 	group.Go(func() error {
@@ -669,8 +703,27 @@ func (r *mcpRuntime) projectContext(
 		Project: projectOutput(project), Principal: principal,
 		Workspace: sharedWorkspace, Knowledge: sharedKnowledge,
 		Session: sessionSummary(r.session), Git: snapshotOutput(snapshot),
-		Overview: overviewOutput(overview),
+		Overview:       overviewOutput(overview),
+		RepositorySync: repositoryState,
 	}, nil
+}
+
+func (r *mcpRuntime) getRepositorySync(
+	ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyInput,
+) (*mcp.CallToolResult, repositorysync.State, error) {
+	state, err := r.client.GetRepositorySync(ctx, r.binding.ProjectID)
+	return nil, state, err
+}
+
+func (r *mcpRuntime) syncRepository(
+	ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyInput,
+) (*mcp.CallToolResult, repositorysync.Result, error) {
+	key, err := newIdempotencyKey("pact-repository-sync")
+	if err != nil {
+		return nil, repositorysync.Result{}, err
+	}
+	result, err := r.client.SyncRepository(ctx, r.binding.ProjectID, key)
+	return nil, result, err
 }
 
 func (r *mcpRuntime) connectedWorkspace(ctx context.Context) (workspaces.Workspace, error) {

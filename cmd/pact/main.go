@@ -51,6 +51,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runConnect(args[1:], stdout, stderr)
 	case "workspace":
 		return runWorkspace(args[1:], stdout, stderr)
+	case "repository":
+		return runRepository(args[1:], stdout, stderr)
 	case "enable":
 		return runEnable(args[1:], stdout, stderr)
 	case "invite":
@@ -74,6 +76,58 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func runRepository(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("expected pact repository status or pact repository sync")
+	}
+	flags := flag.NewFlagSet("pact repository "+args[0], flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	projectPath := flags.String("path", ".", "path inside the connected Pact project")
+	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("pact repository %s accepts no positional arguments", args[0])
+	}
+	binding, err := localproject.LoadBinding(*projectPath)
+	if err != nil {
+		return err
+	}
+	login, err := loginForServer(binding.ServerURL)
+	if err != nil {
+		return err
+	}
+	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	switch args[0] {
+	case "status":
+		state, err := client.GetRepositorySync(ctx, binding.ProjectID)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(state)
+	case "sync":
+		key, err := randomCommandKey("pact-repository-sync")
+		if err != nil {
+			return err
+		}
+		result, err := client.SyncRepository(ctx, binding.ProjectID, key)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(result)
+	default:
+		return fmt.Errorf("unknown repository command %q", args[0])
 	}
 }
 
@@ -1102,6 +1156,8 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact workspace show SLUG_OR_ID")
 	fmt.Fprintln(writer, "  pact workspace create --name NAME --slug SLUG [--project UUID ...]")
 	fmt.Fprintln(writer, "  pact workspace add-project WORKSPACE_ID PROJECT_ID")
+	fmt.Fprintln(writer, "  pact repository status [--path PATH]")
+	fmt.Fprintln(writer, "  pact repository sync [--path PATH]")
 	fmt.Fprintln(writer, "  pact enable codex [--path PATH]")
 	fmt.Fprintln(writer, "  pact enable claude [--path PATH]")
 	fmt.Fprintln(writer, "  pact invite create --email EMAIL [--role ROLE] [--path PATH]")

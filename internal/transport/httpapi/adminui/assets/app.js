@@ -61,6 +61,14 @@
     activityObservers: document.querySelector("#activity-observers"),
     activityTime: document.querySelector("#activity-time"),
     activitySource: document.querySelector("#activity-source"),
+    repositorySyncPanel: document.querySelector("#repository-sync-panel"),
+    repositorySyncStatus: document.querySelector("#repository-sync-status"),
+    repositorySyncDescription: document.querySelector("#repository-sync-description"),
+    repositorySyncName: document.querySelector("#repository-sync-name"),
+    repositorySyncBranch: document.querySelector("#repository-sync-branch"),
+    repositorySyncRevision: document.querySelector("#repository-sync-revision"),
+    repositorySyncTime: document.querySelector("#repository-sync-time"),
+    syncRepository: document.querySelector("#sync-repository"),
     metricSessions: document.querySelector("#metric-sessions"),
     metricIntents: document.querySelector("#metric-intents"),
     metricIntentsNote: document.querySelector("#metric-intents-note"),
@@ -153,6 +161,8 @@
     "pact.git.external_change_detected.v1": "Cambio externo detectado",
     "pact.session.started.v1": "Agente conectado",
     "pact.session.closed.v1": "Agente desconectado",
+    "pact.repository.canonical_synced.v1": "Repositorio canónico verificado",
+    "pact.repository.sync_failed.v1": "Falló la verificación de GitHub",
   };
 
   class APIError extends Error {
@@ -202,6 +212,7 @@
     elements.refreshOverview.addEventListener("click", () =>
       loadOverview({ announce: true }),
     );
+    elements.syncRepository.addEventListener("click", syncCanonicalRepository);
     elements.retryOverview.addEventListener("click", () =>
       loadOverview({ announce: true }),
     );
@@ -515,6 +526,7 @@
 
   function resetOverview() {
     renderActivity(null);
+    renderRepositorySync(null);
     renderCounts(null);
     renderActiveWork([]);
     renderWorkItems([]);
@@ -599,6 +611,7 @@
   function renderOverview() {
     const overview = state.overview || {};
     renderActivity(overview.code_activity);
+    renderRepositorySync(overview.repository_sync);
     renderCounts(overview.counts);
     renderActiveWork(
       Array.isArray(overview.active_work) ? overview.active_work : [],
@@ -618,6 +631,67 @@
     } else {
       elements.generatedAt.textContent = "Hora de generación no disponible";
       elements.generatedAt.removeAttribute("title");
+    }
+  }
+
+  function renderRepositorySync(sync) {
+    const value = sync && typeof sync === "object" ? sync : {};
+    const status = value.status || "never";
+    const copy = {
+      never: ["Sin verificar", "Pact aún no ha verificado la rama canónica directamente con GitHub."],
+      synced: ["Verificado", "La revisión canónica fue leída directamente desde GitHub."],
+      failed: ["Con error", "GitHub no pudo confirmar el estado canónico. Revisa la credencial o la disponibilidad del repositorio."],
+      unsupported: ["No compatible", "Este remoto todavía no utiliza un proveedor compatible con la sincronización canónica."],
+      unavailable: ["No disponible", "El proyecto no tiene un repositorio raíz activo que Pact pueda verificar."],
+    };
+    const [label, description] = copy[status] || [status, "Estado de sincronización desconocido."];
+    elements.repositorySyncPanel.className = `repository-sync-panel state-${status}`;
+    elements.repositorySyncStatus.textContent = label;
+    elements.repositorySyncDescription.textContent = description;
+    elements.repositorySyncName.textContent = valueOrDash(value.repository_full_name);
+    elements.repositorySyncBranch.textContent = valueOrDash(value.default_branch);
+    elements.repositorySyncRevision.textContent = value.canonical_revision
+      ? shortenIdentifier(value.canonical_revision, 16)
+      : "—";
+    elements.repositorySyncRevision.title = value.canonical_revision || "";
+    const timestamp = value.last_success_at || value.last_attempt_at;
+    elements.repositorySyncTime.textContent = timestamp
+      ? formatRelativeDate(timestamp)
+      : "Nunca";
+    elements.repositorySyncTime.title = timestamp || "";
+    elements.syncRepository.disabled = ["unsupported", "unavailable"].includes(status);
+  }
+
+  async function syncCanonicalRepository() {
+    const projectID = state.selectedProjectID;
+    if (!projectID || !state.token) return;
+    setBusy(elements.syncRepository, true);
+    try {
+      const idempotencyKey = globalThis.crypto?.randomUUID
+        ? `pact-admin-repository-sync-${globalThis.crypto.randomUUID()}`
+        : `pact-admin-repository-sync-${Date.now()}`;
+      const payload = await requestJSON(
+        `/v1/projects/${encodeURIComponent(projectID)}/repository-sync`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey },
+          body: {},
+        },
+      );
+      const result = payload && payload.data ? payload.data : payload;
+      renderRepositorySync(result?.state || null);
+      showToast(result?.changed
+        ? "GitHub confirmó una nueva revisión canónica."
+        : "El repositorio canónico ya estaba actualizado.");
+      await Promise.all([refreshProjects(), loadOverview({ silent: true })]);
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo verificar el repositorio con GitHub.");
+      await loadOverview({ silent: true });
+    } finally {
+      setBusy(elements.syncRepository, false);
+      if (state.overview?.repository_sync) {
+        renderRepositorySync(state.overview.repository_sync);
+      }
     }
   }
 
@@ -1319,13 +1393,20 @@
     }
   }
 
-  async function requestJSON(path, { token = state.token } = {}) {
+  async function requestJSON(
+    path,
+    { token = state.token, method = "GET", headers = {}, body } = {},
+  ) {
+    const requestHeaders = {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      ...headers,
+    };
+    if (body !== undefined) requestHeaders["Content-Type"] = "application/json";
     const response = await fetch(path, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      method,
+      headers: requestHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
       credentials: "omit",
     });

@@ -49,6 +49,7 @@ The current implementation includes:
 - transactional state changes, durable events, an outbox, and resumable SSE;
 - personal identities, project roles, one-time invitations, and revocation;
 - project discovery based on normalized Git remotes;
+- verified GitHub default-branch and canonical-commit synchronization, with durable status and events;
 - durable workspaces that group related projects under shared context;
 - typed knowledge records, source references, evidence, review states, and deterministic Workspace context;
 - structured cross-agent handoffs and immutable, verifiable Context Packs;
@@ -82,12 +83,12 @@ roadmap. See [Project status and limitations](#project-status-and-limitations).
                                 ▼
 ┌──────────────────────────── Pact Server ─────────────────────────────┐
 │ Identity · workspaces · projects · knowledge · sessions · intents │
-│ Handoffs · Context Packs · events · access                         │
+│ Handoffs · Context Packs · repository sync · events · access       │
 │  Embedded live backoffice                                           │
 └───────────────────────────────┬──────────────────────────────────────┘
-                                │
-                                ▼
-                    PostgreSQL + pgvector
+                         ┌──────┴──────┐
+                         ▼             ▼
+              PostgreSQL + pgvector  GitHub REST API
 ```
 
 One Pact Server can host many workspaces and projects for a team. A workspace
@@ -411,7 +412,7 @@ and a SHA-256 fingerprint. File names and contents are not sent to Pact Server.
 
 ## Shared knowledge and coordinated work through MCP
 
-The local MCP adapter currently exposes nineteen tools:
+The local MCP adapter currently exposes twenty-one tools:
 
 | Tool | Purpose |
 |---|---|
@@ -425,6 +426,8 @@ The local MCP adapter currently exposes nineteen tools:
 | `pact.propose_record` | Propose a durable knowledge record with optional evidence |
 | `pact.review_record` | Accept, dispute, supersede, revoke, expire, or reject a record |
 | `pact.refresh_git_observation` | Refresh the current checkout observation |
+| `pact.get_repository_sync` | Read the last GitHub-verified canonical branch and commit |
+| `pact.sync_repository` | Ask Pact Server to verify canonical state directly with GitHub |
 | `pact.check_scopes` | Detect conflicting hierarchical reservations before work begins |
 | `pact.start_work` | Create an intent, acquire scopes, and provision an isolated worktree |
 | `pact.list_work` | List active and historical coordinated work |
@@ -438,7 +441,7 @@ The local MCP adapter currently exposes nineteen tools:
 The recommended agent flow is:
 
 ```text
-project_context → workspace_context → check_scopes → start_work → edit worktree_path
+project_context → workspace_context → get_repository_sync → check_scopes → start_work → edit worktree_path
                 → compile_context_pack → offer_handoff or update_work
 ```
 
@@ -519,6 +522,8 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 | `pact login --server URL --token-stdin` | Authenticate this computer with a bootstrap or personal token |
 | `pact init [PATH]` | Create or recover a project and connect the owner checkout |
 | `pact connect [PATH]` | Connect another checkout to an existing Pact project |
+| `pact repository status` | Show the last verified canonical repository state |
+| `pact repository sync` | Verify the default branch and canonical commit with GitHub |
 | `pact enable codex` | Install the project-scoped Codex MCP configuration |
 | `pact enable claude` | Install the project-scoped Claude Code MCP configuration |
 | `pact invite create --email EMAIL` | Create a one-time project invitation |
@@ -548,6 +553,10 @@ settings include:
 | `PACT_DATABASE_LOCK_TIMEOUT` | PostgreSQL lock timeout |
 | `PACT_SHUTDOWN_TIMEOUT` | Graceful server shutdown timeout |
 | `PACT_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+| `PACT_GITHUB_API_URL` | GitHub REST API base URL; defaults to `https://api.github.com` |
+| `PACT_GITHUB_TOKEN` | Optional provider credential; required for private repositories |
+| `PACT_GITHUB_TIMEOUT` | Timeout for each GitHub request |
+| `PACT_GITHUB_SYNC_INTERVAL` | Automatic polling interval; `0s` disables polling |
 
 The API contract is available in [api/openapi.yaml](api/openapi.yaml).
 

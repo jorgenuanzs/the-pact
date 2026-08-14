@@ -140,6 +140,10 @@ PACT_LOCAL_API_TOKEN=${api_token}
 PACT_LOCAL_ORGANIZATION_ID=00000000-0000-4000-8000-000000000001
 PACT_LOG_LEVEL=info
 PACT_BACKUP_RETENTION_DAYS=30
+PACT_GITHUB_API_URL=https://api.github.com
+PACT_GITHUB_TOKEN=
+PACT_GITHUB_TIMEOUT=10s
+PACT_GITHUB_SYNC_INTERVAL=0s
 EOF
 fi
 chmod 600 "${secrets_file}"
@@ -212,14 +216,15 @@ docker run \
   --cpus 0.50 \
   --env PACT_TEST_DATABASE_URL=postgres://pact:pact-integration-password@postgres:5432/pact_test?sslmode=disable \
   "${integration_image}" \
-  go test -tags=integration \
+  go test -tags=integration -p=1 \
     ./internal/projects \
     ./internal/access \
     ./internal/agentsession \
     ./internal/coordination \
     ./internal/workspaces \
     ./internal/knowledge \
-    ./internal/contextpack
+    ./internal/contextpack \
+    ./internal/repositorysync
 cleanup_integration
 integration_database_container=""
 integration_network=""
