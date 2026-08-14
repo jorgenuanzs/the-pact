@@ -79,9 +79,17 @@ func TestEnableClaudePreservesExistingServersAndUpdatesManagedServer(t *testing.
 		t.Fatalf("result = %#v", result)
 	}
 	content := readTestFile(t, configPath)
-	if !strings.Contains(content, `"other"`) || !strings.Contains(content, `"custom": true`) ||
-		!strings.Contains(content, secondCommand) || strings.Contains(content, firstCommand) {
-		t.Fatalf("updated config = %s", content)
+	var document struct {
+		MCPServers map[string]claudeServer `json:"mcpServers"`
+		Custom     bool                    `json:"custom"`
+	}
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.Custom || document.MCPServers["other"].Command != "other" ||
+		document.MCPServers["pact"].Command != secondCommand ||
+		document.MCPServers["pact"].Command == firstCommand {
+		t.Fatalf("updated config = %#v", document)
 	}
 	if info, err := os.Stat(configPath); err != nil {
 		t.Fatal(err)
