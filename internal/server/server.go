@@ -21,6 +21,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -67,6 +68,17 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	projectRepository := projects.NewPostgresRepository(pool)
 	projectService := projects.NewService(cfg.LocalOrganization, projectRepository)
+	githubProvider, err := repositorysync.NewGitHubClient(repositorysync.GitHubOptions{
+		APIURL: cfg.GitHubAPIURL, Token: cfg.GitHubToken, Timeout: cfg.GitHubTimeout,
+		UserAgent: "the-pact/" + buildinfo.Current().Version,
+	})
+	if err != nil {
+		return fmt.Errorf("configure GitHub repository provider: %w", err)
+	}
+	repositorySyncRepository := repositorysync.NewPostgresRepository(pool)
+	repositorySyncService := repositorysync.NewService(
+		cfg.LocalOrganization, projectService, repositorySyncRepository, githubProvider,
+	)
 	workspaceRepository := workspaces.NewPostgresRepository(pool)
 	workspaceService := workspaces.NewService(cfg.LocalOrganization, workspaceRepository)
 	knowledgeRepository := knowledge.NewPostgresRepository(pool)
@@ -88,23 +100,28 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	defer cancelRequests()
 	streamContext, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
+	if cfg.GitHubSyncInterval > 0 {
+		repositorySyncRunner := repositorysync.NewRunner(repositorySyncService, cfg.GitHubSyncInterval, logger)
+		go repositorySyncRunner.Run(requestContext)
+	}
 
 	handler := httpapi.New(httpapi.Config{
-		Logger:              logger,
-		OrganizationID:      cfg.LocalOrganization,
-		Build:               buildinfo.Current(),
-		Readiness:           pool.Ping,
-		ProjectService:      projectService,
-		WorkspaceService:    workspaceService,
-		KnowledgeService:    knowledgeService,
-		AgentSessionService: agentSessionService,
-		CoordinationService: coordinationService,
-		HandoffService:      coordinationService,
-		ContextPackService:  contextPackService,
-		AccessService:       accessService,
-		BackofficeReader:    backofficeReader,
-		EventReader:         eventReader,
-		StreamShutdown:      streamContext.Done(),
+		Logger:                logger,
+		OrganizationID:        cfg.LocalOrganization,
+		Build:                 buildinfo.Current(),
+		Readiness:             pool.Ping,
+		ProjectService:        projectService,
+		RepositorySyncService: repositorySyncService,
+		WorkspaceService:      workspaceService,
+		KnowledgeService:      knowledgeService,
+		AgentSessionService:   agentSessionService,
+		CoordinationService:   coordinationService,
+		HandoffService:        coordinationService,
+		ContextPackService:    contextPackService,
+		AccessService:         accessService,
+		BackofficeReader:      backofficeReader,
+		EventReader:           eventReader,
+		StreamShutdown:        streamContext.Done(),
 	})
 
 	httpServer := &http.Server{

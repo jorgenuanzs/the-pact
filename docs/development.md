@@ -322,6 +322,29 @@ los roles se siguen validando en Pact Server. Consulta
 [ADR-0008](adr/0008-local-mcp-adapter.md) para conocer el contrato y su frontera
 de privacidad.
 
+## Sincronizar el repositorio canónico
+
+Desde un checkout conectado, PACT puede contrastar su revisión compartida con
+la rama por defecto real de GitHub:
+
+```sh
+pact repository status
+pact repository sync
+```
+
+La segunda operación requiere rol `maintainer`. Los repositorios públicos no
+requieren credencial de proveedor. Para un repositorio privado, configura
+`PACT_GITHUB_TOKEN` solo en el entorno de Pact Server; nunca en `pact.yaml`,
+`.pact/` ni en la configuración MCP del proyecto. El polling automático es
+opcional y se activa con un intervalo mínimo de un minuto:
+
+```sh
+PACT_GITHUB_SYNC_INTERVAL=5m
+```
+
+Consulta [ADR-0014](adr/0014-github-canonical-repository-sync.md) para conocer
+el modelo persistido, los eventos y la evolución prevista hacia GitHub Apps.
+
 ## Crear un proyecto
 
 La creación requiere una clave de idempotencia. Repetir la misma solicitud con

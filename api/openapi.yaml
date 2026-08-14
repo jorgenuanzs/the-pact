@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pact API
-  version: 0.9.0
+  version: 0.10.0
   description: |
     API del primer recorrido vertical de Pact.
 
@@ -14,6 +14,7 @@ tags:
   - name: System
   - name: Backoffice
   - name: Projects
+  - name: Repository Sync
   - name: Workspaces
   - name: Knowledge
   - name: Events
@@ -224,6 +225,62 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/repository-sync:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Repository Sync
+      operationId: getRepositorySync
+      summary: Obtiene el último estado canónico verificado
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Estado de sincronización del repositorio raíz.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositorySyncStateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Repository Sync
+      operationId: syncRepository
+      summary: Verifica la rama y el commit canónicos directamente con GitHub
+      description: Requiere rol maintainer del proyecto. No persiste la credencial de GitHub.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Sincronización completada, con o sin cambios materiales.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositorySyncResultResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          description: El proveedor del remoto no es compatible.
+        "424":
+          description: GitHub no pudo confirmar el estado canónico.
         "500":
           $ref: "#/components/responses/InternalServerError"
   /v1/workspaces:
@@ -2291,6 +2348,118 @@ components:
           type: integer
           format: int64
           minimum: 1
+    RepositorySyncStateResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/RepositorySyncState"
+    RepositorySyncResultResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/RepositorySyncResult"
+    RepositorySyncResult:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - changed
+        - event_id
+        - replayed
+      properties:
+        state:
+          $ref: "#/components/schemas/RepositorySyncState"
+        changed:
+          type: boolean
+        event_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        replayed:
+          type: boolean
+    RepositorySyncState:
+      type: object
+      additionalProperties: false
+      required:
+        - project_id
+        - provider
+        - status
+        - canonical_revision
+        - visibility
+        - provider_updated_at
+        - last_attempt_at
+        - last_success_at
+        - last_error_code
+        - version
+      properties:
+        repository_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          enum:
+            - github
+            - unknown
+        repository_full_name:
+          type: string
+          maxLength: 202
+        status:
+          type: string
+          enum:
+            - never
+            - synced
+            - failed
+            - unsupported
+            - unavailable
+        default_branch:
+          type: string
+          maxLength: 255
+        canonical_revision:
+          type:
+            - string
+            - "null"
+          maxLength: 64
+          pattern: "^[0-9a-f]{7,64}$"
+        visibility:
+          type: string
+          enum:
+            - public
+            - private
+            - internal
+            - unknown
+        provider_updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        last_attempt_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        last_success_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        last_error_code:
+          type:
+            - string
+            - "null"
+        version:
+          type: integer
+          format: int64
+          minimum: 0
     StartAgentSessionRequest:
       type: object
       additionalProperties: false
@@ -3446,6 +3615,7 @@ components:
       additionalProperties: false
       required:
         - project
+        - repository_sync
         - code_activity
         - counts
         - active_work
@@ -3456,6 +3626,10 @@ components:
       properties:
         project:
           $ref: "#/components/schemas/Project"
+        repository_sync:
+          oneOf:
+            - $ref: "#/components/schemas/RepositorySyncState"
+            - type: "null"
         code_activity:
           $ref: "#/components/schemas/CodeActivity"
         counts:

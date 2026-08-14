@@ -17,6 +17,10 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	t.Setenv("PACT_DATABASE_TIMEOUT", "")
 	t.Setenv("PACT_DATABASE_STATEMENT_TIMEOUT", "")
 	t.Setenv("PACT_DATABASE_LOCK_TIMEOUT", "")
+	t.Setenv("PACT_GITHUB_API_URL", "")
+	t.Setenv("PACT_GITHUB_TOKEN", "")
+	t.Setenv("PACT_GITHUB_TIMEOUT", "")
+	t.Setenv("PACT_GITHUB_SYNC_INTERVAL", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -34,6 +38,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 	if cfg.StatementTimeout != 15*time.Second || cfg.LockTimeout != 5*time.Second {
 		t.Fatalf("database timeouts = %v, %v", cfg.StatementTimeout, cfg.LockTimeout)
+	}
+	if cfg.GitHubAPIURL != "https://api.github.com" || cfg.GitHubTimeout != 10*time.Second || cfg.GitHubSyncInterval != 0 {
+		t.Fatalf("GitHub defaults = %q, %v, %v", cfg.GitHubAPIURL, cfg.GitHubTimeout, cfg.GitHubSyncInterval)
 	}
 }
 
@@ -62,6 +69,16 @@ func TestLoadRejectsInvalidDuration(t *testing.T) {
 
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "PACT_SHUTDOWN_TIMEOUT") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoadRejectsOverlyFrequentGitHubPolling(t *testing.T) {
+	t.Setenv("PACT_DATABASE_URL", "postgres://example")
+	t.Setenv("PACT_GITHUB_SYNC_INTERVAL", "30s")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "PACT_GITHUB_SYNC_INTERVAL") {
 		t.Fatalf("Load() error = %v", err)
 	}
 }

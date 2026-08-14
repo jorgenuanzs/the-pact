@@ -24,6 +24,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -34,6 +35,11 @@ type ProjectService interface {
 	Create(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
 	Get(context.Context, string) (projects.Project, error)
 	List(context.Context) ([]projects.Project, error)
+}
+
+type RepositorySyncService interface {
+	Get(context.Context, string) (repositorysync.State, error)
+	Sync(context.Context, string, string, string) (repositorysync.Result, error)
 }
 
 type WorkspaceService interface {
@@ -94,23 +100,24 @@ type AccessService interface {
 type ReadinessCheck func(context.Context) error
 
 type Config struct {
-	Logger               *slog.Logger
-	OrganizationID       string
-	Build                buildinfo.Info
-	Readiness            ReadinessCheck
-	ProjectService       ProjectService
-	WorkspaceService     WorkspaceService
-	KnowledgeService     KnowledgeService
-	AgentSessionService  AgentSessionService
-	CoordinationService  CoordinationService
-	HandoffService       HandoffService
-	ContextPackService   ContextPackService
-	AccessService        AccessService
-	BackofficeReader     backoffice.Reader
-	EventReader          eventlog.Reader
-	StreamShutdown       <-chan struct{}
-	StreamPollInterval   time.Duration
-	StreamHeartbeatEvery time.Duration
+	Logger                *slog.Logger
+	OrganizationID        string
+	Build                 buildinfo.Info
+	Readiness             ReadinessCheck
+	ProjectService        ProjectService
+	RepositorySyncService RepositorySyncService
+	WorkspaceService      WorkspaceService
+	KnowledgeService      KnowledgeService
+	AgentSessionService   AgentSessionService
+	CoordinationService   CoordinationService
+	HandoffService        HandoffService
+	ContextPackService    ContextPackService
+	AccessService         AccessService
+	BackofficeReader      backoffice.Reader
+	EventReader           eventlog.Reader
+	StreamShutdown        <-chan struct{}
+	StreamPollInterval    time.Duration
+	StreamHeartbeatEvery  time.Duration
 }
 
 type API struct {
@@ -119,6 +126,7 @@ type API struct {
 	build                buildinfo.Info
 	readiness            ReadinessCheck
 	projects             ProjectService
+	repositorySync       RepositorySyncService
 	workspaces           WorkspaceService
 	knowledge            KnowledgeService
 	agentSessions        AgentSessionService
@@ -147,6 +155,7 @@ func New(cfg Config) http.Handler {
 		build:                cfg.Build,
 		readiness:            cfg.Readiness,
 		projects:             cfg.ProjectService,
+		repositorySync:       cfg.RepositorySyncService,
 		workspaces:           cfg.WorkspaceService,
 		knowledge:            cfg.KnowledgeService,
 		agentSessions:        cfg.AgentSessionService,
@@ -181,6 +190,8 @@ func New(cfg Config) http.Handler {
 	mux.Handle("POST /v1/workspaces/{workspaceID}/records/{recordID}/status", api.requireAuth(api.requireWorkspaceRole("maintainer", http.HandlerFunc(api.handleUpdateRecordStatus))))
 	mux.Handle("GET /v1/workspaces/{workspaceID}/context", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleWorkspaceContext))))
 	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetProject))))
+	mux.Handle("GET /v1/projects/{projectID}/repository-sync", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetRepositorySync))))
+	mux.Handle("POST /v1/projects/{projectID}/repository-sync", api.requireAuth(api.requireProjectRole("maintainer", http.HandlerFunc(api.handleSyncRepository))))
 	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleProjectOverview))))
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
@@ -219,6 +230,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/workspaces/{workspaceID}/records/{recordID}/status", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/workspaces/{workspaceID}/context", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects/{projectID}/repository-sync", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/overview", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
@@ -1043,6 +1055,38 @@ func (a *API) handleRevokeCurrentToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *API) handleGetRepositorySync(w http.ResponseWriter, r *http.Request) {
+	if a.repositorySync == nil {
+		a.writeDomainError(w, r, errors.New("repository sync service is not configured"))
+		return
+	}
+	state, err := a.repositorySync.Get(r.Context(), r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": state})
+}
+
+func (a *API) handleSyncRepository(w http.ResponseWriter, r *http.Request) {
+	if a.repositorySync == nil {
+		a.writeDomainError(w, r, errors.New("repository sync service is not configured"))
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.repositorySync.Sync(
+		r.Context(), principal.ID, r.PathValue("projectID"), r.Header.Get("Idempotency-Key"),
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
 func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 	project, err := a.projects.Get(r.Context(), r.PathValue("projectID"))
 	if err != nil {
@@ -1073,16 +1117,26 @@ func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var repositorySync *repositorysync.State
+	if a.repositorySync != nil {
+		state, syncErr := a.repositorySync.Get(r.Context(), project.ID)
+		if syncErr != nil {
+			a.writeDomainError(w, r, syncErr)
+			return
+		}
+		repositorySync = &state
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
-		"project":       project,
-		"code_activity": overview.CodeActivity,
-		"counts":        overview.Counts,
-		"active_work":   overview.ActiveWork,
-		"recent_events": overview.RecentEvents,
-		"work_items":    overview.WorkItems,
-		"handoffs":      overview.Handoffs,
-		"generated_at":  overview.GeneratedAt,
+		"project":         project,
+		"repository_sync": repositorySync,
+		"code_activity":   overview.CodeActivity,
+		"counts":          overview.Counts,
+		"active_work":     overview.ActiveWork,
+		"recent_events":   overview.RecentEvents,
+		"work_items":      overview.WorkItems,
+		"handoffs":        overview.Handoffs,
+		"generated_at":    overview.GeneratedAt,
 	}})
 }
 
@@ -1328,6 +1382,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var workspaceValidationErr *workspaces.ValidationError
 	var knowledgeValidationErr *knowledge.ValidationError
 	var contextValidationErr *contextpack.ValidationError
+	var repositorySyncValidationErr *repositorysync.ValidationError
+	var providerErr *repositorysync.ProviderError
 	var scopeConflictErr *coordination.ScopeConflictError
 	switch {
 	case errors.As(err, &validationErr):
@@ -1344,6 +1400,13 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", knowledgeValidationErr.Error())
 	case errors.As(err, &contextValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", contextValidationErr.Error())
+	case errors.As(err, &repositorySyncValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", repositorySyncValidationErr.Error())
+	case errors.As(err, &providerErr):
+		if providerErr.RetryAfter != "" {
+			w.Header().Set("Retry-After", providerErr.RetryAfter)
+		}
+		writeProblem(w, r, http.StatusFailedDependency, providerErr.Code, "GitHub synchronization failed", "Pact could not read the canonical repository state from GitHub.")
 	case errors.As(err, &scopeConflictErr):
 		writeScopeConflict(w, r, scopeConflictErr)
 	case errors.Is(err, access.ErrUnauthorized):
@@ -1394,6 +1457,14 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, projects.ErrIdempotencyConflict):
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, projects.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, repositorysync.ErrRepositoryUnavailable):
+		writeProblem(w, r, http.StatusConflict, "project_repository_unavailable", "Project repository unavailable", err.Error())
+	case errors.Is(err, repositorysync.ErrUnsupportedRemote):
+		writeProblem(w, r, http.StatusUnprocessableEntity, "repository_provider_unsupported", "Repository provider unsupported", err.Error())
+	case errors.Is(err, repositorysync.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, repositorysync.ErrCommandIncomplete):
 		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
 	case errors.Is(err, workspaces.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "workspace_not_found", "Workspace not found", err.Error())

@@ -13,16 +13,20 @@ import (
 const DefaultLocalOrganizationID = "00000000-0000-4000-8000-000000000001"
 
 type Config struct {
-	HTTPAddress       string
-	DatabaseURL       string
-	LocalAPIToken     string
-	LocalOrganization string
-	LogLevel          string
-	RunMigrations     bool
-	ShutdownTimeout   time.Duration
-	DatabaseTimeout   time.Duration
-	StatementTimeout  time.Duration
-	LockTimeout       time.Duration
+	HTTPAddress        string
+	DatabaseURL        string
+	LocalAPIToken      string
+	LocalOrganization  string
+	LogLevel           string
+	RunMigrations      bool
+	ShutdownTimeout    time.Duration
+	DatabaseTimeout    time.Duration
+	StatementTimeout   time.Duration
+	LockTimeout        time.Duration
+	GitHubAPIURL       string
+	GitHubToken        string
+	GitHubTimeout      time.Duration
+	GitHubSyncInterval time.Duration
 }
 
 func Load() (Config, error) {
@@ -48,18 +52,30 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	githubTimeout, err := durationEnv("PACT_GITHUB_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	githubSyncInterval, err := durationEnv("PACT_GITHUB_SYNC_INTERVAL", 0)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
-		HTTPAddress:       envOrDefault("PACT_HTTP_ADDRESS", "127.0.0.1:8080"),
-		DatabaseURL:       strings.TrimSpace(os.Getenv("PACT_DATABASE_URL")),
-		LocalAPIToken:     os.Getenv("PACT_LOCAL_API_TOKEN"),
-		LocalOrganization: envOrDefault("PACT_LOCAL_ORGANIZATION_ID", DefaultLocalOrganizationID),
-		LogLevel:          strings.ToLower(envOrDefault("PACT_LOG_LEVEL", "info")),
-		RunMigrations:     runMigrations,
-		ShutdownTimeout:   shutdownTimeout,
-		DatabaseTimeout:   databaseTimeout,
-		StatementTimeout:  statementTimeout,
-		LockTimeout:       lockTimeout,
+		HTTPAddress:        envOrDefault("PACT_HTTP_ADDRESS", "127.0.0.1:8080"),
+		DatabaseURL:        strings.TrimSpace(os.Getenv("PACT_DATABASE_URL")),
+		LocalAPIToken:      os.Getenv("PACT_LOCAL_API_TOKEN"),
+		LocalOrganization:  envOrDefault("PACT_LOCAL_ORGANIZATION_ID", DefaultLocalOrganizationID),
+		LogLevel:           strings.ToLower(envOrDefault("PACT_LOG_LEVEL", "info")),
+		RunMigrations:      runMigrations,
+		ShutdownTimeout:    shutdownTimeout,
+		DatabaseTimeout:    databaseTimeout,
+		StatementTimeout:   statementTimeout,
+		LockTimeout:        lockTimeout,
+		GitHubAPIURL:       envOrDefault("PACT_GITHUB_API_URL", "https://api.github.com"),
+		GitHubToken:        strings.TrimSpace(os.Getenv("PACT_GITHUB_TOKEN")),
+		GitHubTimeout:      githubTimeout,
+		GitHubSyncInterval: githubSyncInterval,
 	}
 
 	if err := cfg.ValidateBase(); err != nil {
@@ -86,6 +102,15 @@ func (c Config) ValidateBase() error {
 	}
 	if c.LockTimeout <= 0 {
 		errs = append(errs, errors.New("PACT_DATABASE_LOCK_TIMEOUT must be positive"))
+	}
+	if c.GitHubTimeout <= 0 {
+		errs = append(errs, errors.New("PACT_GITHUB_TIMEOUT must be positive"))
+	}
+	if c.GitHubSyncInterval < 0 {
+		errs = append(errs, errors.New("PACT_GITHUB_SYNC_INTERVAL must not be negative"))
+	}
+	if c.GitHubSyncInterval > 0 && c.GitHubSyncInterval < time.Minute {
+		errs = append(errs, errors.New("PACT_GITHUB_SYNC_INTERVAL must be zero or at least 1m"))
 	}
 	if !validUUID(c.LocalOrganization) {
 		errs = append(errs, errors.New("PACT_LOCAL_ORGANIZATION_ID must be a UUID"))
