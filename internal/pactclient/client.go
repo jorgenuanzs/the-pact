@@ -15,8 +15,11 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
+	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 const maxResponseBody = 2 << 20
@@ -92,6 +95,180 @@ func (c *Client) ListProjects(ctx context.Context) ([]projects.Project, error) {
 	return response.Data.Projects, nil
 }
 
+func (c *Client) ListWorkspaces(ctx context.Context) ([]workspaces.Workspace, error) {
+	var response struct {
+		Data struct {
+			Workspaces []workspaces.Workspace `json:"workspaces"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/workspaces", "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Workspaces == nil {
+		response.Data.Workspaces = make([]workspaces.Workspace, 0)
+	}
+	return response.Data.Workspaces, nil
+}
+
+func (c *Client) GetWorkspace(ctx context.Context, reference string) (workspaces.Workspace, error) {
+	var response struct {
+		Data workspaces.Workspace `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(reference)
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return workspaces.Workspace{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) CreateWorkspace(
+	ctx context.Context,
+	idempotencyKey string,
+	input workspaces.CreateInput,
+) (workspaces.Workspace, error) {
+	var response struct {
+		Data workspaces.Workspace `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/workspaces", "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return workspaces.Workspace{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) AttachWorkspaceProject(
+	ctx context.Context,
+	workspaceID string,
+	projectID string,
+) (workspaces.Workspace, error) {
+	var response struct {
+		Data workspaces.Workspace `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/projects/" + url.PathEscape(projectID)
+	if err := c.do(ctx, http.MethodPut, path, "", nil, &response); err != nil {
+		return workspaces.Workspace{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) ListResources(
+	ctx context.Context, workspaceID string, options knowledge.ListOptions,
+) ([]knowledge.Resource, error) {
+	var response struct {
+		Data struct {
+			Resources []knowledge.Resource `json:"resources"`
+		} `json:"data"`
+	}
+	query := knowledgeQuery(options, "kind")
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/resources"
+	if query != "" {
+		path += "?" + query
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Resources == nil {
+		response.Data.Resources = make([]knowledge.Resource, 0)
+	}
+	return response.Data.Resources, nil
+}
+
+func (c *Client) CreateResource(
+	ctx context.Context, workspaceID, idempotencyKey string, input knowledge.CreateResourceInput,
+) (knowledge.Resource, error) {
+	var response struct {
+		Data knowledge.Resource `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/resources"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return knowledge.Resource{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) ListRecords(
+	ctx context.Context, workspaceID string, options knowledge.ListOptions,
+) ([]knowledge.Record, error) {
+	var response struct {
+		Data struct {
+			Records []knowledge.Record `json:"records"`
+		} `json:"data"`
+	}
+	query := knowledgeQuery(options, "type")
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/records"
+	if query != "" {
+		path += "?" + query
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Records == nil {
+		response.Data.Records = make([]knowledge.Record, 0)
+	}
+	return response.Data.Records, nil
+}
+
+func (c *Client) CreateRecord(
+	ctx context.Context, workspaceID, idempotencyKey string, input knowledge.CreateRecordInput,
+) (knowledge.Record, error) {
+	var response struct {
+		Data knowledge.Record `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/records"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return knowledge.Record{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) UpdateRecordStatus(
+	ctx context.Context, workspaceID, recordID, idempotencyKey string, input knowledge.RecordStatusInput,
+) (knowledge.Record, error) {
+	var response struct {
+		Data knowledge.Record `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/records/" + url.PathEscape(recordID) + "/status"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return knowledge.Record{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) WorkspaceContext(ctx context.Context, workspaceID string) (knowledge.WorkspaceContext, error) {
+	var response struct {
+		Data knowledge.WorkspaceContext `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/context"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return knowledge.WorkspaceContext{}, err
+	}
+	return response.Data, nil
+}
+
+func knowledgeQuery(options knowledge.ListOptions, kindKey string) string {
+	values := make(url.Values)
+	if strings.TrimSpace(options.Query) != "" {
+		values.Set("q", options.Query)
+	}
+	if strings.TrimSpace(options.Kind) != "" {
+		values.Set(kindKey, options.Kind)
+	}
+	if strings.TrimSpace(options.Status) != "" {
+		values.Set("status", options.Status)
+	}
+	if options.Limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", options.Limit))
+	}
+	return values.Encode()
+}
+
 func (c *Client) GetProjectOverview(ctx context.Context, projectID string) (projects.Project, backoffice.Overview, error) {
 	var response struct {
 		Data struct {
@@ -141,6 +318,89 @@ func (c *Client) StartWork(
 	return response.Data, nil
 }
 
+func (c *Client) ListHandoffs(
+	ctx context.Context, projectID, intentID string,
+) ([]coordination.Handoff, error) {
+	var response struct {
+		Data struct {
+			Handoffs []coordination.Handoff `json:"handoffs"`
+		} `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/handoffs"
+	if strings.TrimSpace(intentID) != "" {
+		path += "?intent_id=" + url.QueryEscape(intentID)
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Handoffs == nil {
+		response.Data.Handoffs = make([]coordination.Handoff, 0)
+	}
+	return response.Data.Handoffs, nil
+}
+
+func (c *Client) OfferHandoff(
+	ctx context.Context, projectID, intentID, idempotencyKey string, input coordination.OfferHandoffInput,
+) (coordination.HandoffResult, error) {
+	var response struct {
+		Data coordination.HandoffResult `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/intents/" +
+		url.PathEscape(intentID) + "/handoffs"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return coordination.HandoffResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) UpdateHandoffStatus(
+	ctx context.Context, projectID, intentID, handoffID, idempotencyKey string,
+	input coordination.HandoffStatusInput,
+) (coordination.HandoffResult, error) {
+	var response struct {
+		Data coordination.HandoffResult `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/intents/" +
+		url.PathEscape(intentID) + "/handoffs/" + url.PathEscape(handoffID) + "/status"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return coordination.HandoffResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) CompileContextPack(
+	ctx context.Context, projectID, intentID, idempotencyKey string, input contextpack.CompileInput,
+) (contextpack.CompileResult, error) {
+	var response struct {
+		Data contextpack.CompileResult `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/intents/" +
+		url.PathEscape(intentID) + "/context-packs"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return contextpack.CompileResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) GetContextPack(
+	ctx context.Context, projectID, contextPackID string,
+) (contextpack.ContextPack, error) {
+	var response struct {
+		Data contextpack.ContextPack `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/context-packs/" + url.PathEscape(contextPackID)
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return contextpack.ContextPack{}, err
+	}
+	return response.Data, nil
+}
+
 func (c *Client) AttachWorkspace(
 	ctx context.Context,
 	intentID string,
@@ -155,6 +415,24 @@ func (c *Client) AttachWorkspace(
 		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
 	}, &response); err != nil {
 		return coordination.WorkspaceResult{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) AttachWorktree(
+	ctx context.Context,
+	intentID string,
+	idempotencyKey string,
+	input coordination.WorktreeInput,
+) (coordination.WorktreeResult, error) {
+	var response struct {
+		Data coordination.WorktreeResult `json:"data"`
+	}
+	path := "/v1/intents/" + url.PathEscape(intentID) + "/worktree"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return coordination.WorktreeResult{}, err
 	}
 	return response.Data, nil
 }
@@ -338,7 +616,9 @@ func (c *Client) do(
 	}
 
 	endpoint := *c.baseURL
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + path
+	pathOnly, rawQuery, _ := strings.Cut(path, "?")
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + pathOnly
+	endpoint.RawQuery = rawQuery
 	httpRequest, err := http.NewRequestWithContext(ctx, method, endpoint.String(), body)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

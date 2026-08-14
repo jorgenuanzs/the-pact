@@ -70,17 +70,19 @@ mantiene: solo el agente asignado recibe su ruta absoluta; el contexto
 compartido omite rutas locales.
 
 Desde v0.5.1, `pact enable codex` instala de forma idempotente un servidor
-`pact` en la configuración de proyecto de Codex. La definición usa rutas
-absolutas locales para evitar depender del `PATH` de VS Code y se excluye
-mediante `.git/info/exclude`; cada checkout mantiene su propio enlace y solo lo
-carga cuando Codex confía en ese proyecto.
+`pact` en la configuración de proyecto de Codex. Desde v0.9.0,
+`pact enable claude` hace lo mismo en `.mcp.json`, conserva otros servidores y
+rechaza reemplazar una definición `pact` que no administra. Ambas definiciones
+usan rutas absolutas locales para evitar depender del `PATH`, se excluyen
+mediante `.git/info/exclude` cuando Pact crea el archivo y requieren que el
+cliente confíe en el proyecto.
 
 ## Límites conscientes
 
 - El transporte inicial es local por `stdio`; aún no existe un endpoint MCP
   remoto con OAuth ni transporte HTTP.
-- Codex dispone de onboarding automático por proyecto. Claude, Kimi y otros
-  clientes todavía deben registrar el comando en su propia configuración.
+- Codex y Claude Code disponen de onboarding automático por proyecto. Kimi y
+  otros clientes todavía deben registrar el comando en su propia configuración.
 - El proceso sigue el ciclo de vida del cliente MCP y todavía no se instala como
   servicio residente del sistema operativo.
 - El contexto es una vista estructurada de PACT; recursos MCP, prompts y

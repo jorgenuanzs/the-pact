@@ -8,9 +8,11 @@
 
   const state = {
     token: "",
+    workspaces: [],
     projects: [],
     selectedProjectID: null,
     overview: null,
+    knowledge: null,
     events: [],
     overviewLoading: false,
     overviewLoadingProjectID: null,
@@ -45,6 +47,7 @@
     retryOverview: document.querySelector("#retry-overview"),
     refreshOverview: document.querySelector("#refresh-overview"),
     projectName: document.querySelector("#project-name"),
+    workspaceName: document.querySelector("#workspace-name"),
     projectSlug: document.querySelector("#project-slug"),
     projectStatus: document.querySelector("#project-status"),
     projectVersion: document.querySelector("#project-version"),
@@ -71,6 +74,12 @@
     workboardEmpty: document.querySelector("#workboard-empty"),
     workboardCount: document.querySelector("#workboard-count"),
     workboardLiveCount: document.querySelector("#workboard-live-count"),
+    knowledgeGrid: document.querySelector("#knowledge-grid"),
+    knowledgeEmpty: document.querySelector("#knowledge-empty"),
+    knowledgeCount: document.querySelector("#knowledge-count"),
+    handoffList: document.querySelector("#handoff-list"),
+    handoffEmpty: document.querySelector("#handoff-empty"),
+    handoffCount: document.querySelector("#handoff-count"),
     eventList: document.querySelector("#event-list"),
     eventEmpty: document.querySelector("#event-empty"),
     generatedAt: document.querySelector("#generated-at"),
@@ -103,11 +112,11 @@
     observer_connected_no_recent_change:
       "El observador está conectado y no ha detectado cambios recientes.",
     fresh_workspace_diff:
-      "Un workspace gestionado acaba de publicar una actualización de su diff.",
+      "Un worktree gestionado acaba de publicar una actualización de su diff.",
     fresh_external_git_change:
       "Pact acaba de detectar un cambio de Git realizado fuera del flujo gestionado.",
     recent_workspace_diff:
-      "Un workspace gestionado publicó cambios dentro de la ventana reciente.",
+      "Un worktree gestionado publicó cambios dentro de la ventana reciente.",
     recent_external_git_change:
       "Se detectó recientemente un cambio de Git fuera del flujo gestionado.",
     recent_changeset:
@@ -132,7 +141,7 @@
 
   const eventTypeCopy = {
     "pact.intent.started.v1": "Trabajo iniciado",
-    "pact.workspace.ready.v1": "Workspace preparado",
+    "pact.workspace.ready.v1": "Worktree preparado",
     "pact.intent.active.v1": "Trabajo reanudado",
     "pact.intent.blocked.v1": "Trabajo bloqueado",
     "pact.intent.submitted.v1": "Trabajo enviado a revisión",
@@ -140,7 +149,7 @@
     "pact.intent.cancelled.v1": "Trabajo cancelado",
     "pact.intent.abandoned.v1": "Trabajo abandonado",
     "pact.workspace.diff_updated.v1": "Código modificado",
-    "pact.workspace.head_updated.v1": "Workspace avanzó de revisión",
+    "pact.workspace.head_updated.v1": "Worktree avanzó de revisión",
     "pact.git.external_change_detected.v1": "Cambio externo detectado",
     "pact.session.started.v1": "Agente conectado",
     "pact.session.closed.v1": "Agente desconectado",
@@ -210,10 +219,14 @@
     setGlobalConnection("connecting", "Conectando");
 
     try {
-      const payload = await requestJSON("/v1/projects", { token });
-      const projects = normalizeProjects(payload);
+      const [projectPayload, workspacePayload] = await Promise.all([
+        requestJSON("/v1/projects", { token }),
+        requestJSON("/v1/workspaces", { token }),
+      ]);
+      const projects = normalizeProjects(projectPayload);
       state.token = token;
       state.projects = projects;
+      state.workspaces = normalizeWorkspaces(workspacePayload);
       writeSessionToken(token);
       elements.tokenInput.value = "";
       showApplication();
@@ -248,9 +261,11 @@
     stopLiveUpdates();
     removeSessionToken();
     state.token = "";
+    state.workspaces = [];
     state.projects = [];
     state.selectedProjectID = null;
     state.overview = null;
+    state.knowledge = null;
     state.events = [];
     state.lastEventByProject.clear();
     elements.tokenInput.value = "";
@@ -277,8 +292,12 @@
     elements.projectListStatus.textContent = "Actualizando…";
 
     try {
-      const payload = await requestJSON("/v1/projects");
-      state.projects = normalizeProjects(payload);
+      const [projectPayload, workspacePayload] = await Promise.all([
+        requestJSON("/v1/projects"),
+        requestJSON("/v1/workspaces"),
+      ]);
+      state.projects = normalizeProjects(projectPayload);
+      state.workspaces = normalizeWorkspaces(workspacePayload);
 
       if (
         state.selectedProjectID &&
@@ -289,7 +308,7 @@
         clearSelection();
       }
       renderProjectList();
-      showToast("Lista de proyectos actualizada.");
+      showToast("Workspaces y proyectos actualizados.");
     } catch (error) {
       handleRequestFailure(error, "No se pudieron actualizar los proyectos.");
       renderProjectList();
@@ -305,34 +324,65 @@
     return [];
   }
 
+  function normalizeWorkspaces(payload) {
+    const data = payload && payload.data;
+    if (data && Array.isArray(data.workspaces)) {
+      return data.workspaces.filter(
+        (workspace) => workspace.status !== "archived" || (workspace.projects || []).length > 0,
+      );
+    }
+    if (Array.isArray(data)) {
+      return data.filter(
+        (workspace) => workspace.status !== "archived" || (workspace.projects || []).length > 0,
+      );
+    }
+    return [];
+  }
+
   function renderProjectList({ focusProjectID = null } = {}) {
     const query = elements.projectSearch.value.trim().toLocaleLowerCase("es");
-    const projects = state.projects.filter((project) => {
-      if (!query) return true;
-      return [project.name, project.slug, project.id].some((value) =>
-        String(value || "")
-          .toLocaleLowerCase("es")
-          .includes(query),
-      );
-    });
+    const projectByID = new Map(state.projects.map((project) => [project.id, project]));
+    const groups = state.workspaces
+      .map((workspace) => {
+        const workspaceMatches = [workspace.name, workspace.slug, workspace.id].some(
+          (value) => String(value || "").toLocaleLowerCase("es").includes(query),
+        );
+        const projects = (workspace.projects || [])
+          .map((project) => projectByID.get(project.id) || project)
+          .filter((project) => {
+            if (!query || workspaceMatches) return true;
+            return [project.name, project.slug, project.id].some((value) =>
+              String(value || "").toLocaleLowerCase("es").includes(query),
+            );
+          });
+        return { workspace, projects };
+      })
+      .filter(({ workspace, projects }) => {
+        if (projects.length > 0) return true;
+        if (!query) return true;
+        return [workspace.name, workspace.slug, workspace.id].some((value) =>
+          String(value || "").toLocaleLowerCase("es").includes(query),
+        );
+      });
+    const visibleProjectCount = groups.reduce((count, group) => count + group.projects.length, 0);
 
     elements.projectList.replaceChildren();
 
     if (state.projects.length === 0) {
-      elements.projectListStatus.textContent = "0 proyectos";
+      elements.projectListStatus.textContent = "0 workspaces · 0 proyectos";
       const empty = document.createElement("p");
       empty.className = "rail-empty";
       empty.textContent =
-        "No hay proyectos en esta organización. Crea uno mediante la API para administrarlo aquí.";
+        "No hay proyectos en esta organización. Pact creará un workspace al inicializar el primero.";
       elements.projectList.append(empty);
       return;
     }
 
     elements.projectListStatus.textContent = query
-      ? `${formatInteger(projects.length)} de ${formatInteger(state.projects.length)} proyectos`
-      : `${formatInteger(state.projects.length)} ${state.projects.length === 1 ? "proyecto" : "proyectos"}`;
+      ? `${formatInteger(visibleProjectCount)} de ${formatInteger(state.projects.length)} proyectos`
+      : `${formatInteger(state.workspaces.length)} ${state.workspaces.length === 1 ? "workspace" : "workspaces"} · ${formatInteger(state.projects.length)} proyectos`;
 
-    if (projects.length === 0) {
+    if (groups.length === 0 || (visibleProjectCount === 0 && query)) {
       const empty = document.createElement("p");
       empty.className = "rail-empty";
       empty.textContent = "Ningún proyecto coincide con el filtro.";
@@ -341,41 +391,55 @@
     }
 
     let focusTarget = null;
-    for (const project of projects) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "project-button";
-      button.dataset.projectId = project.id;
-      button.classList.toggle(
-        "is-selected",
-        project.id === state.selectedProjectID,
-      );
-      button.setAttribute(
-        "aria-current",
-        project.id === state.selectedProjectID ? "page" : "false",
-      );
+    for (const group of groups) {
+      const groupElement = document.createElement("section");
+      groupElement.className = "workspace-group";
+      const heading = document.createElement("div");
+      heading.className = "workspace-group-heading";
+      const workspaceName = document.createElement("strong");
+      workspaceName.textContent = valueOrDash(group.workspace.name);
+      const workspaceCount = document.createElement("span");
+      workspaceCount.textContent = String(group.projects.length);
+      heading.append(workspaceName, workspaceCount);
+      groupElement.append(heading);
 
-      const dot = document.createElement("span");
-      dot.className = "project-status-dot";
-      if (Object.hasOwn(projectStatusCopy, project.status)) {
-        dot.classList.add(`status-${project.status}`);
+      for (const project of group.projects) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "project-button";
+        button.dataset.projectId = project.id;
+        button.classList.toggle(
+          "is-selected",
+          project.id === state.selectedProjectID,
+        );
+        button.setAttribute(
+          "aria-current",
+          project.id === state.selectedProjectID ? "page" : "false",
+        );
+
+        const dot = document.createElement("span");
+        dot.className = "project-status-dot";
+        if (Object.hasOwn(projectStatusCopy, project.status)) {
+          dot.classList.add(`status-${project.status}`);
+        }
+        dot.setAttribute("aria-hidden", "true");
+
+        const copy = document.createElement("span");
+        const name = document.createElement("strong");
+        name.textContent = valueOrDash(project.name);
+        const slug = document.createElement("small");
+        slug.textContent = [project.slug, projectStatusCopy[project.status]]
+          .filter(Boolean)
+          .join(" · ") || "—";
+        copy.append(name, slug);
+        button.append(dot, copy);
+        button.addEventListener("click", () =>
+          selectProject(project.id, { focusProject: true }),
+        );
+        if (project.id === focusProjectID) focusTarget = button;
+        groupElement.append(button);
       }
-      dot.setAttribute("aria-hidden", "true");
-
-      const copy = document.createElement("span");
-      const name = document.createElement("strong");
-      name.textContent = valueOrDash(project.name);
-      const slug = document.createElement("small");
-      slug.textContent = [project.slug, projectStatusCopy[project.status]]
-        .filter(Boolean)
-        .join(" · ") || "—";
-      copy.append(name, slug);
-      button.append(dot, copy);
-      button.addEventListener("click", () =>
-        selectProject(project.id, { focusProject: true }),
-      );
-      if (project.id === focusProjectID) focusTarget = button;
-      elements.projectList.append(button);
+      elements.projectList.append(groupElement);
     }
     if (focusTarget) focusTarget.focus();
   }
@@ -387,6 +451,7 @@
     stopLiveUpdates();
     state.selectedProjectID = projectID;
     state.overview = null;
+    state.knowledge = null;
     state.events = [];
     renderProjectList({
       focusProjectID: focusProject ? projectID : null,
@@ -414,6 +479,7 @@
     stopLiveUpdates();
     state.selectedProjectID = null;
     state.overview = null;
+    state.knowledge = null;
     state.events = [];
     elements.workspaceContent.hidden = true;
     elements.workspaceEmpty.hidden = false;
@@ -421,6 +487,10 @@
   }
 
   function renderProjectHeader(project) {
+    const workspace = state.workspaces.find((item) =>
+      (item.projects || []).some((candidate) => candidate.id === project.id),
+    );
+    elements.workspaceName.textContent = workspace ? valueOrDash(workspace.name) : "Sin workspace";
     elements.projectName.textContent = valueOrDash(project.name);
     elements.projectSlug.textContent = valueOrDash(project.slug);
     elements.projectID.textContent = valueOrDash(project.id);
@@ -448,6 +518,8 @@
     renderCounts(null);
     renderActiveWork([]);
     renderWorkItems([]);
+    renderKnowledge(null);
+    renderHandoffs([]);
     renderEvents([]);
     elements.generatedAt.textContent = "Actualizando estado…";
     setStreamStatus("stopped", "Preparando flujo");
@@ -470,9 +542,13 @@
     if (!silent) setBusy(elements.refreshOverview, true);
 
     try {
-      const payload = await requestJSON(
-        `/v1/projects/${encodeURIComponent(projectID)}/overview`,
-      );
+      const workspace = workspaceForProject(projectID);
+      const [payload, knowledgePayload] = await Promise.all([
+        requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/overview`),
+        workspace
+          ? requestJSON(`/v1/workspaces/${encodeURIComponent(workspace.id)}/context`)
+          : Promise.resolve(null),
+      ]);
       if (
         requestSequence !== state.overviewRequestSequence ||
         projectID !== state.selectedProjectID ||
@@ -483,6 +559,9 @@
 
       const overview = payload && payload.data ? payload.data : payload;
       state.overview = overview || {};
+      state.knowledge = knowledgePayload
+        ? (knowledgePayload.data || knowledgePayload)
+        : null;
       const project = state.overview.project;
       if (project && project.id === projectID) {
         const index = state.projects.findIndex((item) => item.id === projectID);
@@ -527,6 +606,10 @@
     renderWorkItems(
       Array.isArray(overview.work_items) ? overview.work_items : [],
     );
+    renderKnowledge(state.knowledge);
+    renderHandoffs(
+      Array.isArray(overview.handoffs) ? overview.handoffs : [],
+    );
     renderEvents(state.events);
 
     if (overview.generated_at) {
@@ -536,6 +619,168 @@
       elements.generatedAt.textContent = "Hora de generación no disponible";
       elements.generatedAt.removeAttribute("title");
     }
+  }
+
+  function workspaceForProject(projectID) {
+    return state.workspaces.find((workspace) =>
+      (workspace.projects || []).some((project) => project.id === projectID),
+    ) || null;
+  }
+
+  function renderKnowledge(context) {
+    elements.knowledgeGrid.replaceChildren();
+    const value = context && typeof context === "object" ? context : {};
+    const groups = [
+      {
+        title: "Acuerdos vigentes",
+        items: [
+          ...tagKnowledge(value.decisions, "Decisión"),
+          ...tagKnowledge(value.requirements, "Requisito"),
+          ...tagKnowledge(value.constraints, "Restricción"),
+        ],
+      },
+      {
+        title: "Atención",
+        items: [
+          ...tagKnowledge(value.open_questions, "Pregunta"),
+          ...tagKnowledge(value.risks, "Riesgo"),
+        ],
+        warnings: Array.isArray(value.warnings) ? value.warnings : [],
+      },
+      {
+        title: "Fuentes registradas",
+        resources: Array.isArray(value.resources) ? value.resources : [],
+      },
+    ];
+    const total = groups.reduce(
+      (count, group) => count + (group.items?.length || 0) + (group.resources?.length || 0),
+      0,
+    );
+    elements.knowledgeCount.textContent = context ? formatInteger(total) : "—";
+    elements.knowledgeEmpty.hidden = !context || total !== 0;
+    elements.knowledgeGrid.hidden = !context || total === 0;
+    if (!context || total === 0) return;
+
+    for (const group of groups) {
+      const lane = document.createElement("section");
+      lane.className = "knowledge-lane";
+      const heading = document.createElement("h3");
+      heading.textContent = group.title;
+      lane.append(heading);
+      const items = group.items || [];
+      for (const item of items.slice(0, 6)) {
+        const card = document.createElement("article");
+        card.className = `knowledge-item status-${item.status || "active"}`;
+        const type = document.createElement("span");
+        type.textContent = `${item.label} · ${item.status || "propuesto"}`;
+        const title = document.createElement("strong");
+        title.textContent = valueOrDash(item.title);
+        const body = document.createElement("p");
+        body.textContent = valueOrDash(item.body);
+        card.append(type, title, body);
+        lane.append(card);
+      }
+      for (const resource of (group.resources || []).slice(0, 6)) {
+        const card = document.createElement("article");
+        card.className = "knowledge-item resource-item";
+        const type = document.createElement("span");
+        type.textContent = `${resource.kind || "fuente"} · ${resource.classification || "internal"}`;
+        const title = document.createElement("strong");
+        title.textContent = valueOrDash(resource.title);
+        const locator = document.createElement("code");
+        locator.textContent = valueOrDash(resource.locator);
+        locator.title = resource.locator || "";
+        card.append(type, title, locator);
+        lane.append(card);
+      }
+      for (const warning of (group.warnings || []).slice(0, 3)) {
+        const note = document.createElement("p");
+        note.className = "knowledge-warning";
+        note.textContent = warning;
+        lane.append(note);
+      }
+      if (items.length === 0 && (group.resources || []).length === 0 && (group.warnings || []).length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "knowledge-lane-empty";
+        empty.textContent = "Sin registros";
+        lane.append(empty);
+      }
+      elements.knowledgeGrid.append(lane);
+    }
+  }
+
+  function tagKnowledge(items, label) {
+    return (Array.isArray(items) ? items : []).map((item) => ({ ...item, label }));
+  }
+
+  function renderHandoffs(handoffs) {
+    elements.handoffList.replaceChildren();
+    elements.handoffCount.textContent = formatInteger(handoffs.length);
+    elements.handoffEmpty.hidden = handoffs.length !== 0;
+    elements.handoffList.hidden = handoffs.length === 0;
+
+    for (const handoff of handoffs) {
+      const card = document.createElement("article");
+      card.className = `handoff-item status-${handoff.status || "offered"}`;
+
+      const heading = document.createElement("div");
+      heading.className = "handoff-heading";
+      const people = document.createElement("strong");
+      const receiver = handoff.to_actor_name || "pendiente de aceptación";
+      people.textContent = `${handoff.from_actor_name || "Colaborador"} → ${receiver}`;
+      const status = document.createElement("span");
+      status.className = "handoff-status";
+      status.textContent = handoffStatusLabel(handoff.status);
+      heading.append(people, status);
+
+      const summary = document.createElement("p");
+      summary.className = "handoff-summary";
+      summary.textContent = valueOrDash(handoff.summary);
+      card.append(heading, summary);
+
+      const details = document.createElement("div");
+      details.className = "handoff-details";
+      appendHandoffDetail(details, "Pendiente", handoff.remaining_work);
+      appendHandoffDetail(details, "Bloqueos", handoff.blockers);
+      appendHandoffDetail(details, "Siguiente", handoff.next_steps);
+      const validationValues = (Array.isArray(handoff.validations) ? handoff.validations : [])
+        .map((item) => `${item.name}: ${item.status}`);
+      appendHandoffDetail(details, "Validaciones", validationValues);
+      if (details.childElementCount > 0) card.append(details);
+
+      const meta = document.createElement("p");
+      meta.className = "handoff-meta";
+      const expiry = handoff.expires_at ? ` · expira ${formatRelativeDate(handoff.expires_at)}` : "";
+      meta.textContent = `Intent ${shortenIdentifier(handoff.intent_id, 8)} · v${formatInteger(handoff.version || 0)}${expiry}`;
+      meta.title = handoff.intent_id || "";
+      card.append(meta);
+      elements.handoffList.append(card);
+    }
+  }
+
+  function appendHandoffDetail(container, label, values) {
+    const items = Array.isArray(values) ? values.filter(Boolean) : [];
+    if (items.length === 0) return;
+    const group = document.createElement("section");
+    const title = document.createElement("span");
+    title.textContent = label;
+    const list = document.createElement("ul");
+    for (const value of items.slice(0, 4)) {
+      const item = document.createElement("li");
+      item.textContent = value;
+      list.append(item);
+    }
+    group.append(title, list);
+    container.append(group);
+  }
+
+  function handoffStatusLabel(status) {
+    return ({
+      offered: "Ofrecido",
+      accepted: "Aceptado",
+      withdrawn: "Retirado",
+      expired: "Expirado",
+    })[status] || status || "Ofrecido";
   }
 
   function renderActivity(activity) {
@@ -1119,6 +1364,7 @@
     stopLiveUpdates();
     removeSessionToken();
     state.token = "";
+    state.workspaces = [];
     state.projects = [];
     state.selectedProjectID = null;
     showAuth();

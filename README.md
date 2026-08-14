@@ -31,7 +31,7 @@ them:
 - which decisions and constraints still apply;
 - which machine, actor, and intention produced a change;
 - whether local uncommitted work is already in progress;
-- where an isolated workspace should be created.
+- where an isolated Git worktree should be created.
 
 Pact adds that live coordination layer without replacing Git.
 
@@ -49,6 +49,9 @@ The current implementation includes:
 - transactional state changes, durable events, an outbox, and resumable SSE;
 - personal identities, project roles, one-time invitations, and revocation;
 - project discovery based on normalized Git remotes;
+- durable workspaces that group related projects under shared context;
+- typed knowledge records, source references, evidence, review states, and deterministic Workspace context;
+- structured cross-agent handoffs and immutable, verifiable Context Packs;
 - machine identities, agent sessions, heartbeats, and live presence;
 - privacy-preserving Git observation from Pact Node and wrapped agents;
 - a local MCP server for project context and coordinated work;
@@ -58,7 +61,7 @@ The current implementation includes:
 - native CLI releases for Windows, macOS, and Linux on `amd64` and `arm64`;
 - Docker Compose development and production deployment examples.
 
-The broader knowledge base, document ingestion, hybrid search, infrastructure
+Document ingestion, embedding-backed hybrid search, infrastructure
 capability broker, policy engine, and semantic conflict analysis remain on the
 roadmap. See [Project status and limitations](#project-status-and-limitations).
 
@@ -78,7 +81,8 @@ roadmap. See [Project status and limitations](#project-status-and-limitations).
                                 │ HTTPS
                                 ▼
 ┌──────────────────────────── Pact Server ─────────────────────────────┐
-│  Identity · projects · sessions · intents · scopes · events · API   │
+│ Identity · workspaces · projects · knowledge · sessions · intents │
+│ Handoffs · Context Packs · events · access                         │
 │  Embedded live backoffice                                           │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │
@@ -86,10 +90,11 @@ roadmap. See [Project status and limitations](#project-status-and-limitations).
                     PostgreSQL + pgvector
 ```
 
-One Pact Server can host many projects for a team. Each checkout keeps only its
-machine-specific binding locally and connects to the shared server. A developer
-does not need PostgreSQL or Docker on their computer when using a remote Pact
-Server.
+One Pact Server can host many workspaces and projects for a team. A workspace
+represents a product, client, or initiative and may contain several technical
+projects. Each checkout keeps only its machine-specific binding locally and
+connects to the shared server. A developer does not need PostgreSQL or Docker
+on their computer when using a remote Pact Server.
 
 ## Quick start: run Pact Server locally
 
@@ -251,10 +256,26 @@ server, and writes two different surfaces:
 | `pact.yaml` | Shared project manifest | Commit it |
 | `.pact/config.json` | Server URL and remote project UUID for this checkout | Ignored |
 | `.pact/node.json` | Private machine identity, created when observation starts | Ignored |
-| `.pact/worktrees/` | Isolated workspaces created for coordinated work | Ignored |
+| `.pact/worktrees/` | Isolated Git worktrees created for coordinated work | Ignored |
 
 No API token, PostgreSQL credential, or cloud secret is written into the
 repository.
+
+`pact init` also creates a default remote Workspace for a new project. Related
+projects can later be grouped without changing their Git repositories:
+
+```sh
+pact workspace list
+pact workspace show footfall
+pact workspace create \
+  --name "Footfall Product" \
+  --slug footfall-product \
+  --project PROJECT_UUID
+pact workspace add-project WORKSPACE_UUID ANOTHER_PROJECT_UUID
+```
+
+A project belongs to one Workspace. Moving it changes shared context and
+navigation only; it never moves files, branches, or remotes.
 
 ### 3. Verify the identity
 
@@ -318,6 +339,21 @@ new chat.
 Codex CLI, the Codex VS Code extension, and the desktop application can use the
 same project-scoped configuration.
 
+### Claude Code
+
+From the connected repository:
+
+```sh
+pact enable claude
+```
+
+This creates an idempotent `.mcp.json` entry with the absolute local Pact and
+project paths. When Pact creates the file, it excludes it through
+`.git/info/exclude`, so another checkout can keep its own machine-specific
+configuration. Restart Claude Code and approve the project MCP server when
+prompted. Claude documents this approval boundary for project-scoped MCP
+servers in its [official MCP guide](https://code.claude.com/docs/en/mcp).
+
 ### Any MCP-compatible client
 
 Start Pact as a local `stdio` MCP server:
@@ -373,30 +409,54 @@ pact node run --once
 Pact sends only dirty/clean state, branch, HEAD revision, changed-path count,
 and a SHA-256 fingerprint. File names and contents are not sent to Pact Server.
 
-## Coordinated work through MCP
+## Shared knowledge and coordinated work through MCP
 
-The local MCP adapter currently exposes seven tools:
+The local MCP adapter currently exposes nineteen tools:
 
 | Tool | Purpose |
 |---|---|
-| `pact.project_context` | Return project identity, live work, recent events, and summarized Git state |
+| `pact.project_context` | Return project identity, Workspace knowledge, live work, recent events, and summarized Git state |
 | `pact.list_projects` | List projects visible to the current identity |
+| `pact.list_workspaces` | List shared Workspaces and their related projects |
+| `pact.workspace_context` | Return accepted decisions, requirements, constraints, open questions, risks, and sources |
+| `pact.list_resources` | Search registered source references |
+| `pact.add_resource` | Register a source locator without copying its content |
+| `pact.list_records` | Search typed, evidence-backed knowledge records |
+| `pact.propose_record` | Propose a durable knowledge record with optional evidence |
+| `pact.review_record` | Accept, dispute, supersede, revoke, expire, or reject a record |
 | `pact.refresh_git_observation` | Refresh the current checkout observation |
 | `pact.check_scopes` | Detect conflicting hierarchical reservations before work begins |
 | `pact.start_work` | Create an intent, acquire scopes, and provision an isolated worktree |
 | `pact.list_work` | List active and historical coordinated work |
 | `pact.update_work` | Block, resume, submit, cancel, abandon, or complete work |
+| `pact.list_handoffs` | List structured handoff offers and responses |
+| `pact.offer_handoff` | Offer completed work, remaining work, blockers, validations, and next steps |
+| `pact.update_handoff` | Accept another actor's offer or withdraw your own |
+| `pact.compile_context_pack` | Persist an intent-specific snapshot with event cursor, Git revision, expiry, and source fingerprint |
+| `pact.get_context_pack` | Retrieve a persisted Context Pack after its payload integrity check |
 
 The recommended agent flow is:
 
 ```text
-project_context → check_scopes → start_work → edit workspace_path → update_work
+project_context → workspace_context → check_scopes → start_work → edit worktree_path
+                → compile_context_pack → offer_handoff or update_work
 ```
 
-`pact.start_work` returns a private `workspace_path` created under
-`.pact/worktrees/`. Agents should edit only that workspace during coordinated
-work. Exclusive overlapping scopes are rejected unless a caller explicitly
-requests an override.
+`pact.start_work` returns a private `worktree_path` created under
+`.pact/worktrees/`. The deprecated `workspace_path` alias remains in the result
+for v0.7 clients. Agents should edit only that worktree during coordinated work.
+Exclusive overlapping scopes are rejected unless a caller explicitly requests
+an override.
+
+A Handoff is an acknowledgement protocol, not a hidden file transfer. Accepting
+one does not move the sender's local worktree, session, responsibility, or scope
+leases. The sender should release or close the original work, after which the
+recipient starts a new coordinated intent and receives a fresh worktree.
+
+A Context Pack is a short-lived immutable snapshot, not a conversation dump.
+It includes structured project and Workspace state, relevant knowledge, live
+work, Handoffs, the Git revision, an event cursor, and SHA-256 provenance. The
+current compiler is deterministic and does not invoke an LLM.
 
 Git still owns commits and branches. Pact adds intent, responsibility, leases,
 and conflict signals around them.
@@ -405,9 +465,11 @@ and conflict signals around them.
 
 The embedded backoffice is available at `/admin/` on Pact Server. It shows:
 
-- all projects visible to the authenticated identity;
+- visible Workspaces with their projects grouped beneath them;
 - currently active humans and agents;
-- intended work, reserved scopes, branches, and workspace status;
+- intended work, reserved scopes, branches, and worktree status;
+- accepted decisions, requirements, constraints, open questions, risks, and registered sources;
+- offered, accepted, withdrawn, and expired handoffs with their blockers, next steps, and validations;
 - observed dirty/clean activity;
 - durable recent events in real time through SSE.
 
@@ -458,6 +520,7 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 | `pact init [PATH]` | Create or recover a project and connect the owner checkout |
 | `pact connect [PATH]` | Connect another checkout to an existing Pact project |
 | `pact enable codex` | Install the project-scoped Codex MCP configuration |
+| `pact enable claude` | Install the project-scoped Claude Code MCP configuration |
 | `pact invite create --email EMAIL` | Create a one-time project invitation |
 | `pact join --server URL --name NAME --invite-stdin` | Accept an invitation and store the new personal token |
 | `pact whoami` | Show the current identity and server |
@@ -541,8 +604,8 @@ PACT_MASTER_PLAN.md       complete long-term product and architecture vision
 
 ## Project status and limitations
 
-Pact is intentionally building the deterministic coordination core before
-adding a large AI knowledge layer.
+Pact builds deterministic coordination and knowledge primitives before adding
+AI-dependent retrieval or synthesis.
 
 Implemented now:
 
@@ -550,7 +613,9 @@ Implemented now:
 - access, invitations, roles, and revocation;
 - live sessions and Git observation;
 - MCP project context;
+- typed Workspace Resources and Records with evidence, lifecycle review, full-text search, and deterministic context;
 - coordinated intentions, scopes, leases, and worktrees;
+- structured Handoffs and intent-specific Context Packs with integrity verification;
 - backoffice and durable event stream;
 - reproducible self-hosting and native clients.
 
@@ -558,7 +623,7 @@ Not implemented yet:
 
 - OIDC, SSO, SCIM, and operating-system keychain integration;
 - automatic Git merge governance or a mandatory write gateway;
-- document ingestion, transcripts, decisions, and knowledge provenance;
+- document content ingestion, transcript processing, chunking, and automatic provenance extraction;
 - vector and hybrid search exposed as product capabilities;
 - code graph and semantic conflict analysis;
 - infrastructure inventory and delegated execution capabilities;

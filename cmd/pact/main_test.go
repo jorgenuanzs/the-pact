@@ -258,6 +258,55 @@ func TestEnableCodexConfiguresConnectedProject(t *testing.T) {
 	}
 }
 
+func TestEnableClaudeConfiguresConnectedProject(t *testing.T) {
+	root := newRealGitRepository(t, "https://github.com/example/claude-enabled.git")
+	serverURL := "https://pact.example.com"
+	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, ServerURL: serverURL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localproject.Bind(root, serverURL, "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	if _, err := userconfig.Save(serverURL, cliTestToken); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := run(
+		[]string{"enable", "claude", "--path", root},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	); err != nil {
+		t.Fatalf("enable error = %v; stderr = %s", err, stderr.String())
+	}
+	configPath := filepath.Join(root, ".mcp.json")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `"mcpServers"`) ||
+		!strings.Contains(string(content), `"--client"`) ||
+		!strings.Contains(string(content), `"claude"`) ||
+		!strings.Contains(stdout.String(), "Claude MCP enabled") ||
+		!strings.Contains(stdout.String(), configPath) {
+		t.Fatalf("stdout = %s\nconfig = %s", stdout.String(), content)
+	}
+	stdout.Reset()
+	if err := run(
+		[]string{"enable", "claude", "--path", root},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "already enabled") {
+		t.Fatalf("second enable stdout = %s", stdout.String())
+	}
+}
+
 func newRealGitRepository(t *testing.T, remote string) string {
 	t.Helper()
 	root := t.TempDir()

@@ -19,10 +19,13 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 const maxRequestBody = 1 << 20
@@ -31,6 +34,23 @@ type ProjectService interface {
 	Create(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
 	Get(context.Context, string) (projects.Project, error)
 	List(context.Context) ([]projects.Project, error)
+}
+
+type WorkspaceService interface {
+	Create(context.Context, string, workspaces.CreateInput) (workspaces.CreateResult, error)
+	Get(context.Context, string) (workspaces.Workspace, error)
+	List(context.Context) ([]workspaces.Workspace, error)
+	AttachProject(context.Context, string, string) (workspaces.Workspace, error)
+}
+
+type KnowledgeService interface {
+	CreateResource(context.Context, string, string, string, knowledge.CreateResourceInput) (knowledge.CreateResourceResult, error)
+	ListResources(context.Context, string, knowledge.ListOptions) ([]knowledge.Resource, error)
+	CreateRecord(context.Context, string, string, string, knowledge.CreateRecordInput) (knowledge.CreateRecordResult, error)
+	GetRecord(context.Context, string, string) (knowledge.Record, error)
+	ListRecords(context.Context, string, knowledge.ListOptions) ([]knowledge.Record, error)
+	UpdateRecordStatus(context.Context, string, string, string, string, knowledge.RecordStatusInput) (knowledge.RecordStatusResult, error)
+	Context(context.Context, string) (knowledge.WorkspaceContext, error)
 }
 
 type AgentSessionService interface {
@@ -46,6 +66,17 @@ type CoordinationService interface {
 	AttachWorkspace(context.Context, string, bool, string, string, coordination.WorkspaceInput) (coordination.WorkspaceResult, error)
 	UpdateStatus(context.Context, string, bool, string, string, coordination.StatusInput) (coordination.StatusResult, error)
 	List(context.Context, string) ([]coordination.WorkItem, error)
+}
+
+type HandoffService interface {
+	OfferHandoff(context.Context, string, bool, string, string, string, coordination.OfferHandoffInput) (coordination.HandoffResult, error)
+	ListHandoffs(context.Context, string, string) ([]coordination.Handoff, error)
+	UpdateHandoffStatus(context.Context, string, bool, string, string, string, string, coordination.HandoffStatusInput) (coordination.HandoffResult, error)
+}
+
+type ContextPackService interface {
+	Compile(context.Context, string, bool, string, string, string, contextpack.CompileInput) (contextpack.CompileResult, error)
+	Get(context.Context, string, string) (contextpack.ContextPack, error)
 }
 
 type AccessService interface {
@@ -68,8 +99,12 @@ type Config struct {
 	Build                buildinfo.Info
 	Readiness            ReadinessCheck
 	ProjectService       ProjectService
+	WorkspaceService     WorkspaceService
+	KnowledgeService     KnowledgeService
 	AgentSessionService  AgentSessionService
 	CoordinationService  CoordinationService
+	HandoffService       HandoffService
+	ContextPackService   ContextPackService
 	AccessService        AccessService
 	BackofficeReader     backoffice.Reader
 	EventReader          eventlog.Reader
@@ -84,8 +119,12 @@ type API struct {
 	build                buildinfo.Info
 	readiness            ReadinessCheck
 	projects             ProjectService
+	workspaces           WorkspaceService
+	knowledge            KnowledgeService
 	agentSessions        AgentSessionService
 	coordination         CoordinationService
+	handoffs             HandoffService
+	contextPacks         ContextPackService
 	access               AccessService
 	backoffice           backoffice.Reader
 	events               eventlog.Reader
@@ -108,8 +147,12 @@ func New(cfg Config) http.Handler {
 		build:                cfg.Build,
 		readiness:            cfg.Readiness,
 		projects:             cfg.ProjectService,
+		workspaces:           cfg.WorkspaceService,
+		knowledge:            cfg.KnowledgeService,
 		agentSessions:        cfg.AgentSessionService,
 		coordination:         cfg.CoordinationService,
+		handoffs:             cfg.HandoffService,
+		contextPacks:         cfg.ContextPackService,
 		access:               cfg.AccessService,
 		backoffice:           cfg.BackofficeReader,
 		events:               cfg.EventReader,
@@ -126,6 +169,17 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /admin/", adminui.Handler())
 	mux.Handle("GET /v1/projects", api.requireAuth(http.HandlerFunc(api.handleListProjects)))
 	mux.Handle("POST /v1/projects", api.requireAuth(http.HandlerFunc(api.handleCreateProject)))
+	mux.Handle("GET /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleListWorkspaces)))
+	mux.Handle("POST /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleCreateWorkspace)))
+	mux.Handle("GET /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleGetWorkspace)))
+	mux.Handle("PUT /v1/workspaces/{workspaceID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspaceProject)))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListResources))))
+	mux.Handle("POST /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleCreateResource))))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/records", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListRecords))))
+	mux.Handle("POST /v1/workspaces/{workspaceID}/records", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleCreateRecord))))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/records/{recordID}", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleGetRecord))))
+	mux.Handle("POST /v1/workspaces/{workspaceID}/records/{recordID}/status", api.requireAuth(api.requireWorkspaceRole("maintainer", http.HandlerFunc(api.handleUpdateRecordStatus))))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/context", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleWorkspaceContext))))
 	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetProject))))
 	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleProjectOverview))))
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
@@ -134,7 +188,13 @@ func New(cfg Config) http.Handler {
 	mux.Handle("POST /v1/projects/{projectID}/scope-checks", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleScopeCheck))))
 	mux.Handle("GET /v1/projects/{projectID}/work-items", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListWork))))
 	mux.Handle("POST /v1/projects/{projectID}/work-items", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartWork))))
+	mux.Handle("GET /v1/projects/{projectID}/handoffs", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListHandoffs))))
+	mux.Handle("POST /v1/projects/{projectID}/intents/{intentID}/handoffs", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleOfferHandoff))))
+	mux.Handle("POST /v1/projects/{projectID}/intents/{intentID}/handoffs/{handoffID}/status", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleUpdateHandoffStatus))))
+	mux.Handle("POST /v1/projects/{projectID}/intents/{intentID}/context-packs", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleCompileContextPack))))
+	mux.Handle("GET /v1/projects/{projectID}/context-packs/{contextPackID}", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetContextPack))))
 	mux.Handle("POST /v1/intents/{intentID}/workspace", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspace)))
+	mux.Handle("POST /v1/intents/{intentID}/worktree", api.requireAuth(http.HandlerFunc(api.handleAttachWorktree)))
 	mux.Handle("POST /v1/intents/{intentID}/status", api.requireAuth(http.HandlerFunc(api.handleUpdateIntentStatus)))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/heartbeat", api.requireAuth(http.HandlerFunc(api.handleAgentHeartbeat)))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/repository-observations", api.requireAuth(http.HandlerFunc(api.handleRepositoryObservation)))
@@ -150,6 +210,14 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/admin", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/admin/", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/workspaces", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/workspaces/{workspaceID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut))
+	mux.Handle("/v1/workspaces/{workspaceID}/resources", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/workspaces/{workspaceID}/records", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/workspaces/{workspaceID}/records/{recordID}", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/workspaces/{workspaceID}/records/{recordID}/status", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/workspaces/{workspaceID}/context", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/overview", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
@@ -157,7 +225,13 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/scope-checks", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/work-items", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/handoffs", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects/{projectID}/intents/{intentID}/handoffs", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/intents/{intentID}/handoffs/{handoffID}/status", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/intents/{intentID}/context-packs", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/context-packs/{contextPackID}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/intents/{intentID}/workspace", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/intents/{intentID}/worktree", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/intents/{intentID}/status", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/heartbeat", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/repository-observations", api.methodNotAllowed(http.MethodPost))
@@ -254,6 +328,289 @@ func (a *API) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/v1/projects/"+result.Project.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"data": result.Project})
+}
+
+func (a *API) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	if a.workspaces == nil {
+		a.writeDomainError(w, r, errors.New("workspace service is not configured"))
+		return
+	}
+	workspaceList, err := a.workspaces.List(r.Context())
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	visible, err := a.access.VisibleProjectIDs(r.Context(), principal)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	workspaceList = filterVisibleWorkspaces(workspaceList, visible)
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+		"workspaces": workspaceList,
+	}})
+}
+
+func (a *API) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if a.workspaces == nil {
+		a.writeDomainError(w, r, errors.New("workspace service is not configured"))
+		return
+	}
+	if a.access == nil || !a.access.CanCreateProject(principal) {
+		a.writeDomainError(w, r, access.ErrForbidden)
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input workspaces.CreateInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	result, err := a.workspaces.Create(r.Context(), r.Header.Get("Idempotency-Key"), input)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/workspaces/"+result.Workspace.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result.Workspace})
+}
+
+func (a *API) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
+	if a.workspaces == nil {
+		a.writeDomainError(w, r, errors.New("workspace service is not configured"))
+		return
+	}
+	workspace, err := a.workspaces.Get(r.Context(), r.PathValue("workspaceID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	visible, err := a.access.VisibleProjectIDs(r.Context(), principal)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	filtered := filterVisibleWorkspaces([]workspaces.Workspace{workspace}, visible)
+	if len(filtered) == 0 {
+		a.writeDomainError(w, r, access.ErrForbidden)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": filtered[0]})
+}
+
+func (a *API) handleAttachWorkspaceProject(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if a.workspaces == nil {
+		a.writeDomainError(w, r, errors.New("workspace service is not configured"))
+		return
+	}
+	if a.access == nil || !a.access.CanCreateProject(principal) {
+		a.writeDomainError(w, r, access.ErrForbidden)
+		return
+	}
+	workspace, err := a.workspaces.AttachProject(
+		r.Context(), r.PathValue("workspaceID"), r.PathValue("projectID"),
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": workspace})
+}
+
+func (a *API) handleListResources(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	options, err := knowledgeListOptions(r, "kind")
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", err.Error())
+		return
+	}
+	resources, err := a.knowledge.ListResources(r.Context(), r.PathValue("workspaceID"), options)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"resources": resources}})
+}
+
+func (a *API) handleCreateResource(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input knowledge.CreateResourceInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.knowledge.CreateResource(
+		r.Context(), principal.ID, r.PathValue("workspaceID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result.Resource})
+}
+
+func (a *API) handleListRecords(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	options, err := knowledgeListOptions(r, "type")
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", err.Error())
+		return
+	}
+	records, err := a.knowledge.ListRecords(r.Context(), r.PathValue("workspaceID"), options)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"records": records}})
+}
+
+func (a *API) handleCreateRecord(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input knowledge.CreateRecordInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.knowledge.CreateRecord(
+		r.Context(), principal.ID, r.PathValue("workspaceID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/workspaces/"+r.PathValue("workspaceID")+"/records/"+result.Record.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result.Record})
+}
+
+func (a *API) handleGetRecord(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	record, err := a.knowledge.GetRecord(r.Context(), r.PathValue("workspaceID"), r.PathValue("recordID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": record})
+}
+
+func (a *API) handleUpdateRecordStatus(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input knowledge.RecordStatusInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.knowledge.UpdateRecordStatus(
+		r.Context(), principal.ID, r.PathValue("workspaceID"), r.PathValue("recordID"),
+		r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result.Record})
+}
+
+func (a *API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request) {
+	if a.knowledge == nil {
+		a.writeDomainError(w, r, errors.New("knowledge service is not configured"))
+		return
+	}
+	context, err := a.knowledge.Context(r.Context(), r.PathValue("workspaceID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": context})
+}
+
+func knowledgeListOptions(r *http.Request, kindKey string) (knowledge.ListOptions, error) {
+	limit := 100
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 250 {
+			return knowledge.ListOptions{}, errors.New("limit must be an integer between 1 and 250")
+		}
+		limit = value
+	}
+	return knowledge.ListOptions{
+		Query:  r.URL.Query().Get("q"),
+		Kind:   r.URL.Query().Get(kindKey),
+		Status: r.URL.Query().Get("status"),
+		Limit:  limit,
+	}, nil
+}
+
+func filterVisibleWorkspaces(workspaceList []workspaces.Workspace, visible map[string]struct{}) []workspaces.Workspace {
+	if visible == nil {
+		return workspaceList
+	}
+	filtered := make([]workspaces.Workspace, 0, len(workspaceList))
+	for _, workspace := range workspaceList {
+		projects := make([]workspaces.Project, 0, len(workspace.Projects))
+		for _, project := range workspace.Projects {
+			if _, ok := visible[project.ID]; ok {
+				projects = append(projects, project)
+			}
+		}
+		if len(projects) == 0 {
+			continue
+		}
+		workspace.Projects = projects
+		filtered = append(filtered, workspace)
+	}
+	return filtered
 }
 
 func (a *API) handleGetProject(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +713,135 @@ func (a *API) handleStartWork(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
 }
 
+func (a *API) handleListHandoffs(w http.ResponseWriter, r *http.Request) {
+	if a.handoffs == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	handoffs, err := a.handoffs.ListHandoffs(
+		r.Context(), r.PathValue("projectID"), strings.TrimSpace(r.URL.Query().Get("intent_id")),
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"handoffs": handoffs}})
+}
+
+func (a *API) handleOfferHandoff(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.handoffs == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	var input coordination.OfferHandoffInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.handoffs.OfferHandoff(
+		r.Context(), principal.ID, principalCanManageAll(principal),
+		r.PathValue("projectID"), r.PathValue("intentID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/projects/"+r.PathValue("projectID")+"/handoffs?intent_id="+r.PathValue("intentID"))
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (a *API) handleUpdateHandoffStatus(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.handoffs == nil {
+		a.writeDomainError(w, r, errors.New("coordination service is not configured"))
+		return
+	}
+	var input coordination.HandoffStatusInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.handoffs.UpdateHandoffStatus(
+		r.Context(), principal.ID, principalCanManageAll(principal),
+		r.PathValue("projectID"), r.PathValue("intentID"), r.PathValue("handoffID"),
+		r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (a *API) handleCompileContextPack(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.contextPacks == nil {
+		a.writeDomainError(w, r, errors.New("context pack service is not configured"))
+		return
+	}
+	var input contextpack.CompileInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.contextPacks.Compile(
+		r.Context(), principal.ID, principalCanManageAll(principal),
+		r.PathValue("projectID"), r.PathValue("intentID"), r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/projects/"+r.PathValue("projectID")+"/context-packs/"+result.Pack.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (a *API) handleGetContextPack(w http.ResponseWriter, r *http.Request) {
+	if a.contextPacks == nil {
+		a.writeDomainError(w, r, errors.New("context pack service is not configured"))
+		return
+	}
+	pack, err := a.contextPacks.Get(r.Context(), r.PathValue("projectID"), r.PathValue("contextPackID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": pack})
+}
+
 func (a *API) handleAttachWorkspace(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Deprecation", "true")
+	w.Header().Set("Link", "</v1/intents/"+r.PathValue("intentID")+"/worktree>; rel=\"successor-version\"")
+	a.attachExecutionWorktree(w, r, true)
+}
+
+func (a *API) handleAttachWorktree(w http.ResponseWriter, r *http.Request) {
+	a.attachExecutionWorktree(w, r, false)
+}
+
+func (a *API) attachExecutionWorktree(w http.ResponseWriter, r *http.Request, legacy bool) {
 	if !hasJSONContentType(r.Header.Get("Content-Type")) {
 		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
 		return
@@ -382,8 +867,15 @@ func (a *API) handleAttachWorkspace(w http.ResponseWriter, r *http.Request) {
 	if result.Replayed {
 		w.Header().Set("Idempotency-Replayed", "true")
 	}
-	w.Header().Set("Location", "/v1/intents/"+r.PathValue("intentID")+"/workspace")
-	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+	if legacy {
+		w.Header().Set("Location", "/v1/intents/"+r.PathValue("intentID")+"/workspace")
+		writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+		return
+	}
+	w.Header().Set("Location", "/v1/intents/"+r.PathValue("intentID")+"/worktree")
+	writeJSON(w, http.StatusCreated, map[string]any{"data": coordination.WorktreeResult{
+		Worktree: result.Workspace, EventID: result.EventID, Replayed: result.Replayed,
+	}})
 }
 
 func (a *API) handleUpdateIntentStatus(w http.ResponseWriter, r *http.Request) {
@@ -574,6 +1066,13 @@ func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if a.handoffs != nil {
+		overview.Handoffs, err = a.handoffs.ListHandoffs(r.Context(), project.ID, "")
+		if err != nil {
+			a.writeDomainError(w, r, err)
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
 		"project":       project,
@@ -582,6 +1081,7 @@ func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 		"active_work":   overview.ActiveWork,
 		"recent_events": overview.RecentEvents,
 		"work_items":    overview.WorkItems,
+		"handoffs":      overview.Handoffs,
 		"generated_at":  overview.GeneratedAt,
 	}})
 }
@@ -825,6 +1325,9 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var agentValidationErr *agentsession.ValidationError
 	var accessValidationErr *access.ValidationError
 	var coordinationValidationErr *coordination.ValidationError
+	var workspaceValidationErr *workspaces.ValidationError
+	var knowledgeValidationErr *knowledge.ValidationError
+	var contextValidationErr *contextpack.ValidationError
 	var scopeConflictErr *coordination.ScopeConflictError
 	switch {
 	case errors.As(err, &validationErr):
@@ -835,6 +1338,12 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", accessValidationErr.Error())
 	case errors.As(err, &coordinationValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", coordinationValidationErr.Error())
+	case errors.As(err, &workspaceValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", workspaceValidationErr.Error())
+	case errors.As(err, &knowledgeValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", knowledgeValidationErr.Error())
+	case errors.As(err, &contextValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", contextValidationErr.Error())
 	case errors.As(err, &scopeConflictErr):
 		writeScopeConflict(w, r, scopeConflictErr)
 	case errors.Is(err, access.ErrUnauthorized):
@@ -858,6 +1367,12 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, coordination.ErrCommandIncomplete):
 		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, coordination.ErrHandoffExists):
+		writeProblem(w, r, http.StatusConflict, "handoff_exists", "Handoff already offered", err.Error())
+	case errors.Is(err, coordination.ErrInvalidHandoffStatus):
+		writeProblem(w, r, http.StatusConflict, "invalid_handoff_transition", "Invalid handoff transition", err.Error())
+	case errors.Is(err, coordination.ErrKnowledgeRecordNotFound):
+		writeProblem(w, r, http.StatusNotFound, "handoff_record_not_found", "Knowledge record not found", err.Error())
 	case errors.Is(err, access.ErrInvitationInvalid):
 		writeProblem(w, r, http.StatusUnauthorized, "invitation_invalid", "Invalid invitation", err.Error())
 	case errors.Is(err, access.ErrInvitationExists):
@@ -879,6 +1394,40 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, projects.ErrIdempotencyConflict):
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, projects.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, workspaces.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "workspace_not_found", "Workspace not found", err.Error())
+	case errors.Is(err, workspaces.ErrProjectNotFound):
+		writeProblem(w, r, http.StatusNotFound, "workspace_project_not_found", "Project not found", err.Error())
+	case errors.Is(err, workspaces.ErrSlugTaken):
+		writeProblem(w, r, http.StatusConflict, "workspace_slug_taken", "Workspace already exists", err.Error())
+	case errors.Is(err, workspaces.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, workspaces.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, knowledge.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "knowledge_record_not_found", "Knowledge record not found", err.Error())
+	case errors.Is(err, knowledge.ErrResourceNotFound):
+		writeProblem(w, r, http.StatusNotFound, "knowledge_resource_not_found", "Knowledge resource not found", err.Error())
+	case errors.Is(err, knowledge.ErrResourceExists):
+		writeProblem(w, r, http.StatusConflict, "knowledge_resource_exists", "Knowledge resource already exists", err.Error())
+	case errors.Is(err, knowledge.ErrVersionConflict):
+		writeProblem(w, r, http.StatusConflict, "knowledge_version_conflict", "Knowledge record changed", err.Error())
+	case errors.Is(err, knowledge.ErrInvalidTransition):
+		writeProblem(w, r, http.StatusConflict, "knowledge_invalid_transition", "Invalid knowledge transition", err.Error())
+	case errors.Is(err, knowledge.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, knowledge.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, contextpack.ErrForbidden):
+		writeProblem(w, r, http.StatusForbidden, "context_pack_forbidden", "Forbidden", err.Error())
+	case errors.Is(err, contextpack.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "context_pack_not_found", "Context pack not found", err.Error())
+	case errors.Is(err, contextpack.ErrIntegrity):
+		writeProblem(w, r, http.StatusConflict, "context_pack_integrity_failed", "Context pack integrity failed", err.Error())
+	case errors.Is(err, contextpack.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, contextpack.ErrCommandIncomplete):
 		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
 	default:
 		a.logger.ErrorContext(r.Context(), "request failed", "error", err)

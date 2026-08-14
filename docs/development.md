@@ -297,11 +297,17 @@ estado Git y metadatos locales. Un cambio de huella dirty emite
 `pact.git.external_change_detected.v1`.
 
 Un cliente MCP puede consumir la misma vista operativa sin ejecutar el CLI
-manualmente. Codex se habilita de forma local e idempotente con:
+manualmente. Codex y Claude Code se habilitan de forma local e idempotente con:
 
 ```sh
 pact enable codex
+pact enable claude
 ```
+
+Codex utiliza `.codex/config.toml`; Claude Code utiliza `.mcp.json`. Cuando Pact
+crea esos archivos los excluye mediante `.git/info/exclude`, ya que contienen
+rutas absolutas propias de cada checkout. Claude Code solicita aprobación antes
+de iniciar por primera vez un servidor MCP configurado en el proyecto.
 
 Para probar el transporte directamente o configurar otro cliente, el proceso
 que debe iniciarse desde un checkout conectado es:
@@ -515,6 +521,12 @@ pueden declarar intenciones, reservar scopes y crear worktrees aislados en
 `.pact/worktrees/<intent-id>`. PACT no es un sandbox del sistema operativo: una
 herramienta con permisos sobre el checkout puede ignorar el protocolo, aunque
 Pact Node seguirá observando y registrando esos cambios externos.
+
+MCP también permite ofrecer y aceptar Handoffs estructurados y compilar Context
+Packs de corta duración. Aceptar un Handoff confirma su recepción, pero no
+transfiere el worktree local, las reservas de scope ni la responsabilidad del
+emisor. El receptor debe comenzar su propia intención coordinada después de que
+el trabajo anterior libere sus scopes.
 
 El backoffice muestra actividad observada y eventos en tiempo real, pero es una
 superficie de lectura. Pact Server solo acepta comandos de dominio autenticados;

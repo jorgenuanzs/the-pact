@@ -28,6 +28,7 @@ type Overview struct {
 	ActiveWork   []ActiveWork            `json:"active_work"`
 	RecentEvents []RecentEvent           `json:"recent_events"`
 	WorkItems    []coordination.WorkItem `json:"work_items"`
+	Handoffs     []coordination.Handoff  `json:"handoffs"`
 	GeneratedAt  time.Time               `json:"generated_at"`
 }
 

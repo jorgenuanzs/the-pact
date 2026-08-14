@@ -16,9 +16,11 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 const testToken = "this-is-a-long-local-test-token"
@@ -84,6 +86,29 @@ type fakeProjectService struct {
 	list   func(context.Context) ([]projects.Project, error)
 }
 
+type fakeWorkspaceService struct {
+	create func(context.Context, string, workspaces.CreateInput) (workspaces.CreateResult, error)
+	get    func(context.Context, string) (workspaces.Workspace, error)
+	list   func(context.Context) ([]workspaces.Workspace, error)
+	attach func(context.Context, string, string) (workspaces.Workspace, error)
+}
+
+func (f fakeWorkspaceService) Create(ctx context.Context, key string, input workspaces.CreateInput) (workspaces.CreateResult, error) {
+	return f.create(ctx, key, input)
+}
+
+func (f fakeWorkspaceService) Get(ctx context.Context, reference string) (workspaces.Workspace, error) {
+	return f.get(ctx, reference)
+}
+
+func (f fakeWorkspaceService) List(ctx context.Context) ([]workspaces.Workspace, error) {
+	return f.list(ctx)
+}
+
+func (f fakeWorkspaceService) AttachProject(ctx context.Context, workspaceID, projectID string) (workspaces.Workspace, error) {
+	return f.attach(ctx, workspaceID, projectID)
+}
+
 func (f fakeProjectService) Create(ctx context.Context, key string, input projects.CreateInput) (projects.CreateResult, error) {
 	return f.create(ctx, key, input)
 }
@@ -122,6 +147,37 @@ type fakeCoordinationService struct {
 	workspace func(context.Context, string, bool, string, string, coordination.WorkspaceInput) (coordination.WorkspaceResult, error)
 	status    func(context.Context, string, bool, string, string, coordination.StatusInput) (coordination.StatusResult, error)
 	list      func(context.Context, string) ([]coordination.WorkItem, error)
+}
+
+type fakeHandoffService struct {
+	offer  func(context.Context, string, bool, string, string, string, coordination.OfferHandoffInput) (coordination.HandoffResult, error)
+	list   func(context.Context, string, string) ([]coordination.Handoff, error)
+	status func(context.Context, string, bool, string, string, string, string, coordination.HandoffStatusInput) (coordination.HandoffResult, error)
+}
+
+func (f fakeHandoffService) OfferHandoff(ctx context.Context, principalID string, allowAll bool, projectID, intentID, key string, input coordination.OfferHandoffInput) (coordination.HandoffResult, error) {
+	return f.offer(ctx, principalID, allowAll, projectID, intentID, key, input)
+}
+
+func (f fakeHandoffService) ListHandoffs(ctx context.Context, projectID, intentID string) ([]coordination.Handoff, error) {
+	return f.list(ctx, projectID, intentID)
+}
+
+func (f fakeHandoffService) UpdateHandoffStatus(ctx context.Context, principalID string, allowAll bool, projectID, intentID, handoffID, key string, input coordination.HandoffStatusInput) (coordination.HandoffResult, error) {
+	return f.status(ctx, principalID, allowAll, projectID, intentID, handoffID, key, input)
+}
+
+type fakeContextPackService struct {
+	compile func(context.Context, string, bool, string, string, string, contextpack.CompileInput) (contextpack.CompileResult, error)
+	get     func(context.Context, string, string) (contextpack.ContextPack, error)
+}
+
+func (f fakeContextPackService) Compile(ctx context.Context, principalID string, allowAll bool, projectID, intentID, key string, input contextpack.CompileInput) (contextpack.CompileResult, error) {
+	return f.compile(ctx, principalID, allowAll, projectID, intentID, key, input)
+}
+
+func (f fakeContextPackService) Get(ctx context.Context, projectID, packID string) (contextpack.ContextPack, error) {
+	return f.get(ctx, projectID, packID)
 }
 
 func (f fakeCoordinationService) CheckScopes(ctx context.Context, projectID string, scopes []coordination.ScopeInput) (coordination.ScopeCheckResult, error) {
@@ -190,6 +246,104 @@ func TestProtectedEndpointRequiresToken(t *testing.T) {
 	}
 	if response.Header().Get("WWW-Authenticate") != "Bearer" {
 		t.Fatalf("WWW-Authenticate = %q", response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestListWorkspacesFiltersProjectsByVisibility(t *testing.T) {
+	const visibleProjectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		WorkspaceService: fakeWorkspaceService{list: func(context.Context) ([]workspaces.Workspace, error) {
+			return []workspaces.Workspace{
+				{ID: "workspace-visible", Slug: "visible", Projects: []workspaces.Project{{ID: visibleProjectID}, {ID: "hidden"}}},
+				{ID: "workspace-hidden", Slug: "hidden", Projects: []workspaces.Project{{ID: "hidden"}}},
+			}, nil
+		}},
+		AccessService: fakeAccessService{visible: func(context.Context, access.Principal) (map[string]struct{}, error) {
+			return map[string]struct{}{visibleProjectID: {}}, nil
+		}},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, "/v1/workspaces", ""))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Workspaces []workspaces.Workspace `json:"workspaces"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.Workspaces) != 1 || len(body.Data.Workspaces[0].Projects) != 1 || body.Data.Workspaces[0].Projects[0].ID != visibleProjectID {
+		t.Fatalf("workspaces = %#v", body.Data.Workspaces)
+	}
+}
+
+func TestCreateWorkspaceUsesIdempotencyAndReturnsLocation(t *testing.T) {
+	const workspaceID = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		WorkspaceService: fakeWorkspaceService{create: func(_ context.Context, key string, input workspaces.CreateInput) (workspaces.CreateResult, error) {
+			if key != "workspace-1" || input.Name != "Footfall" || input.Slug != "footfall" {
+				t.Fatalf("key=%q input=%#v", key, input)
+			}
+			return workspaces.CreateResult{Workspace: workspaces.Workspace{ID: workspaceID, Name: input.Name, Slug: input.Slug}, Replayed: true}, nil
+		}},
+		AccessService:    fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/workspaces", `{"name":"Footfall","slug":"footfall"}`)
+	request.Header.Set("Idempotency-Key", "workspace-1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/v1/workspaces/"+workspaceID || response.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("status=%d location=%q replayed=%q body=%s", response.Code, response.Header().Get("Location"), response.Header().Get("Idempotency-Replayed"), response.Body.String())
+	}
+}
+
+func TestAttachWorktreeUsesNewVocabulary(t *testing.T) {
+	const (
+		intentID   = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+		worktreeID = "018f784a-68c1-7b0f-8f2a-cfc255f99e4a"
+	)
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AccessService: fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+		CoordinationService: fakeCoordinationService{workspace: func(_ context.Context, principalID string, allowAll bool, receivedIntentID, key string, input coordination.WorkspaceInput) (coordination.WorkspaceResult, error) {
+			if principalID != access.BootstrapPrincipalID || !allowAll || receivedIntentID != intentID || key != "worktree-1" {
+				t.Fatalf("principal=%q allowAll=%v intent=%q key=%q", principalID, allowAll, receivedIntentID, key)
+			}
+			return coordination.WorkspaceResult{
+				Workspace: coordination.Worktree{ID: worktreeID, SessionID: input.SessionID, PathRef: input.PathRef},
+				EventID:   "018f784a-68c1-7b0f-8f2a-cfc255f99e5b",
+				Replayed:  true,
+			}, nil
+		}},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/intents/"+intentID+"/worktree", `{"session_id":"018f784a-68c1-7b0f-8f2a-cfc255f99e3f","base_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","path_ref":".pact/worktrees/test","git_branch":"pact/test"}`)
+	request.Header.Set("Idempotency-Key", "worktree-1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/v1/intents/"+intentID+"/worktree" {
+		t.Fatalf("status=%d location=%q body=%s", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"worktree":{"id":"`+worktreeID+`"`) || strings.Contains(response.Body.String(), `"workspace":`) {
+		t.Fatalf("body = %s", response.Body.String())
 	}
 }
 
@@ -286,6 +440,66 @@ func TestStartWorkReturnsStructuredScopeConflict(t *testing.T) {
 
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"code":"scope_conflict"`) || !strings.Contains(response.Body.String(), `"existing_actor":"Kimi"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestOfferHandoffUsesAuthenticatedPrincipalAndIdempotency(t *testing.T) {
+	const (
+		projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+		intentID  = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+		sessionID = "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
+		handoffID = "018f784a-68c1-7b0f-8f2a-cfc255f99e4a"
+	)
+	handler := New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AccessService: fakeAccessService{},
+		HandoffService: fakeHandoffService{offer: func(_ context.Context, principalID string, allowAll bool, receivedProjectID, receivedIntentID, key string, input coordination.OfferHandoffInput) (coordination.HandoffResult, error) {
+			if principalID != access.BootstrapPrincipalID || !allowAll || receivedProjectID != projectID || receivedIntentID != intentID || key != "handoff-1" {
+				t.Fatalf("principal=%q allowAll=%v project=%q intent=%q key=%q", principalID, allowAll, receivedProjectID, receivedIntentID, key)
+			}
+			if input.SessionID != sessionID || input.Summary != "Ready for review" || len(input.NextSteps) != 1 {
+				t.Fatalf("input = %#v", input)
+			}
+			return coordination.HandoffResult{Handoff: coordination.Handoff{ID: handoffID, ProjectID: projectID, IntentID: intentID, Status: "offered", Version: 1}, Replayed: true}, nil
+		}},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/projects/"+projectID+"/intents/"+intentID+"/handoffs", `{"session_id":"`+sessionID+`","summary":"Ready for review","next_steps":["Run tests"]}`)
+	request.Header.Set("Idempotency-Key", "handoff-1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Header().Get("Idempotency-Replayed") != "true" || !strings.Contains(response.Body.String(), handoffID) {
+		t.Fatalf("status=%d replayed=%q body=%s", response.Code, response.Header().Get("Idempotency-Replayed"), response.Body.String())
+	}
+}
+
+func TestCompileContextPackUsesAgentSessionAndReturnsLocation(t *testing.T) {
+	const (
+		projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+		intentID  = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+		sessionID = "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
+		packID    = "018f784a-68c1-7b0f-8f2a-cfc255f99e5b"
+	)
+	handler := New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AccessService: fakeAccessService{},
+		ContextPackService: fakeContextPackService{compile: func(_ context.Context, principalID string, allowAll bool, receivedProjectID, receivedIntentID, key string, input contextpack.CompileInput) (contextpack.CompileResult, error) {
+			if principalID != access.BootstrapPrincipalID || !allowAll || receivedProjectID != projectID || receivedIntentID != intentID || key != "context-1" {
+				t.Fatalf("principal=%q allowAll=%v project=%q intent=%q key=%q", principalID, allowAll, receivedProjectID, receivedIntentID, key)
+			}
+			if input.SessionID != sessionID || input.Type != "review" || input.TTLMinutes != 10 {
+				t.Fatalf("input = %#v", input)
+			}
+			return contextpack.CompileResult{Pack: contextpack.ContextPack{ID: packID, ProjectID: projectID, IntentID: intentID, Type: "review"}}, nil
+		}},
+	})
+	request := authenticatedRequest(http.MethodPost, "/v1/projects/"+projectID+"/intents/"+intentID+"/context-packs", `{"session_id":"`+sessionID+`","type":"review","ttl_minutes":10}`)
+	request.Header.Set("Idempotency-Key", "context-1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/v1/projects/"+projectID+"/context-packs/"+packID {
+		t.Fatalf("status=%d location=%q body=%s", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 }
 

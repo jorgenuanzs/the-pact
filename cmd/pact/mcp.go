@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -16,12 +17,15 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
+	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
+	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 	"github.com/jorgenuanzs/the-pact/internal/worktree"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/errgroup"
@@ -106,6 +110,9 @@ type mcpActiveWork struct {
 	IntentID        *string   `json:"intent_id,omitempty"`
 	IntentTitle     *string   `json:"intent_title,omitempty"`
 	IntentStatus    *string   `json:"intent_status,omitempty"`
+	WorktreeID      *string   `json:"worktree_id,omitempty"`
+	WorktreeStatus  *string   `json:"worktree_status,omitempty"`
+	WorktreeBranch  *string   `json:"worktree_branch,omitempty"`
 	WorkspaceID     *string   `json:"workspace_id,omitempty"`
 	WorkspaceStatus *string   `json:"workspace_status,omitempty"`
 	WorkspaceBranch *string   `json:"workspace_branch,omitempty"`
@@ -117,19 +124,44 @@ type mcpOverview struct {
 	ActiveWork   []mcpActiveWork         `json:"active_work"`
 	RecentEvents []mcpRecentEvent        `json:"recent_events"`
 	WorkItems    []mcpWorkItem           `json:"work_items"`
+	Handoffs     []coordination.Handoff  `json:"handoffs"`
 	GeneratedAt  time.Time               `json:"generated_at"`
 }
 
 type mcpProjectContextOutput struct {
-	Project   mcpProject        `json:"project"`
-	Principal access.Principal  `json:"principal"`
-	Session   mcpSessionSummary `json:"session"`
-	Git       mcpGitSnapshot    `json:"git"`
-	Overview  mcpOverview       `json:"overview"`
+	Project   mcpProject                  `json:"project"`
+	Workspace *mcpSharedWorkspace         `json:"workspace,omitempty"`
+	Knowledge *knowledge.WorkspaceContext `json:"knowledge,omitempty"`
+	Principal access.Principal            `json:"principal"`
+	Session   mcpSessionSummary           `json:"session"`
+	Git       mcpGitSnapshot              `json:"git"`
+	Overview  mcpOverview                 `json:"overview"`
 }
 
 type mcpProjectListOutput struct {
 	Projects []mcpProject `json:"projects"`
+}
+
+type mcpWorkspaceListOutput struct {
+	Workspaces []mcpSharedWorkspace `json:"workspaces"`
+}
+
+type mcpWorkspaceProject struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Slug   string `json:"slug"`
+	Status string `json:"status"`
+}
+
+type mcpSharedWorkspace struct {
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Slug        string                `json:"slug"`
+	Description string                `json:"description"`
+	Status      string                `json:"status"`
+	Projects    []mcpWorkspaceProject `json:"projects"`
+	Version     int64                 `json:"version"`
+	UpdatedAt   time.Time             `json:"updated_at"`
 }
 
 type mcpObservationOutput struct {
@@ -157,6 +189,7 @@ type mcpWorkItem struct {
 	Intent          coordination.Intent       `json:"intent"`
 	ResponsibleName string                    `json:"responsible_name"`
 	Scopes          []coordination.ScopeClaim `json:"scopes"`
+	Worktree        *mcpWorkspaceSummary      `json:"worktree,omitempty"`
 	Workspace       *mcpWorkspaceSummary      `json:"workspace,omitempty"`
 	SessionLive     bool                      `json:"session_live"`
 	SessionLastSeen *time.Time                `json:"session_last_seen_at,omitempty"`
@@ -178,6 +211,8 @@ type mcpStartWorkOutput struct {
 	Intent        coordination.Intent         `json:"intent"`
 	Claims        []coordination.ScopeClaim   `json:"claims"`
 	Overlaps      []coordination.ScopeOverlap `json:"overlaps"`
+	Worktree      mcpWorkspaceSummary         `json:"worktree"`
+	WorktreePath  string                      `json:"worktree_path"`
 	Workspace     mcpWorkspaceSummary         `json:"workspace"`
 	WorkspacePath string                      `json:"workspace_path"`
 }
@@ -197,6 +232,94 @@ type mcpUpdateWorkInput struct {
 type mcpUpdateWorkOutput struct {
 	Intent  coordination.Intent `json:"intent"`
 	EventID string              `json:"event_id"`
+}
+
+type mcpListKnowledgeInput struct {
+	Query  string `json:"query,omitempty" jsonschema:"optional full-text search query"`
+	Kind   string `json:"kind,omitempty" jsonschema:"optional resource kind or record type"`
+	Status string `json:"status,omitempty" jsonschema:"optional lifecycle status"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"maximum results from 1 to 250"`
+}
+
+type mcpResourceListOutput struct {
+	WorkspaceID string               `json:"workspace_id"`
+	Resources   []knowledge.Resource `json:"resources"`
+}
+
+type mcpAddResourceInput struct {
+	Kind           string `json:"kind" jsonschema:"url repository document pull_request ticket meeting dashboard infrastructure or other"`
+	Title          string `json:"title" jsonschema:"human-readable source title"`
+	Locator        string `json:"locator" jsonschema:"durable URL path identifier or external reference without embedded secrets"`
+	Description    string `json:"description,omitempty" jsonschema:"what this source contains and why it matters"`
+	Classification string `json:"classification,omitempty" jsonschema:"public internal confidential or restricted; defaults to internal"`
+}
+
+type mcpRecordListOutput struct {
+	WorkspaceID string             `json:"workspace_id"`
+	Records     []knowledge.Record `json:"records"`
+}
+
+type mcpEvidenceInput struct {
+	ResourceID string `json:"resource_id" jsonschema:"PACT resource identifier"`
+	Relation   string `json:"relation,omitempty" jsonschema:"supports contradicts origin or validates"`
+	Note       string `json:"note,omitempty" jsonschema:"how the resource relates to the record"`
+}
+
+type mcpProposeRecordInput struct {
+	Type      string             `json:"type" jsonschema:"decision requirement constraint assumption risk open_question finding procedure incident validation_result or note"`
+	Title     string             `json:"title" jsonschema:"concise knowledge title"`
+	Body      string             `json:"body" jsonschema:"self-contained durable fact rationale or requirement"`
+	Authority string             `json:"authority,omitempty" jsonschema:"informational team organization or external; defaults to team"`
+	Evidence  []mcpEvidenceInput `json:"evidence,omitempty" jsonschema:"registered sources supporting or challenging this record"`
+}
+
+type mcpReviewRecordInput struct {
+	RecordID            string `json:"record_id" jsonschema:"PACT record identifier"`
+	Status              string `json:"status" jsonschema:"accepted disputed superseded revoked expired or rejected"`
+	ExpectedVersion     int64  `json:"expected_version" jsonschema:"current record version for optimistic concurrency"`
+	Reason              string `json:"reason,omitempty" jsonschema:"durable reason for the lifecycle transition"`
+	SupersedingRecordID string `json:"superseding_record_id,omitempty" jsonschema:"accepted replacement record required when superseding"`
+}
+
+type mcpWorkspaceContextOutput struct {
+	Context knowledge.WorkspaceContext `json:"context"`
+}
+
+type mcpOfferHandoffInput struct {
+	IntentID        string                           `json:"intent_id" jsonschema:"PACT intent identifier"`
+	Summary         string                           `json:"summary" jsonschema:"self-contained durable summary for the receiving collaborator"`
+	Completed       []string                         `json:"completed,omitempty" jsonschema:"work already completed"`
+	RemainingWork   []string                         `json:"remaining_work,omitempty" jsonschema:"work still required"`
+	Blockers        []string                         `json:"blockers,omitempty" jsonschema:"known blockers or unresolved risks"`
+	NextSteps       []string                         `json:"next_steps,omitempty" jsonschema:"recommended ordered next actions"`
+	Validations     []coordination.HandoffValidation `json:"validations,omitempty" jsonschema:"checks already run and their status"`
+	LinkedRecordIDs []string                         `json:"linked_record_ids,omitempty" jsonschema:"Workspace knowledge record identifiers relevant to the handoff"`
+	ExpiresInHours  int                              `json:"expires_in_hours,omitempty" jsonschema:"offer lifetime from 1 to 168 hours; defaults to 72"`
+}
+
+type mcpListHandoffsInput struct {
+	IntentID string `json:"intent_id,omitempty" jsonschema:"optional PACT intent identifier"`
+}
+
+type mcpHandoffListOutput struct {
+	Handoffs []coordination.Handoff `json:"handoffs"`
+}
+
+type mcpUpdateHandoffInput struct {
+	IntentID        string `json:"intent_id" jsonschema:"PACT intent identifier"`
+	HandoffID       string `json:"handoff_id" jsonschema:"PACT handoff identifier"`
+	Status          string `json:"status" jsonschema:"accepted or withdrawn"`
+	ExpectedVersion int64  `json:"expected_version" jsonschema:"current handoff version for optimistic concurrency"`
+}
+
+type mcpCompileContextPackInput struct {
+	IntentID   string `json:"intent_id" jsonschema:"PACT intent identifier to compile around"`
+	Type       string `json:"type,omitempty" jsonschema:"implementation handoff review onboarding meeting incident or deployment"`
+	TTLMinutes int    `json:"ttl_minutes,omitempty" jsonschema:"pack lifetime from 1 to 60 minutes; defaults to 5"`
+}
+
+type mcpGetContextPackInput struct {
+	ContextPackID string `json:"context_pack_id" jsonschema:"PACT context pack identifier"`
 }
 
 func runMCP(args []string, stderr io.Writer) error {
@@ -310,9 +433,14 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 		&mcp.ServerOptions{
 			Logger: logger,
 			Instructions: "Use pact.project_context before beginning project work. " +
+				"Its workspace field identifies the durable shared context boundary for this project. " +
+				"Use pact.workspace_context when you need the current accepted decisions, requirements, constraints, questions, risks, and sources. " +
+				"Register durable sources with pact.add_resource and propose reusable facts with pact.propose_record instead of copying private conversations. " +
 				"Before modifying files, call pact.check_scopes and then pact.start_work; " +
-				"perform edits only inside the workspace_path returned by pact.start_work. " +
+				"perform edits only inside the worktree_path returned by pact.start_work. " +
 				"Use pact.update_work to report blocked, submitted, completed, cancelled, or abandoned work with a durable summary. " +
+				"Use pact.compile_context_pack for a bounded, verifiable snapshot instead of inheriting a conversation. " +
+				"Before another collaborator takes over, offer a structured handoff; accepting it confirms receipt but never transfers a local worktree or scope reservation automatically. " +
 				"PACT exposes shared operational facts, not private conversations. " +
 				"Do not treat agent presence as proof of code changes.",
 			Capabilities: &mcp.ServerCapabilities{},
@@ -323,7 +451,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.project_context",
 		Title:       "Get PACT project context",
-		Description: "Return the connected project, authenticated identity, current MCP agent session, private Git observation summary, live work, code activity, and recent durable events.",
+		Description: "Return the connected project, shared Workspace knowledge, authenticated identity, current MCP agent session, private Git observation summary, live work, code activity, and recent durable events.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
 		},
@@ -336,6 +464,62 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
 		},
 	}, runtime.listProjects)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.list_workspaces",
+		Title:       "List visible PACT workspaces",
+		Description: "List durable collaboration workspaces and the projects grouped within each one.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.listWorkspaces)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.workspace_context",
+		Title:       "Get shared Workspace knowledge",
+		Description: "Return accepted decisions, requirements, constraints, live questions, risks, evidence-backed records, and registered resources shared by the connected project's Workspace.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.workspaceContext)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.list_resources",
+		Title:       "List shared knowledge resources",
+		Description: "Search and list source references registered in the connected project's Workspace.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.listResources)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.add_resource",
+		Title:       "Register a shared knowledge resource",
+		Description: "Register a durable source reference in the connected project's Workspace. Never put credentials or secret query parameters in a locator.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.addResource)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.list_records",
+		Title:       "List shared knowledge records",
+		Description: "Search and list typed, evidence-backed knowledge records in the connected project's Workspace.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.listRecords)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.propose_record",
+		Title:       "Propose a shared knowledge record",
+		Description: "Propose a durable decision, requirement, constraint, question, risk, finding, procedure, incident, validation result, or note, optionally linked to registered evidence.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.proposeRecord)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.review_record",
+		Title:       "Review a shared knowledge record",
+		Description: "Accept, dispute, supersede, revoke, expire, or reject a record using its current version. Requires Workspace maintainer access.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.reviewRecord)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.refresh_git_observation",
 		Title:       "Refresh PACT Git observation",
@@ -363,7 +547,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.list_work",
 		Title:       "List coordinated work",
-		Description: "List active, blocked, submitted, and recently completed work with actors, scopes, workspaces, and live-session state.",
+		Description: "List active, blocked, submitted, and recently completed work with actors, scopes, worktrees, and live-session state.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
 		},
@@ -376,6 +560,46 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
 		},
 	}, runtime.updateWork)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.list_handoffs",
+		Title:       "List PACT handoffs",
+		Description: "List structured handoff offers and responses for the connected project, optionally filtered to one intent.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.listHandoffs)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.offer_handoff",
+		Title:       "Offer a structured handoff",
+		Description: "Offer a durable handoff with completed work, remaining work, blockers, next steps, validations, and linked Workspace records. This does not transfer a local worktree.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.offerHandoff)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.update_handoff",
+		Title:       "Accept or withdraw a handoff",
+		Description: "Accept an offered handoff as a different live collaborator, or withdraw your own offer. Acceptance confirms receipt only and does not transfer worktrees or scope reservations.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.updateHandoff)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.compile_context_pack",
+		Title:       "Compile a PACT Context Pack",
+		Description: "Compile and persist a bounded context snapshot for an intent with Workspace knowledge, live work, handoffs, Git revision, event cursor, expiration, and a verifiable source fingerprint.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.compileContextPack)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.get_context_pack",
+		Title:       "Get a PACT Context Pack",
+		Description: "Retrieve a persisted Context Pack after its stored payload passes an integrity check.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.getContextPack)
 	return server
 }
 
@@ -385,15 +609,26 @@ func (r *mcpRuntime) projectContext(
 	_ mcpEmptyInput,
 ) (*mcp.CallToolResult, mcpProjectContextOutput, error) {
 	var (
-		principal access.Principal
-		project   projects.Project
-		overview  backoffice.Overview
-		snapshot  gitobserve.Snapshot
+		principal     access.Principal
+		project       projects.Project
+		workspaceList []workspaces.Workspace
+		overview      backoffice.Overview
+		snapshot      gitobserve.Snapshot
 	)
 	group, groupContext := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		var err error
 		principal, err = r.client.Me(groupContext)
+		return err
+	})
+	group.Go(func() error {
+		var err error
+		workspaceList, err = r.client.ListWorkspaces(groupContext)
+		var problem *pactclient.Problem
+		if errors.As(err, &problem) && problem.Status == http.StatusNotFound {
+			workspaceList = make([]workspaces.Workspace, 0)
+			return nil
+		}
 		return err
 	})
 	group.Go(func() error {
@@ -409,11 +644,184 @@ func (r *mcpRuntime) projectContext(
 	if err := group.Wait(); err != nil {
 		return nil, mcpProjectContextOutput{}, err
 	}
+	var sharedWorkspace *mcpSharedWorkspace
+	var sharedKnowledge *knowledge.WorkspaceContext
+	for index := range workspaceList {
+		for _, candidate := range workspaceList[index].Projects {
+			if candidate.ID == r.binding.ProjectID {
+				output := sharedWorkspaceOutput(workspaceList[index])
+				sharedWorkspace = &output
+				break
+			}
+		}
+		if sharedWorkspace != nil {
+			break
+		}
+	}
+	if sharedWorkspace != nil {
+		contextValue, contextErr := r.client.WorkspaceContext(ctx, sharedWorkspace.ID)
+		if contextErr != nil {
+			return nil, mcpProjectContextOutput{}, contextErr
+		}
+		sharedKnowledge = &contextValue
+	}
 	return nil, mcpProjectContextOutput{
 		Project: projectOutput(project), Principal: principal,
+		Workspace: sharedWorkspace, Knowledge: sharedKnowledge,
 		Session: sessionSummary(r.session), Git: snapshotOutput(snapshot),
 		Overview: overviewOutput(overview),
 	}, nil
+}
+
+func (r *mcpRuntime) connectedWorkspace(ctx context.Context) (workspaces.Workspace, error) {
+	workspaceList, err := r.client.ListWorkspaces(ctx)
+	if err != nil {
+		return workspaces.Workspace{}, err
+	}
+	for _, workspace := range workspaceList {
+		for _, project := range workspace.Projects {
+			if project.ID == r.binding.ProjectID {
+				return workspace, nil
+			}
+		}
+	}
+	return workspaces.Workspace{}, errors.New("the connected project is not attached to a visible PACT Workspace")
+}
+
+func (r *mcpRuntime) workspaceContext(
+	ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyInput,
+) (*mcp.CallToolResult, mcpWorkspaceContextOutput, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, mcpWorkspaceContextOutput{}, err
+	}
+	value, err := r.client.WorkspaceContext(ctx, workspace.ID)
+	if err != nil {
+		return nil, mcpWorkspaceContextOutput{}, err
+	}
+	return nil, mcpWorkspaceContextOutput{Context: value}, nil
+}
+
+func (r *mcpRuntime) listResources(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpListKnowledgeInput,
+) (*mcp.CallToolResult, mcpResourceListOutput, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, mcpResourceListOutput{}, err
+	}
+	resources, err := r.client.ListResources(ctx, workspace.ID, knowledge.ListOptions{
+		Query: input.Query, Kind: input.Kind, Status: input.Status, Limit: input.Limit,
+	})
+	if err != nil {
+		return nil, mcpResourceListOutput{}, err
+	}
+	return nil, mcpResourceListOutput{WorkspaceID: workspace.ID, Resources: resources}, nil
+}
+
+func (r *mcpRuntime) addResource(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpAddResourceInput,
+) (*mcp.CallToolResult, knowledge.Resource, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, knowledge.Resource{}, err
+	}
+	key, err := newIdempotencyKey("pact-resource-add")
+	if err != nil {
+		return nil, knowledge.Resource{}, err
+	}
+	resource, err := r.client.CreateResource(ctx, workspace.ID, key, knowledge.CreateResourceInput{
+		Kind: input.Kind, Title: input.Title, Locator: input.Locator,
+		Description: input.Description, Classification: input.Classification,
+	})
+	return nil, resource, err
+}
+
+func (r *mcpRuntime) listRecords(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpListKnowledgeInput,
+) (*mcp.CallToolResult, mcpRecordListOutput, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, mcpRecordListOutput{}, err
+	}
+	records, err := r.client.ListRecords(ctx, workspace.ID, knowledge.ListOptions{
+		Query: input.Query, Kind: input.Kind, Status: input.Status, Limit: input.Limit,
+	})
+	if err != nil {
+		return nil, mcpRecordListOutput{}, err
+	}
+	return nil, mcpRecordListOutput{WorkspaceID: workspace.ID, Records: records}, nil
+}
+
+func (r *mcpRuntime) proposeRecord(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpProposeRecordInput,
+) (*mcp.CallToolResult, knowledge.Record, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, knowledge.Record{}, err
+	}
+	evidence := make([]knowledge.EvidenceInput, 0, len(input.Evidence))
+	for _, item := range input.Evidence {
+		evidence = append(evidence, knowledge.EvidenceInput{
+			ResourceID: item.ResourceID, Relation: item.Relation, Note: item.Note,
+		})
+	}
+	key, err := newIdempotencyKey("pact-record-propose")
+	if err != nil {
+		return nil, knowledge.Record{}, err
+	}
+	record, err := r.client.CreateRecord(ctx, workspace.ID, key, knowledge.CreateRecordInput{
+		Type: input.Type, Title: input.Title, Body: input.Body,
+		Authority: input.Authority, Evidence: evidence,
+	})
+	return nil, record, err
+}
+
+func (r *mcpRuntime) reviewRecord(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpReviewRecordInput,
+) (*mcp.CallToolResult, knowledge.Record, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, knowledge.Record{}, err
+	}
+	key, err := newIdempotencyKey("pact-record-review")
+	if err != nil {
+		return nil, knowledge.Record{}, err
+	}
+	record, err := r.client.UpdateRecordStatus(ctx, workspace.ID, input.RecordID, key, knowledge.RecordStatusInput{
+		Status: input.Status, ExpectedVersion: input.ExpectedVersion, Reason: input.Reason,
+		SupersedingRecordID: input.SupersedingRecordID,
+	})
+	return nil, record, err
+}
+
+func (r *mcpRuntime) listWorkspaces(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ mcpEmptyInput,
+) (*mcp.CallToolResult, mcpWorkspaceListOutput, error) {
+	workspaceList, err := r.client.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, mcpWorkspaceListOutput{}, err
+	}
+	output := make([]mcpSharedWorkspace, 0, len(workspaceList))
+	for _, workspace := range workspaceList {
+		output = append(output, sharedWorkspaceOutput(workspace))
+	}
+	return nil, mcpWorkspaceListOutput{Workspaces: output}, nil
+}
+
+func sharedWorkspaceOutput(workspace workspaces.Workspace) mcpSharedWorkspace {
+	projects := make([]mcpWorkspaceProject, 0, len(workspace.Projects))
+	for _, project := range workspace.Projects {
+		projects = append(projects, mcpWorkspaceProject{
+			ID: project.ID, Name: project.Name, Slug: project.Slug, Status: project.Status,
+		})
+	}
+	return mcpSharedWorkspace{
+		ID: workspace.ID, Name: workspace.Name, Slug: workspace.Slug,
+		Description: workspace.Description, Status: workspace.Status,
+		Projects: projects, Version: workspace.Version, UpdatedAt: workspace.UpdatedAt,
+	}
 }
 
 func (r *mcpRuntime) listProjects(
@@ -502,7 +910,7 @@ func (r *mcpRuntime) startWork(
 	if err != nil {
 		return nil, mcpStartWorkOutput{}, err
 	}
-	attached, err := r.client.AttachWorkspace(ctx, started.Intent.ID, workspaceKey, coordination.WorkspaceInput{
+	attached, err := r.client.AttachWorktree(ctx, started.Intent.ID, workspaceKey, coordination.WorktreeInput{
 		SessionID: r.session.ID, BaseRevision: localWorkspace.BaseRevision,
 		PathRef: localWorkspace.PathRef, GitBranch: localWorkspace.Branch,
 	})
@@ -510,13 +918,15 @@ func (r *mcpRuntime) startWork(
 		r.markWorkBlocked(started.Intent, "workspace_registration_failed")
 		return nil, mcpStartWorkOutput{}, err
 	}
-	if err := r.startWorkspaceObserver(localWorkspace.Path, attached.Workspace.ID); err != nil {
+	if err := r.startWorkspaceObserver(localWorkspace.Path, attached.Worktree.ID); err != nil {
 		r.markWorkBlocked(started.Intent, "workspace_observation_failed")
 		return nil, mcpStartWorkOutput{}, err
 	}
+	worktreeSummary := workspaceSummary(attached.Worktree)
 	return nil, mcpStartWorkOutput{
 		Intent: started.Intent, Claims: started.Claims, Overlaps: started.Overlaps,
-		Workspace: workspaceSummary(attached.Workspace), WorkspacePath: localWorkspace.Path,
+		Worktree: worktreeSummary, WorktreePath: localWorkspace.Path,
+		Workspace: worktreeSummary, WorkspacePath: localWorkspace.Path,
 	}, nil
 }
 
@@ -552,6 +962,79 @@ func (r *mcpRuntime) updateWork(
 		r.stopWorkspaceObserverForIntent(input.IntentID)
 	}
 	return nil, mcpUpdateWorkOutput{Intent: result.Intent, EventID: result.EventID}, nil
+}
+
+func (r *mcpRuntime) listHandoffs(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpListHandoffsInput,
+) (*mcp.CallToolResult, mcpHandoffListOutput, error) {
+	handoffs, err := r.client.ListHandoffs(ctx, r.binding.ProjectID, input.IntentID)
+	if err != nil {
+		return nil, mcpHandoffListOutput{}, err
+	}
+	return nil, mcpHandoffListOutput{Handoffs: handoffs}, nil
+}
+
+func (r *mcpRuntime) offerHandoff(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpOfferHandoffInput,
+) (*mcp.CallToolResult, coordination.HandoffResult, error) {
+	key, err := newIdempotencyKey("pact-handoff-offer")
+	if err != nil {
+		return nil, coordination.HandoffResult{}, err
+	}
+	result, err := r.client.OfferHandoff(ctx, r.binding.ProjectID, input.IntentID, key, coordination.OfferHandoffInput{
+		SessionID: r.session.ID, Summary: input.Summary, Completed: input.Completed,
+		RemainingWork: input.RemainingWork, Blockers: input.Blockers, NextSteps: input.NextSteps,
+		Validations: input.Validations, LinkedRecordIDs: input.LinkedRecordIDs,
+		ExpiresInHours: input.ExpiresInHours,
+	})
+	return nil, result, err
+}
+
+func (r *mcpRuntime) updateHandoff(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpUpdateHandoffInput,
+) (*mcp.CallToolResult, coordination.HandoffResult, error) {
+	key, err := newIdempotencyKey("pact-handoff-status")
+	if err != nil {
+		return nil, coordination.HandoffResult{}, err
+	}
+	result, err := r.client.UpdateHandoffStatus(
+		ctx, r.binding.ProjectID, input.IntentID, input.HandoffID, key,
+		coordination.HandoffStatusInput{
+			SessionID: r.session.ID, Status: input.Status, ExpectedVersion: input.ExpectedVersion,
+		},
+	)
+	return nil, result, err
+}
+
+func (r *mcpRuntime) compileContextPack(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpCompileContextPackInput,
+) (*mcp.CallToolResult, contextpack.CompileResult, error) {
+	key, err := newIdempotencyKey("pact-context-compile")
+	if err != nil {
+		return nil, contextpack.CompileResult{}, err
+	}
+	result, err := r.client.CompileContextPack(
+		ctx, r.binding.ProjectID, input.IntentID, key,
+		contextpack.CompileInput{SessionID: r.session.ID, Type: input.Type, TTLMinutes: input.TTLMinutes},
+	)
+	return nil, result, err
+}
+
+func (r *mcpRuntime) getContextPack(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input mcpGetContextPackInput,
+) (*mcp.CallToolResult, contextpack.ContextPack, error) {
+	pack, err := r.client.GetContextPack(ctx, r.binding.ProjectID, input.ContextPackID)
+	return nil, pack, err
 }
 
 func (r *mcpRuntime) markWorkBlocked(intent coordination.Intent, reason string) {
@@ -676,7 +1159,9 @@ func overviewOutput(overview backoffice.Overview) mcpOverview {
 			SessionStatus: work.SessionStatus, LastSeenAt: work.LastSeenAt, ExpiresAt: work.ExpiresAt,
 			NodeID: work.NodeID, NodeName: work.NodeName, NodeStatus: work.NodeStatus,
 			IntentID: work.IntentID, IntentTitle: work.IntentTitle, IntentStatus: work.IntentStatus,
-			WorkspaceID: work.WorkspaceID, WorkspaceStatus: work.WorkspaceStatus,
+			WorktreeID: work.WorkspaceID, WorktreeStatus: work.WorkspaceStatus,
+			WorktreeBranch: work.WorkspaceBranch,
+			WorkspaceID:    work.WorkspaceID, WorkspaceStatus: work.WorkspaceStatus,
 			WorkspaceBranch: work.WorkspaceBranch,
 		})
 	}
@@ -696,6 +1181,7 @@ func overviewOutput(overview backoffice.Overview) mcpOverview {
 		CodeActivity: overview.CodeActivity, Counts: overview.Counts,
 		ActiveWork: activeWork, RecentEvents: events,
 		WorkItems:   workItemsOutput(overview.WorkItems),
+		Handoffs:    overview.Handoffs,
 		GeneratedAt: overview.GeneratedAt,
 	}
 }
@@ -710,6 +1196,7 @@ func workItemsOutput(items []coordination.WorkItem) []mcpWorkItem {
 		}
 		if item.Workspace != nil {
 			workspace := workspaceSummary(*item.Workspace)
+			work.Worktree = &workspace
 			work.Workspace = &workspace
 		}
 		output = append(output, work)

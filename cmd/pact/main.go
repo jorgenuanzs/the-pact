@@ -26,6 +26,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 func main() {
@@ -48,6 +49,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runInit(args[1:], stdout, stderr)
 	case "connect":
 		return runConnect(args[1:], stdout, stderr)
+	case "workspace":
+		return runWorkspace(args[1:], stdout, stderr)
 	case "enable":
 		return runEnable(args[1:], stdout, stderr)
 	case "invite":
@@ -74,15 +77,119 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 }
 
+type repeatedString []string
+
+func (values *repeatedString) String() string {
+	return strings.Join(*values, ",")
+}
+
+func (values *repeatedString) Set(value string) error {
+	*values = append(*values, value)
+	return nil
+}
+
+func runWorkspace(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("expected pact workspace list, show, create, or add-project")
+	}
+	login, err := loginForServer("")
+	if err != nil {
+		return err
+	}
+	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	switch args[0] {
+	case "list":
+		if len(args) != 1 {
+			return errors.New("pact workspace list accepts no arguments")
+		}
+		workspaceList, err := client.ListWorkspaces(ctx)
+		if err != nil {
+			return err
+		}
+		if len(workspaceList) == 0 {
+			fmt.Fprintln(stdout, "No Pact workspaces are visible.")
+			return nil
+		}
+		for _, workspace := range workspaceList {
+			fmt.Fprintf(stdout, "%s\t%s\t%d project(s)\t%s\n", workspace.Slug, workspace.ID, len(workspace.Projects), workspace.Name)
+		}
+		return nil
+	case "show":
+		if len(args) != 2 {
+			return errors.New("expected pact workspace show SLUG_OR_ID")
+		}
+		workspace, err := client.GetWorkspace(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(workspace)
+	case "create":
+		flags := flag.NewFlagSet("pact workspace create", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		name := flags.String("name", "", "workspace name")
+		slug := flags.String("slug", "", "workspace slug")
+		description := flags.String("description", "", "workspace description")
+		var projectIDs repeatedString
+		flags.Var(&projectIDs, "project", "project UUID to move into the workspace (repeatable)")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 || strings.TrimSpace(*name) == "" || strings.TrimSpace(*slug) == "" {
+			return errors.New("pact workspace create requires --name and --slug")
+		}
+		key, err := randomCommandKey("pact-workspace-create")
+		if err != nil {
+			return err
+		}
+		workspace, err := client.CreateWorkspace(ctx, key, workspaces.CreateInput{
+			Name: *name, Slug: *slug, Description: *description, ProjectIDs: projectIDs,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Created workspace %s (%s) with %d project(s).\n", workspace.Slug, workspace.ID, len(workspace.Projects))
+		return nil
+	case "add-project":
+		if len(args) != 3 {
+			return errors.New("expected pact workspace add-project WORKSPACE_ID PROJECT_ID")
+		}
+		workspace, err := client.AttachWorkspaceProject(ctx, args[1], args[2])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Workspace %s now contains %d project(s).\n", workspace.Slug, len(workspace.Projects))
+		return nil
+	default:
+		return fmt.Errorf("unknown workspace command %q", args[0])
+	}
+}
+
+func randomCommandKey(prefix string) (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate command key: %w", err)
+	}
+	return prefix + "-" + hex.EncodeToString(value), nil
+}
+
 func runEnable(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("expected pact enable codex")
+		return errors.New("expected pact enable codex or pact enable claude")
 	}
 	clientType := strings.ToLower(strings.TrimSpace(args[0]))
-	if clientType != "codex" {
-		return fmt.Errorf("unsupported agent client %q; currently supported: codex", args[0])
+	if clientType != "codex" && clientType != "claude" {
+		return fmt.Errorf("unsupported agent client %q; currently supported: codex, claude", args[0])
 	}
-	flags := flag.NewFlagSet("pact enable codex", flag.ContinueOnError)
+	flags := flag.NewFlagSet("pact enable "+clientType, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	projectPath := flags.String("path", ".", "path inside the connected Pact project")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -92,7 +199,7 @@ func runEnable(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("pact enable codex accepts no positional arguments")
+		return fmt.Errorf("pact enable %s accepts no positional arguments", clientType)
 	}
 	binding, err := localproject.LoadBinding(*projectPath)
 	if err != nil {
@@ -109,7 +216,27 @@ func runEnable(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("resolve Pact executable symlinks: %w", err)
 	}
-	result, err := agentconfig.EnableCodex(agentconfig.CodexOptions{
+	if clientType == "codex" {
+		result, err := agentconfig.EnableCodex(agentconfig.CodexOptions{
+			ProjectRoot: binding.Root,
+			PactCommand: executable,
+		})
+		if err != nil {
+			return err
+		}
+		state := "already enabled"
+		if result.Changed {
+			state = "enabled"
+		}
+		fmt.Fprintf(stdout, "Codex MCP %s for %s\n", state, binding.Root)
+		fmt.Fprintf(stdout, "  project config  %s\n", result.ConfigPath)
+		if result.Excluded {
+			fmt.Fprintln(stdout, "  Git visibility  machine-local (excluded through .git/info/exclude)")
+		}
+		fmt.Fprintln(stdout, "Restart Codex or reload the VS Code window before opening a new chat.")
+		return nil
+	}
+	result, err := agentconfig.EnableClaude(agentconfig.ClaudeOptions{
 		ProjectRoot: binding.Root,
 		PactCommand: executable,
 	})
@@ -120,12 +247,12 @@ func runEnable(args []string, stdout, stderr io.Writer) error {
 	if result.Changed {
 		state = "enabled"
 	}
-	fmt.Fprintf(stdout, "Codex MCP %s for %s\n", state, binding.Root)
+	fmt.Fprintf(stdout, "Claude MCP %s for %s\n", state, binding.Root)
 	fmt.Fprintf(stdout, "  project config  %s\n", result.ConfigPath)
 	if result.Excluded {
 		fmt.Fprintln(stdout, "  Git visibility  machine-local (excluded through .git/info/exclude)")
 	}
-	fmt.Fprintln(stdout, "Restart Codex or reload the VS Code window before opening a new chat.")
+	fmt.Fprintln(stdout, "Restart Claude Code before opening a new chat and approve the project MCP server when prompted.")
 	return nil
 }
 
@@ -971,7 +1098,12 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact login --server URL [--token-stdin]")
 	fmt.Fprintln(writer, "  pact init [--server URL] [--name NAME] [PATH]")
 	fmt.Fprintln(writer, "  pact connect [--server URL] [--project SLUG_OR_ID] [PATH]")
+	fmt.Fprintln(writer, "  pact workspace list")
+	fmt.Fprintln(writer, "  pact workspace show SLUG_OR_ID")
+	fmt.Fprintln(writer, "  pact workspace create --name NAME --slug SLUG [--project UUID ...]")
+	fmt.Fprintln(writer, "  pact workspace add-project WORKSPACE_ID PROJECT_ID")
 	fmt.Fprintln(writer, "  pact enable codex [--path PATH]")
+	fmt.Fprintln(writer, "  pact enable claude [--path PATH]")
 	fmt.Fprintln(writer, "  pact invite create --email EMAIL [--role ROLE] [--path PATH]")
 	fmt.Fprintln(writer, "  pact join --server URL --name NAME --invite-stdin")
 	fmt.Fprintln(writer, "  pact whoami")

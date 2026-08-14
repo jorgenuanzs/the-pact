@@ -14,12 +14,15 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/config"
+	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
@@ -64,10 +67,19 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	projectRepository := projects.NewPostgresRepository(pool)
 	projectService := projects.NewService(cfg.LocalOrganization, projectRepository)
+	workspaceRepository := workspaces.NewPostgresRepository(pool)
+	workspaceService := workspaces.NewService(cfg.LocalOrganization, workspaceRepository)
+	knowledgeRepository := knowledge.NewPostgresRepository(pool)
+	knowledgeService := knowledge.NewService(cfg.LocalOrganization, knowledgeRepository)
 	agentSessionRepository := agentsession.NewPostgresRepository(pool)
 	agentSessionService := agentsession.NewService(cfg.LocalOrganization, agentSessionRepository)
 	coordinationRepository := coordination.NewPostgresRepository(pool)
 	coordinationService := coordination.NewService(cfg.LocalOrganization, coordinationRepository)
+	contextPackRepository := contextpack.NewPostgresRepository(pool)
+	contextPackService := contextpack.NewService(
+		cfg.LocalOrganization, contextPackRepository, projectService,
+		workspaceService, coordinationService, knowledgeService,
+	)
 	eventReader := eventlog.NewPostgresReader(pool)
 	backofficeReader := backoffice.NewPostgresReader(pool)
 	accessRepository := access.NewPostgresRepository(pool)
@@ -83,8 +95,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		Build:               buildinfo.Current(),
 		Readiness:           pool.Ping,
 		ProjectService:      projectService,
+		WorkspaceService:    workspaceService,
+		KnowledgeService:    knowledgeService,
 		AgentSessionService: agentSessionService,
 		CoordinationService: coordinationService,
+		HandoffService:      coordinationService,
+		ContextPackService:  contextPackService,
 		AccessService:       accessService,
 		BackofficeReader:    backofficeReader,
 		EventReader:         eventReader,

@@ -53,7 +53,7 @@ func (r *PostgresRepository) Observe(
 		JOIN identity.agents AS agent
 		  ON agent.organization_id = session.organization_id
 		 AND agent.id = session.actor_id
-		LEFT JOIN coordination.workspaces AS workspace
+		LEFT JOIN coordination.worktrees AS workspace
 		  ON workspace.organization_id = session.organization_id
 		 AND workspace.project_id = session.project_id
 		 AND workspace.session_id = session.id
