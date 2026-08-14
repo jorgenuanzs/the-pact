@@ -11,7 +11,7 @@ import (
 
 type ScheduledSyncService interface {
 	ListProjects(context.Context) ([]projects.Project, error)
-	SyncScheduled(context.Context, string) (Result, error)
+	SyncScheduledProject(context.Context, string) ([]Result, error)
 }
 
 type Runner struct {
@@ -51,10 +51,7 @@ func (r *Runner) sync(ctx context.Context) {
 		if project.Status != "active" || project.RootRepository == nil {
 			continue
 		}
-		result, err := r.service.SyncScheduled(ctx, project.ID)
-		if errors.Is(err, ErrUnsupportedRemote) || errors.Is(err, ErrRepositoryUnavailable) {
-			continue
-		}
+		results, err := r.service.SyncScheduledProject(ctx, project.ID)
 		if err != nil {
 			var providerErr *ProviderError
 			if errors.As(err, &providerErr) {
@@ -62,10 +59,12 @@ func (r *Runner) sync(ctx context.Context) {
 			} else {
 				r.logger.Warn("scheduled repository sync failed", "project_id", project.ID, "error", err)
 			}
-			continue
 		}
-		if result.Changed {
-			r.logger.Info("canonical repository state updated", "project_id", project.ID, "revision", result.State.CanonicalRevision)
+		for _, result := range results {
+			if result.Changed {
+				r.logger.Info("repository state updated", "project_id", project.ID,
+					"repository_id", result.State.RepositoryID, "revision", result.State.CanonicalRevision)
+			}
 		}
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -81,11 +82,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 
 func runRepository(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("expected pact repository status or pact repository sync")
+		return errors.New("expected pact repository list, status, or sync")
 	}
 	flags := flag.NewFlagSet("pact repository "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	projectPath := flags.String("path", ".", "path inside the connected Pact project")
+	repositoryID := flags.String("repository", "", "project repository UUID (defaults to the primary repository)")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -110,8 +112,19 @@ func runRepository(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	switch args[0] {
+	case "list":
+		result, err := client.ListProjectRepositories(ctx, binding.ProjectID)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(result)
 	case "status":
-		state, err := client.GetRepositorySync(ctx, binding.ProjectID)
+		var state repositorysync.State
+		if strings.TrimSpace(*repositoryID) == "" {
+			state, err = client.GetRepositorySync(ctx, binding.ProjectID)
+		} else {
+			state, err = client.GetProjectRepositorySync(ctx, binding.ProjectID, *repositoryID)
+		}
 		if err != nil {
 			return err
 		}
@@ -121,7 +134,12 @@ func runRepository(args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		result, err := client.SyncRepository(ctx, binding.ProjectID, key)
+		var result repositorysync.Result
+		if strings.TrimSpace(*repositoryID) == "" {
+			result, err = client.SyncRepository(ctx, binding.ProjectID, key)
+		} else {
+			result, err = client.SyncProjectRepository(ctx, binding.ProjectID, *repositoryID, key)
+		}
 		if err != nil {
 			return err
 		}
@@ -1156,8 +1174,9 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact workspace show SLUG_OR_ID")
 	fmt.Fprintln(writer, "  pact workspace create --name NAME --slug SLUG [--project UUID ...]")
 	fmt.Fprintln(writer, "  pact workspace add-project WORKSPACE_ID PROJECT_ID")
-	fmt.Fprintln(writer, "  pact repository status [--path PATH]")
-	fmt.Fprintln(writer, "  pact repository sync [--path PATH]")
+	fmt.Fprintln(writer, "  pact repository list [--path PATH]")
+	fmt.Fprintln(writer, "  pact repository status [--repository UUID] [--path PATH]")
+	fmt.Fprintln(writer, "  pact repository sync [--repository UUID] [--path PATH]")
 	fmt.Fprintln(writer, "  pact enable codex [--path PATH]")
 	fmt.Fprintln(writer, "  pact enable claude [--path PATH]")
 	fmt.Fprintln(writer, "  pact invite create --email EMAIL [--role ROLE] [--path PATH]")

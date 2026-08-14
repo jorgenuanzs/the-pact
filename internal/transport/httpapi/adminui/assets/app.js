@@ -13,6 +13,11 @@
     selectedProjectID: null,
     overview: null,
     knowledge: null,
+    githubStatus: null,
+    principal: null,
+    projectRepositories: [],
+    repositorySyncStates: [],
+    availableRepositories: [],
     events: [],
     overviewLoading: false,
     overviewLoadingProjectID: null,
@@ -69,6 +74,19 @@
     repositorySyncRevision: document.querySelector("#repository-sync-revision"),
     repositorySyncTime: document.querySelector("#repository-sync-time"),
     syncRepository: document.querySelector("#sync-repository"),
+    githubConnectionCard: document.querySelector(".github-connection-card"),
+    githubConnectionStatus: document.querySelector("#github-connection-status"),
+    githubConnectionDescription: document.querySelector("#github-connection-description"),
+    connectGitHub: document.querySelector("#connect-github"),
+    attachRepositoryForm: document.querySelector("#attach-repository-form"),
+    availableRepository: document.querySelector("#available-repository"),
+    repositoryPurpose: document.querySelector("#repository-purpose"),
+    repositoryRequired: document.querySelector("#repository-required"),
+    repositoryPrimary: document.querySelector("#repository-primary"),
+    attachRepository: document.querySelector("#attach-repository"),
+    repositoryAttachHint: document.querySelector("#repository-attach-hint"),
+    projectRepositoryCount: document.querySelector("#project-repository-count"),
+    projectRepositoryList: document.querySelector("#project-repository-list"),
     metricSessions: document.querySelector("#metric-sessions"),
     metricIntents: document.querySelector("#metric-intents"),
     metricIntentsNote: document.querySelector("#metric-intents-note"),
@@ -163,6 +181,7 @@
     "pact.session.closed.v1": "Agente desconectado",
     "pact.repository.canonical_synced.v1": "Repositorio canónico verificado",
     "pact.repository.sync_failed.v1": "Falló la verificación de GitHub",
+    "pact.project.repository_attached.v1": "Repositorio vinculado",
   };
 
   class APIError extends Error {
@@ -213,6 +232,8 @@
       loadOverview({ announce: true }),
     );
     elements.syncRepository.addEventListener("click", syncCanonicalRepository);
+    elements.connectGitHub.addEventListener("click", connectGitHub);
+    elements.attachRepositoryForm.addEventListener("submit", attachRepository);
     elements.retryOverview.addEventListener("click", () =>
       loadOverview({ announce: true }),
     );
@@ -230,19 +251,25 @@
     setGlobalConnection("connecting", "Conectando");
 
     try {
-      const [projectPayload, workspacePayload] = await Promise.all([
+      const [projectPayload, workspacePayload, githubPayload, principalPayload] = await Promise.all([
         requestJSON("/v1/projects", { token }),
         requestJSON("/v1/workspaces", { token }),
+        requestJSON("/v1/integrations/github", { token }),
+        requestJSON("/v1/me", { token }),
       ]);
       const projects = normalizeProjects(projectPayload);
       state.token = token;
       state.projects = projects;
       state.workspaces = normalizeWorkspaces(workspacePayload);
+      state.githubStatus = githubPayload?.data || githubPayload || null;
+      state.principal = principalPayload?.data || principalPayload || null;
       writeSessionToken(token);
       elements.tokenInput.value = "";
       showApplication();
       renderProjectList();
       setGlobalConnection("connected", "Conectado");
+      renderGitHubStatus();
+      announceGitHubCallback();
 
       const retained = projects.find(
         (project) => project.id === state.selectedProjectID,
@@ -277,6 +304,11 @@
     state.selectedProjectID = null;
     state.overview = null;
     state.knowledge = null;
+    state.githubStatus = null;
+    state.principal = null;
+    state.projectRepositories = [];
+    state.repositorySyncStates = [];
+    state.availableRepositories = [];
     state.events = [];
     state.lastEventByProject.clear();
     elements.tokenInput.value = "";
@@ -303,12 +335,15 @@
     elements.projectListStatus.textContent = "Actualizando…";
 
     try {
-      const [projectPayload, workspacePayload] = await Promise.all([
+      const [projectPayload, workspacePayload, githubPayload] = await Promise.all([
         requestJSON("/v1/projects"),
         requestJSON("/v1/workspaces"),
+        requestJSON("/v1/integrations/github"),
       ]);
       state.projects = normalizeProjects(projectPayload);
       state.workspaces = normalizeWorkspaces(workspacePayload);
+      state.githubStatus = githubPayload?.data || githubPayload || null;
+      renderGitHubStatus();
 
       if (
         state.selectedProjectID &&
@@ -463,6 +498,9 @@
     state.selectedProjectID = projectID;
     state.overview = null;
     state.knowledge = null;
+    state.projectRepositories = [];
+    state.repositorySyncStates = [];
+    state.availableRepositories = [];
     state.events = [];
     renderProjectList({
       focusProjectID: focusProject ? projectID : null,
@@ -475,6 +513,7 @@
 
     const generation = state.streamGeneration;
     await loadOverview({ silent: true });
+    await loadProjectRepositories({ silent: true });
     if (
       generation !== state.streamGeneration ||
       state.selectedProjectID !== projectID
@@ -491,6 +530,9 @@
     state.selectedProjectID = null;
     state.overview = null;
     state.knowledge = null;
+    state.projectRepositories = [];
+    state.repositorySyncStates = [];
+    state.availableRepositories = [];
     state.events = [];
     elements.workspaceContent.hidden = true;
     elements.workspaceEmpty.hidden = false;
@@ -527,6 +569,7 @@
   function resetOverview() {
     renderActivity(null);
     renderRepositorySync(null);
+    renderProjectRepositories();
     renderCounts(null);
     renderActiveWork([]);
     renderWorkItems([]);
@@ -660,6 +703,240 @@
       : "Nunca";
     elements.repositorySyncTime.title = timestamp || "";
     elements.syncRepository.disabled = ["unsupported", "unavailable"].includes(status);
+  }
+
+  function renderGitHubStatus() {
+    const status = state.githubStatus && typeof state.githubStatus === "object"
+      ? state.githubStatus
+      : {};
+    const installations = Array.isArray(status.installations)
+      ? status.installations.filter((installation) => installation.status !== "deleted")
+      : [];
+    const active = installations.filter((installation) => installation.status === "active");
+    const connected = active.length > 0;
+    const canManage = ["owner", "admin"].includes(state.principal?.organization_role);
+    elements.githubConnectionCard.classList.toggle("is-connected", connected);
+    if (!status.configured) {
+      elements.githubConnectionStatus.textContent = "No configurado";
+      elements.githubConnectionDescription.textContent =
+        "El servidor necesita las credenciales de una GitHub App antes de iniciar la conexión.";
+      elements.connectGitHub.textContent = "Configurar GitHub App";
+      elements.connectGitHub.disabled = true;
+      return;
+    }
+    elements.connectGitHub.disabled = !canManage;
+    if (connected) {
+      const accounts = active.map((installation) => installation.account_login).join(", ");
+      elements.githubConnectionStatus.textContent = "Conectado";
+      elements.githubConnectionDescription.textContent =
+        `${accounts || "GitHub"} · ${formatInteger(status.repository_count || 0)} repositorios autorizados`;
+      elements.connectGitHub.textContent = "Administrar acceso";
+    } else {
+      elements.githubConnectionStatus.textContent = installations.length > 0 ? "Suspendido" : "Sin conectar";
+      elements.githubConnectionDescription.textContent = installations.length > 0
+        ? "La instalación no está activa. Reautoriza Pact en GitHub."
+        : "Autoriza una cuenta y selecciona los repositorios que Pact podrá leer.";
+      elements.connectGitHub.textContent = "Conectar GitHub";
+    }
+    if (!canManage) {
+      elements.connectGitHub.textContent = "Requiere administrador";
+    }
+  }
+
+  async function connectGitHub() {
+    if (!state.token) return;
+    setBusy(elements.connectGitHub, true);
+    try {
+      const payload = await requestJSON("/v1/integrations/github/connect", {
+        method: "POST",
+        body: {},
+      });
+      const connection = payload?.data || payload;
+      if (!connection?.install_url) {
+        throw new APIError("Pact no devolvió una URL de instalación válida.");
+      }
+      window.location.assign(connection.install_url);
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo iniciar la conexión con GitHub.");
+      setBusy(elements.connectGitHub, false);
+    }
+  }
+
+  function announceGitHubCallback() {
+    const currentURL = new URL(window.location.href);
+    const result = currentURL.searchParams.get("github");
+    if (!result) return;
+    if (result === "connected") {
+      showToast("GitHub quedó conectado y los repositorios autorizados ya están disponibles.");
+    } else {
+      showToast("No se pudo completar la conexión con GitHub.", { error: true });
+    }
+    currentURL.searchParams.delete("github");
+    currentURL.searchParams.delete("reason");
+    window.history.replaceState({}, "", currentURL.pathname + currentURL.search + currentURL.hash);
+  }
+
+  async function loadProjectRepositories({ silent = false } = {}) {
+    const projectID = state.selectedProjectID;
+    if (!projectID || !state.token) return;
+    try {
+      const [projectPayload, availablePayload] = await Promise.all([
+        requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/repositories`),
+        requestJSON(`/v1/integrations/github/repositories?project_id=${encodeURIComponent(projectID)}`),
+      ]);
+      if (projectID !== state.selectedProjectID) return;
+      const projectData = projectPayload?.data || projectPayload || {};
+      state.projectRepositories = Array.isArray(projectData.repositories)
+        ? projectData.repositories
+        : [];
+      state.repositorySyncStates = Array.isArray(projectData.sync_states)
+        ? projectData.sync_states
+        : [];
+      const availableData = availablePayload?.data || availablePayload;
+      state.availableRepositories = Array.isArray(availableData) ? availableData : [];
+      renderProjectRepositories();
+    } catch (error) {
+      if (!silent) handleRequestFailure(error, "No se pudieron cargar los repositorios del proyecto.");
+      if (!handleUnauthorized(error)) {
+        state.projectRepositories = [];
+        state.repositorySyncStates = [];
+        state.availableRepositories = [];
+        renderProjectRepositories();
+      }
+    }
+  }
+
+  function renderProjectRepositories() {
+    const repositories = state.projectRepositories;
+    const states = new Map(state.repositorySyncStates.map((item) => [item.repository_id, item]));
+    elements.projectRepositoryCount.textContent = formatInteger(repositories.length);
+    elements.projectRepositoryList.replaceChildren();
+
+    const unattached = state.availableRepositories.filter((repository) => !repository.attached_repository_id);
+    elements.availableRepository.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = unattached.length > 0
+      ? "Selecciona un repositorio"
+      : "No hay repositorios disponibles";
+    elements.availableRepository.append(placeholder);
+    for (const repository of unattached) {
+      const option = document.createElement("option");
+      option.value = String(repository.github_repository_id);
+      option.textContent = `${repository.full_name}${repository.private ? " · privado" : ""}`;
+      elements.availableRepository.append(option);
+    }
+    const githubConnected = (state.githubStatus?.installations || []).some(
+      (installation) => installation.status === "active",
+    );
+    elements.attachRepository.disabled = !githubConnected || unattached.length === 0;
+    elements.repositoryAttachHint.textContent = !githubConnected
+      ? "Conecta GitHub para elegir entre los repositorios autorizados para esta organización."
+      : unattached.length === 0
+        ? "Todos los repositorios autorizados ya están vinculados o GitHub no tiene otros repositorios seleccionados."
+        : "El propósito es flexible: frontend, backend, mobile, infra, docs u otro identificador propio.";
+
+    if (repositories.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "panel-empty";
+      empty.textContent = "Este proyecto todavía no tiene repositorios operativos.";
+      elements.projectRepositoryList.append(empty);
+      return;
+    }
+
+    for (const repository of repositories) {
+      const sync = states.get(repository.id) || {};
+      const card = document.createElement("article");
+      card.className = `project-repository-card${repository.primary ? " is-primary" : ""}`;
+
+      const content = document.createElement("div");
+      const title = document.createElement("h3");
+      title.textContent = repository.github_full_name || repository.name || repository.slug;
+      title.title = repository.github_full_name || repository.remote_url || "";
+      const meta = document.createElement("p");
+      meta.className = "project-repository-meta";
+      meta.textContent = `${repository.default_branch || "rama desconocida"} · ${sync.status || "sin verificar"}`;
+      const revision = document.createElement("p");
+      revision.className = "project-repository-revision";
+      const code = document.createElement("code");
+      code.textContent = sync.canonical_revision
+        ? shortenIdentifier(sync.canonical_revision, 14)
+        : "Sin revisión";
+      code.title = sync.canonical_revision || "";
+      revision.append(code);
+      const badges = document.createElement("div");
+      badges.className = "repository-card-badges";
+      for (const label of [
+        repository.purpose,
+        repository.primary ? "principal" : "adicional",
+        repository.required ? "necesario" : "opcional",
+        repository.visibility,
+      ].filter(Boolean)) {
+        const badge = document.createElement("span");
+        badge.textContent = label;
+        badges.append(badge);
+      }
+      content.append(title, meta, revision, badges);
+
+      const syncButton = document.createElement("button");
+      syncButton.type = "button";
+      syncButton.className = "secondary-button";
+      syncButton.textContent = "Verificar";
+      syncButton.disabled = ["unsupported", "unavailable"].includes(sync.status);
+      syncButton.addEventListener("click", () => syncProjectRepository(repository.id, syncButton));
+      card.append(content, syncButton);
+      elements.projectRepositoryList.append(card);
+    }
+  }
+
+  async function attachRepository(event) {
+    event.preventDefault();
+    const projectID = state.selectedProjectID;
+    const githubRepositoryID = Number(elements.availableRepository.value);
+    if (!projectID || !Number.isSafeInteger(githubRepositoryID) || githubRepositoryID <= 0) return;
+    setBusy(elements.attachRepository, true);
+    try {
+      await requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/repositories`, {
+        method: "POST",
+        body: {
+          github_repository_id: githubRepositoryID,
+          purpose: elements.repositoryPurpose.value.trim(),
+          required: elements.repositoryRequired.checked,
+          primary: elements.repositoryPrimary.checked,
+        },
+      });
+      showToast("El repositorio quedó vinculado al proyecto.");
+      elements.repositoryPrimary.checked = false;
+      await Promise.all([loadProjectRepositories(), loadOverview({ silent: true }), refreshProjects()]);
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo vincular el repositorio.");
+    } finally {
+      setBusy(elements.attachRepository, false);
+      renderProjectRepositories();
+    }
+  }
+
+  async function syncProjectRepository(repositoryID, button) {
+    const projectID = state.selectedProjectID;
+    if (!projectID) return;
+    setBusy(button, true);
+    try {
+      const key = globalThis.crypto?.randomUUID
+        ? `pact-admin-repository-sync-${globalThis.crypto.randomUUID()}`
+        : `pact-admin-repository-sync-${Date.now()}`;
+      const payload = await requestJSON(
+        `/v1/projects/${encodeURIComponent(projectID)}/repositories/${encodeURIComponent(repositoryID)}/sync`,
+        { method: "POST", headers: { "Idempotency-Key": key }, body: {} },
+      );
+      const result = payload?.data || payload;
+      showToast(result?.changed ? "GitHub confirmó una nueva revisión." : "El repositorio ya estaba actualizado.");
+      await Promise.all([loadProjectRepositories(), loadOverview({ silent: true }), refreshProjects()]);
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo verificar el repositorio con GitHub.");
+      await loadProjectRepositories({ silent: true });
+    } finally {
+      setBusy(button, false);
+    }
   }
 
   async function syncCanonicalRepository() {

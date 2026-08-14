@@ -122,23 +122,24 @@ func (r *PostgresRepository) apply(
 
 	var projectRevision *string
 	var repositoryBranch string
+	var primary bool
 	err = tx.QueryRow(ctx, `
-		SELECT project.canonical_revision, repository.default_branch
+		SELECT project.canonical_revision, repository.default_branch,
+		       repository.id = project.root_repository_id
 		FROM identity.projects AS project
 		JOIN coordination.repositories AS repository
 		  ON repository.organization_id = project.organization_id
 		 AND repository.project_id = project.id
-		 AND repository.id = project.root_repository_id
 		WHERE project.organization_id = $1 AND project.id = $2
 		  AND project.status <> 'archived' AND repository.id = $3
 		  AND repository.status = 'active'
 		FOR UPDATE OF project, repository
-	`, organizationID, projectID, repositoryID).Scan(&projectRevision, &repositoryBranch)
+	`, organizationID, projectID, repositoryID).Scan(&projectRevision, &repositoryBranch, &primary)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Result{}, ErrRepositoryUnavailable
 	}
 	if err != nil {
-		return Result{}, fmt.Errorf("lock root repository for sync: %w", err)
+		return Result{}, fmt.Errorf("lock project repository for sync: %w", err)
 	}
 
 	previous, found, err := loadState(ctx, tx, organizationID, projectID, repositoryID, true)
@@ -151,7 +152,7 @@ func (r *PostgresRepository) apply(
 		previous.DefaultBranch != snapshot.DefaultBranch ||
 		stringValue(previous.CanonicalRevision) != snapshot.CanonicalRevision ||
 		previous.Visibility != snapshot.Visibility ||
-		stringValue(projectRevision) != snapshot.CanonicalRevision ||
+		(primary && stringValue(projectRevision) != snapshot.CanonicalRevision) ||
 		repositoryBranch != snapshot.DefaultBranch
 
 	var state State
@@ -206,7 +207,8 @@ func (r *PostgresRepository) apply(
 		    version = version + CASE WHEN canonical_revision IS DISTINCT FROM $3 THEN 1 ELSE 0 END,
 		    updated_at = CASE WHEN canonical_revision IS DISTINCT FROM $3 THEN transaction_timestamp() ELSE updated_at END
 		WHERE organization_id = $1 AND id = $2
-	`, organizationID, projectID, snapshot.CanonicalRevision); err != nil {
+		  AND root_repository_id = $4
+	`, organizationID, projectID, snapshot.CanonicalRevision, repositoryID); err != nil {
 		return Result{}, fmt.Errorf("update project canonical revision: %w", err)
 	}
 
@@ -249,23 +251,28 @@ func (r *PostgresRepository) RecordFailure(
 	}
 
 	var defaultBranch string
-	var projectRevision *string
+	var repositoryRevision *string
 	err = tx.QueryRow(ctx, `
-		SELECT repository.default_branch, project.canonical_revision
+		SELECT repository.default_branch,
+		       CASE WHEN repository.id = project.root_repository_id
+		            THEN project.canonical_revision ELSE state.canonical_revision END
 		FROM identity.projects AS project
 		JOIN coordination.repositories AS repository
 		  ON repository.organization_id = project.organization_id
 		 AND repository.project_id = project.id
-		 AND repository.id = project.root_repository_id
+		LEFT JOIN coordination.repository_provider_states AS state
+		  ON state.organization_id = repository.organization_id
+		 AND state.project_id = repository.project_id
+		 AND state.repository_id = repository.id
 		WHERE project.organization_id = $1 AND project.id = $2
 		  AND repository.id = $3 AND repository.status = 'active'
 		FOR UPDATE OF project, repository
-	`, organizationID, projectID, repositoryID).Scan(&defaultBranch, &projectRevision)
+	`, organizationID, projectID, repositoryID).Scan(&defaultBranch, &repositoryRevision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return State{}, ErrRepositoryUnavailable
 	}
 	if err != nil {
-		return State{}, fmt.Errorf("lock root repository for failed sync: %w", err)
+		return State{}, fmt.Errorf("lock project repository for failed sync: %w", err)
 	}
 
 	previous, found, err := loadState(ctx, tx, organizationID, projectID, repositoryID, true)
@@ -301,7 +308,7 @@ func (r *PostgresRepository) RecordFailure(
 			          default_branch, canonical_revision, visibility, provider_updated_at,
 			          last_attempt_at, last_success_at, last_error_code, version
 		`, repositoryID, organizationID, projectID, repositoryFullName,
-			defaultBranch, projectRevision, errorCode))
+			defaultBranch, repositoryRevision, errorCode))
 	}
 	if err != nil {
 		return State{}, fmt.Errorf("store repository sync failure: %w", err)

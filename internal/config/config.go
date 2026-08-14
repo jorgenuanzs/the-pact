@@ -13,20 +13,28 @@ import (
 const DefaultLocalOrganizationID = "00000000-0000-4000-8000-000000000001"
 
 type Config struct {
-	HTTPAddress        string
-	DatabaseURL        string
-	LocalAPIToken      string
-	LocalOrganization  string
-	LogLevel           string
-	RunMigrations      bool
-	ShutdownTimeout    time.Duration
-	DatabaseTimeout    time.Duration
-	StatementTimeout   time.Duration
-	LockTimeout        time.Duration
-	GitHubAPIURL       string
-	GitHubToken        string
-	GitHubTimeout      time.Duration
-	GitHubSyncInterval time.Duration
+	HTTPAddress         string
+	DatabaseURL         string
+	LocalAPIToken       string
+	LocalOrganization   string
+	LogLevel            string
+	RunMigrations       bool
+	ShutdownTimeout     time.Duration
+	DatabaseTimeout     time.Duration
+	StatementTimeout    time.Duration
+	LockTimeout         time.Duration
+	PublicURL           string
+	GitHubAPIURL        string
+	GitHubWebURL        string
+	GitHubToken         string
+	GitHubAppID         int64
+	GitHubAppSlug       string
+	GitHubAppClientID   string
+	GitHubAppSecret     string
+	GitHubAppPrivateKey string
+	GitHubWebhookSecret string
+	GitHubTimeout       time.Duration
+	GitHubSyncInterval  time.Duration
 }
 
 func Load() (Config, error) {
@@ -62,20 +70,33 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		HTTPAddress:        envOrDefault("PACT_HTTP_ADDRESS", "127.0.0.1:8080"),
-		DatabaseURL:        strings.TrimSpace(os.Getenv("PACT_DATABASE_URL")),
-		LocalAPIToken:      os.Getenv("PACT_LOCAL_API_TOKEN"),
-		LocalOrganization:  envOrDefault("PACT_LOCAL_ORGANIZATION_ID", DefaultLocalOrganizationID),
-		LogLevel:           strings.ToLower(envOrDefault("PACT_LOG_LEVEL", "info")),
-		RunMigrations:      runMigrations,
-		ShutdownTimeout:    shutdownTimeout,
-		DatabaseTimeout:    databaseTimeout,
-		StatementTimeout:   statementTimeout,
-		LockTimeout:        lockTimeout,
-		GitHubAPIURL:       envOrDefault("PACT_GITHUB_API_URL", "https://api.github.com"),
-		GitHubToken:        strings.TrimSpace(os.Getenv("PACT_GITHUB_TOKEN")),
-		GitHubTimeout:      githubTimeout,
-		GitHubSyncInterval: githubSyncInterval,
+		HTTPAddress:         envOrDefault("PACT_HTTP_ADDRESS", "127.0.0.1:8080"),
+		DatabaseURL:         strings.TrimSpace(os.Getenv("PACT_DATABASE_URL")),
+		LocalAPIToken:       os.Getenv("PACT_LOCAL_API_TOKEN"),
+		LocalOrganization:   envOrDefault("PACT_LOCAL_ORGANIZATION_ID", DefaultLocalOrganizationID),
+		LogLevel:            strings.ToLower(envOrDefault("PACT_LOG_LEVEL", "info")),
+		RunMigrations:       runMigrations,
+		ShutdownTimeout:     shutdownTimeout,
+		DatabaseTimeout:     databaseTimeout,
+		StatementTimeout:    statementTimeout,
+		LockTimeout:         lockTimeout,
+		PublicURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("PACT_PUBLIC_URL")), "/"),
+		GitHubAPIURL:        envOrDefault("PACT_GITHUB_API_URL", "https://api.github.com"),
+		GitHubWebURL:        envOrDefault("PACT_GITHUB_WEB_URL", "https://github.com"),
+		GitHubToken:         strings.TrimSpace(os.Getenv("PACT_GITHUB_TOKEN")),
+		GitHubAppSlug:       strings.TrimSpace(os.Getenv("PACT_GITHUB_APP_SLUG")),
+		GitHubAppClientID:   strings.TrimSpace(os.Getenv("PACT_GITHUB_APP_CLIENT_ID")),
+		GitHubAppSecret:     strings.TrimSpace(os.Getenv("PACT_GITHUB_APP_CLIENT_SECRET")),
+		GitHubAppPrivateKey: strings.TrimSpace(os.Getenv("PACT_GITHUB_APP_PRIVATE_KEY_BASE64")),
+		GitHubWebhookSecret: strings.TrimSpace(os.Getenv("PACT_GITHUB_APP_WEBHOOK_SECRET")),
+		GitHubTimeout:       githubTimeout,
+		GitHubSyncInterval:  githubSyncInterval,
+	}
+	if raw := strings.TrimSpace(os.Getenv("PACT_GITHUB_APP_ID")); raw != "" {
+		cfg.GitHubAppID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || cfg.GitHubAppID <= 0 {
+			return Config{}, errors.New("PACT_GITHUB_APP_ID must be a positive integer")
+		}
 	}
 
 	if err := cfg.ValidateBase(); err != nil {
@@ -112,6 +133,23 @@ func (c Config) ValidateBase() error {
 	if c.GitHubSyncInterval > 0 && c.GitHubSyncInterval < time.Minute {
 		errs = append(errs, errors.New("PACT_GITHUB_SYNC_INTERVAL must be zero or at least 1m"))
 	}
+	appValues := []bool{
+		c.GitHubAppID > 0,
+		c.GitHubAppSlug != "",
+		c.GitHubAppClientID != "",
+		c.GitHubAppSecret != "",
+		c.GitHubAppPrivateKey != "",
+		c.GitHubWebhookSecret != "",
+	}
+	configuredValues := 0
+	for _, configured := range appValues {
+		if configured {
+			configuredValues++
+		}
+	}
+	if configuredValues != 0 && (configuredValues != len(appValues) || c.PublicURL == "") {
+		errs = append(errs, errors.New("GitHub App configuration is incomplete; PACT_PUBLIC_URL and every PACT_GITHUB_APP_* variable are required together"))
+	}
 	if !validUUID(c.LocalOrganization) {
 		errs = append(errs, errors.New("PACT_LOCAL_ORGANIZATION_ID must be a UUID"))
 	}
@@ -122,6 +160,12 @@ func (c Config) ValidateBase() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func (c Config) GitHubAppConfigured() bool {
+	return c.GitHubAppID > 0 && c.GitHubAppSlug != "" && c.GitHubAppClientID != "" &&
+		c.GitHubAppSecret != "" && c.GitHubAppPrivateKey != "" &&
+		c.GitHubWebhookSecret != "" && c.PublicURL != ""
 }
 
 func (c Config) ValidateServer() error {

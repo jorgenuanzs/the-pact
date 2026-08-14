@@ -18,6 +18,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/githubapp"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
@@ -31,11 +32,15 @@ type fakeAccessService struct {
 	visible      func(context.Context, access.Principal) (map[string]struct{}, error)
 	accept       func(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
 	createInvite func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
+	principal    *access.Principal
 }
 
-func (fakeAccessService) Authenticate(_ context.Context, token string) (access.Principal, error) {
+func (f fakeAccessService) Authenticate(_ context.Context, token string) (access.Principal, error) {
 	if token != testToken {
 		return access.Principal{}, access.ErrUnauthorized
+	}
+	if f.principal != nil {
+		return *f.principal, nil
 	}
 	return access.Principal{
 		ID: access.BootstrapPrincipalID, OrganizationID: "00000000-0000-4000-8000-000000000001",
@@ -98,6 +103,50 @@ func (f fakeRepositorySyncService) Get(ctx context.Context, projectID string) (r
 
 func (f fakeRepositorySyncService) Sync(ctx context.Context, principalID, projectID, key string) (repositorysync.Result, error) {
 	return f.sync(ctx, principalID, projectID, key)
+}
+
+func (f fakeRepositorySyncService) GetRepository(ctx context.Context, projectID, _ string) (repositorysync.State, error) {
+	return f.Get(ctx, projectID)
+}
+
+func (f fakeRepositorySyncService) List(ctx context.Context, projectID string) ([]repositorysync.State, error) {
+	state, err := f.Get(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return []repositorysync.State{state}, nil
+}
+
+func (f fakeRepositorySyncService) SyncRepository(ctx context.Context, principalID, projectID, _ string, key string) (repositorysync.Result, error) {
+	return f.Sync(ctx, principalID, projectID, key)
+}
+
+type fakeGitHubAppService struct {
+	status   func(context.Context) (githubapp.Status, error)
+	connect  func(context.Context, string) (githubapp.Connection, error)
+	begin    func(context.Context, string, int64) (string, error)
+	complete func(context.Context, string, string) error
+	webhook  func(context.Context, string, string, string, []byte) error
+}
+
+func (f fakeGitHubAppService) Status(ctx context.Context) (githubapp.Status, error) {
+	return f.status(ctx)
+}
+
+func (f fakeGitHubAppService) Connect(ctx context.Context, principalID string) (githubapp.Connection, error) {
+	return f.connect(ctx, principalID)
+}
+
+func (f fakeGitHubAppService) BeginUserAuthorization(ctx context.Context, state string, installationID int64) (string, error) {
+	return f.begin(ctx, state, installationID)
+}
+
+func (f fakeGitHubAppService) CompleteConnection(ctx context.Context, state, code string) error {
+	return f.complete(ctx, state, code)
+}
+
+func (f fakeGitHubAppService) HandleWebhook(ctx context.Context, deliveryID, eventType, signature string, body []byte) error {
+	return f.webhook(ctx, deliveryID, eventType, signature, body)
 }
 
 type fakeWorkspaceService struct {
@@ -307,6 +356,119 @@ func TestRepositorySyncRequiresMaintainerAndForwardsIdempotency(t *testing.T) {
 	}
 	if requiredRole != "maintainer" {
 		t.Fatalf("required role = %q", requiredRole)
+	}
+}
+
+func TestConnectGitHubReturnsOfficialInstallationURL(t *testing.T) {
+	called := false
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		GitHubAppService: fakeGitHubAppService{connect: func(_ context.Context, principalID string) (githubapp.Connection, error) {
+			called = true
+			if principalID != access.BootstrapPrincipalID {
+				t.Fatalf("principal ID = %q", principalID)
+			}
+			return githubapp.Connection{
+				InstallURL: "https://github.com/apps/the-pact/installations/new?state=secret-state",
+				ExpiresAt:  time.Date(2026, 8, 14, 12, 10, 0, 0, time.UTC),
+			}, nil
+		}},
+		AccessService:    fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{},
+		EventReader:      fakeEventReader{},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodPost, "/v1/integrations/github/connect", `{}`))
+	if response.Code != http.StatusCreated || !called {
+		t.Fatalf("status = %d, called = %v, body = %s", response.Code, called, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "https://github.com/apps/the-pact/installations/new") {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestConnectGitHubRejectsNonAdministrator(t *testing.T) {
+	principal := access.Principal{
+		ID: access.BootstrapPrincipalID, OrganizationID: "00000000-0000-4000-8000-000000000001",
+		DisplayName: "Contributor", PrincipalType: "human", OrganizationRole: "member",
+	}
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: principal.OrganizationID,
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		GitHubAppService: fakeGitHubAppService{connect: func(context.Context, string) (githubapp.Connection, error) {
+			t.Fatal("Connect must not be called")
+			return githubapp.Connection{}, nil
+		}},
+		AccessService:    fakeAccessService{principal: &principal},
+		BackofficeReader: fakeBackofficeReader{},
+		EventReader:      fakeEventReader{},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodPost, "/v1/integrations/github/connect", `{}`))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestGitHubCallbackRunsSetupAndOAuthPhases(t *testing.T) {
+	beginCalled := false
+	completeCalled := false
+	service := fakeGitHubAppService{
+		begin: func(_ context.Context, state string, installationID int64) (string, error) {
+			beginCalled = true
+			if state != "connection-state" || installationID != 42 {
+				t.Fatalf("setup callback = %q, %d", state, installationID)
+			}
+			return "https://github.com/login/oauth/authorize?state=connection-state", nil
+		},
+		complete: func(_ context.Context, state, code string) error {
+			completeCalled = true
+			if state != "connection-state" || code != "oauth-code" {
+				t.Fatalf("OAuth callback = %q, %q", state, code)
+			}
+			return nil
+		},
+	}
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, GitHubAppService: service,
+		AccessService: fakeAccessService{}, BackofficeReader: fakeBackofficeReader{},
+		EventReader: fakeEventReader{},
+	})
+	setupResponse := httptest.NewRecorder()
+	setupRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/integrations/github/callback?state=connection-state&installation_id=42",
+		nil,
+	)
+	handler.ServeHTTP(setupResponse, setupRequest)
+	if setupResponse.Code != http.StatusSeeOther ||
+		setupResponse.Header().Get("Location") != "https://github.com/login/oauth/authorize?state=connection-state" ||
+		!beginCalled {
+		t.Fatalf("setup status = %d, location = %q", setupResponse.Code, setupResponse.Header().Get("Location"))
+	}
+
+	oauthResponse := httptest.NewRecorder()
+	oauthRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/integrations/github/callback?state=connection-state&code=oauth-code",
+		nil,
+	)
+	handler.ServeHTTP(oauthResponse, oauthRequest)
+	if oauthResponse.Code != http.StatusSeeOther ||
+		oauthResponse.Header().Get("Location") != "/admin/?github=connected" ||
+		!completeCalled {
+		t.Fatalf("OAuth status = %d, location = %q", oauthResponse.Code, oauthResponse.Header().Get("Location"))
 	}
 }
 

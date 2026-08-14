@@ -8,6 +8,7 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
+	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -36,6 +37,10 @@ type KnowledgeReader interface {
 	Context(context.Context, string) (knowledge.WorkspaceContext, error)
 }
 
+type ProjectRepositoryReader interface {
+	List(context.Context, string) ([]projectrepo.Repository, error)
+}
+
 type Service struct {
 	organizationID string
 	repository     Repository
@@ -43,6 +48,7 @@ type Service struct {
 	workspaces     WorkspaceReader
 	coordination   CoordinationReader
 	knowledge      KnowledgeReader
+	repositories   ProjectRepositoryReader
 }
 
 func NewService(
@@ -52,11 +58,16 @@ func NewService(
 	workspaces WorkspaceReader,
 	coordination CoordinationReader,
 	knowledge KnowledgeReader,
+	repositoryReaders ...ProjectRepositoryReader,
 ) *Service {
-	return &Service{
+	service := &Service{
 		organizationID: organizationID, repository: repository, projects: projects,
 		workspaces: workspaces, coordination: coordination, knowledge: knowledge,
 	}
+	if len(repositoryReaders) > 0 {
+		service.repositories = repositoryReaders[0]
+	}
+	return service
 }
 
 func (s *Service) Compile(
@@ -91,6 +102,21 @@ func (s *Service) Compile(
 	project, err := s.projects.Get(ctx, projectID)
 	if err != nil {
 		return CompileResult{}, err
+	}
+	repositorySnapshots := make([]RepositorySnapshot, 0)
+	if s.repositories != nil {
+		repositories, err := s.repositories.List(ctx, projectID)
+		if err != nil {
+			return CompileResult{}, err
+		}
+		for _, repository := range repositories {
+			repositorySnapshots = append(repositorySnapshots, RepositorySnapshot{
+				ID: repository.ID, Name: repository.Name, FullName: repository.GitHubFullName,
+				Purpose: repository.Purpose, Primary: repository.Primary, Required: repository.Required,
+				DefaultBranch: repository.DefaultBranch, CanonicalRevision: repository.CanonicalRevision,
+				SyncStatus: repository.SyncStatus, LastSuccessAt: repository.LastSuccessAt,
+			})
+		}
 	}
 	workspaceList, err := s.workspaces.List(ctx)
 	if err != nil {
@@ -139,7 +165,8 @@ func (s *Service) Compile(
 	draft := Draft{
 		Type: input.Type, WorkspaceID: workspace.ID, ProjectID: projectID, IntentID: intentID,
 		Project: ProjectSnapshot{ID: project.ID, Name: project.Name, Slug: project.Slug,
-			Status: project.Status, CanonicalRevision: project.CanonicalRevision, Version: project.Version},
+			Status: project.Status, CanonicalRevision: project.CanonicalRevision,
+			Version: project.Version, Repositories: repositorySnapshots},
 		Workspace: WorkspaceSnapshot{ID: workspace.ID, Name: workspace.Name, Slug: workspace.Slug,
 			Status: workspace.Status, Version: workspace.Version},
 		Intent: intent, ActiveWork: activeWork, Knowledge: knowledgeContext,

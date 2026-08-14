@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pact API
-  version: 0.10.0
+  version: 0.11.0
   description: |
     API del primer recorrido vertical de Pact.
 
@@ -15,6 +15,7 @@ tags:
   - name: Backoffice
   - name: Projects
   - name: Repository Sync
+  - name: GitHub Integration
   - name: Workspaces
   - name: Knowledge
   - name: Events
@@ -283,6 +284,215 @@ paths:
           description: GitHub no pudo confirmar el estado canónico.
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/repositories:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags: [Repository Sync]
+      operationId: listProjectRepositories
+      summary: Lista el conjunto de repositorios del proyecto
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Repositorios operativos y sus estados verificados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectRepositoryListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Repository Sync]
+      operationId: attachProjectRepository
+      summary: Vincula un repositorio autorizado de GitHub al proyecto
+      description: Requiere rol maintainer del proyecto.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachProjectRepositoryRequest"
+      responses:
+        "201":
+          description: Repositorio vinculado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectRepositoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/projects/{project_id}/repositories/{repository_id}/sync:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - name: repository_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Repository Sync]
+      operationId: getProjectRepositorySync
+      summary: Obtiene el estado verificado de un repositorio del proyecto
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Estado de sincronización.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositorySyncStateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Repository Sync]
+      operationId: syncProjectRepository
+      summary: Verifica un repositorio específico directamente con GitHub
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Sincronización completada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositorySyncResultResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "424":
+          description: GitHub no pudo confirmar el estado del repositorio.
+  /v1/integrations/github:
+    get:
+      tags: [GitHub Integration]
+      operationId: getGitHubIntegration
+      summary: Obtiene las instalaciones GitHub de la organización
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Configuración, instalaciones y cantidad de repositorios autorizados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubIntegrationStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/integrations/github/connect:
+    post:
+      tags: [GitHub Integration]
+      operationId: connectGitHub
+      summary: Inicia una instalación oficial de GitHub App
+      description: Requiere rol owner o admin de la organización.
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: URL de instalación de un solo uso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubConnectionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/integrations/github/repositories:
+    get:
+      tags: [GitHub Integration]
+      operationId: listAuthorizedGitHubRepositories
+      summary: Lista repositorios GitHub autorizados para vincular
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Repositorios visibles para la instalación activa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableGitHubRepositoryListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/integrations/github/callback:
+    get:
+      tags: [GitHub Integration]
+      operationId: completeGitHubConnection
+      summary: Procesa las fases Setup URL y OAuth de GitHub
+      description: Endpoint público protegido mediante state de un solo uso y PKCE S256.
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: installation_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Redirección a autorización GitHub o a Pact Control.
+  /v1/integrations/github/webhook:
+    post:
+      tags: [GitHub Integration]
+      operationId: receiveGitHubWebhook
+      summary: Procesa cambios de instalaciones y repositorios autorizados
+      description: Endpoint público validado mediante X-Hub-Signature-256 y X-GitHub-Delivery.
+      security: []
+      responses:
+        "204":
+          description: Entrega procesada o ya conocida.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/workspaces:
     get:
       tags:
@@ -2348,6 +2558,266 @@ components:
           type: integer
           format: int64
           minimum: 1
+    AttachProjectRepositoryRequest:
+      type: object
+      additionalProperties: false
+      required: [github_repository_id]
+      properties:
+        github_repository_id:
+          type: integer
+          format: int64
+          minimum: 1
+        purpose:
+          type: string
+          default: application
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z][a-z0-9_-]*$"
+        required:
+          type: boolean
+          default: true
+        primary:
+          type: boolean
+          default: false
+    ProjectRepository:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - github_repository_id
+        - slug
+        - name
+        - vcs_type
+        - status
+        - remote_url
+        - default_branch
+        - object_format
+        - purpose
+        - required
+        - primary
+        - sync_status
+        - canonical_revision
+        - last_success_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        github_repository_id:
+          type: [integer, "null"]
+          format: int64
+        slug:
+          type: string
+        name:
+          type: string
+        vcs_type:
+          type: string
+          const: git
+        status:
+          type: string
+          enum: [active, unavailable, archived]
+        remote_url:
+          type: [string, "null"]
+        default_branch:
+          type: string
+        object_format:
+          type: string
+          enum: [sha1, sha256]
+        purpose:
+          type: string
+        required:
+          type: boolean
+        primary:
+          type: boolean
+        github_full_name:
+          type: string
+        visibility:
+          type: string
+          enum: [public, private, internal]
+        sync_status:
+          type: string
+          enum: [never, synced, failed, unsupported, unavailable]
+        canonical_revision:
+          type: [string, "null"]
+        last_success_at:
+          type: [string, "null"]
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    ProjectRepositoryResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectRepository"
+    ProjectRepositoryList:
+      type: object
+      additionalProperties: false
+      required: [repositories, sync_states]
+      properties:
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectRepository"
+        sync_states:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepositorySyncState"
+    ProjectRepositoryListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectRepositoryList"
+    AvailableGitHubRepository:
+      type: object
+      additionalProperties: false
+      required:
+        - github_repository_id
+        - installation_id
+        - account_login
+        - name
+        - full_name
+        - private
+        - visibility
+        - default_branch
+        - html_url
+        - clone_url
+        - attached_repository_id
+        - updated_at
+      properties:
+        github_repository_id:
+          type: integer
+          format: int64
+        installation_id:
+          type: integer
+          format: int64
+        account_login:
+          type: string
+        name:
+          type: string
+        full_name:
+          type: string
+        private:
+          type: boolean
+        visibility:
+          type: string
+          enum: [public, private, internal]
+        default_branch:
+          type: string
+        html_url:
+          type: string
+          format: uri
+        clone_url:
+          type: string
+          format: uri
+        attached_repository_id:
+          type: [string, "null"]
+          format: uuid
+        updated_at:
+          type: string
+          format: date-time
+    AvailableGitHubRepositoryListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableGitHubRepository"
+    GitHubInstallation:
+      type: object
+      additionalProperties: false
+      required:
+        - installation_id
+        - account_id
+        - account_login
+        - account_type
+        - repository_selection
+        - permissions
+        - status
+        - installed_at
+        - suspended_at
+        - updated_at
+        - version
+      properties:
+        installation_id:
+          type: integer
+          format: int64
+        account_id:
+          type: integer
+          format: int64
+        account_login:
+          type: string
+        account_type:
+          type: string
+          enum: [Organization, User, Bot]
+        repository_selection:
+          type: string
+          enum: [all, selected]
+        permissions:
+          type: object
+          additionalProperties:
+            type: string
+        status:
+          type: string
+          enum: [active, suspended, deleted]
+        installed_at:
+          type: string
+          format: date-time
+        suspended_at:
+          type: [string, "null"]
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+    GitHubIntegrationStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [configured, installations, repository_count]
+          properties:
+            configured:
+              type: boolean
+            installations:
+              type: array
+              items:
+                $ref: "#/components/schemas/GitHubInstallation"
+            repository_count:
+              type: integer
+              minimum: 0
+    GitHubConnectionResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [install_url, expires_at]
+          properties:
+            install_url:
+              type: string
+              format: uri
+            expires_at:
+              type: string
+              format: date-time
     RepositorySyncStateResponse:
       type: object
       additionalProperties: false

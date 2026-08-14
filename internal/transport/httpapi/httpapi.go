@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +22,10 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/githubapp"
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
+	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
@@ -39,7 +42,24 @@ type ProjectService interface {
 
 type RepositorySyncService interface {
 	Get(context.Context, string) (repositorysync.State, error)
+	GetRepository(context.Context, string, string) (repositorysync.State, error)
+	List(context.Context, string) ([]repositorysync.State, error)
 	Sync(context.Context, string, string, string) (repositorysync.Result, error)
+	SyncRepository(context.Context, string, string, string, string) (repositorysync.Result, error)
+}
+
+type ProjectRepositoryService interface {
+	List(context.Context, string) ([]projectrepo.Repository, error)
+	ListAvailable(context.Context, string) ([]projectrepo.AvailableRepository, error)
+	Attach(context.Context, string, string, projectrepo.AttachInput) (projectrepo.Repository, error)
+}
+
+type GitHubAppService interface {
+	Status(context.Context) (githubapp.Status, error)
+	Connect(context.Context, string) (githubapp.Connection, error)
+	BeginUserAuthorization(context.Context, string, int64) (string, error)
+	CompleteConnection(context.Context, string, string) error
+	HandleWebhook(context.Context, string, string, string, []byte) error
 }
 
 type WorkspaceService interface {
@@ -100,24 +120,26 @@ type AccessService interface {
 type ReadinessCheck func(context.Context) error
 
 type Config struct {
-	Logger                *slog.Logger
-	OrganizationID        string
-	Build                 buildinfo.Info
-	Readiness             ReadinessCheck
-	ProjectService        ProjectService
-	RepositorySyncService RepositorySyncService
-	WorkspaceService      WorkspaceService
-	KnowledgeService      KnowledgeService
-	AgentSessionService   AgentSessionService
-	CoordinationService   CoordinationService
-	HandoffService        HandoffService
-	ContextPackService    ContextPackService
-	AccessService         AccessService
-	BackofficeReader      backoffice.Reader
-	EventReader           eventlog.Reader
-	StreamShutdown        <-chan struct{}
-	StreamPollInterval    time.Duration
-	StreamHeartbeatEvery  time.Duration
+	Logger                   *slog.Logger
+	OrganizationID           string
+	Build                    buildinfo.Info
+	Readiness                ReadinessCheck
+	ProjectService           ProjectService
+	RepositorySyncService    RepositorySyncService
+	ProjectRepositoryService ProjectRepositoryService
+	GitHubAppService         GitHubAppService
+	WorkspaceService         WorkspaceService
+	KnowledgeService         KnowledgeService
+	AgentSessionService      AgentSessionService
+	CoordinationService      CoordinationService
+	HandoffService           HandoffService
+	ContextPackService       ContextPackService
+	AccessService            AccessService
+	BackofficeReader         backoffice.Reader
+	EventReader              eventlog.Reader
+	StreamShutdown           <-chan struct{}
+	StreamPollInterval       time.Duration
+	StreamHeartbeatEvery     time.Duration
 }
 
 type API struct {
@@ -127,6 +149,8 @@ type API struct {
 	readiness            ReadinessCheck
 	projects             ProjectService
 	repositorySync       RepositorySyncService
+	projectRepositories  ProjectRepositoryService
+	githubApp            GitHubAppService
 	workspaces           WorkspaceService
 	knowledge            KnowledgeService
 	agentSessions        AgentSessionService
@@ -156,6 +180,8 @@ func New(cfg Config) http.Handler {
 		readiness:            cfg.Readiness,
 		projects:             cfg.ProjectService,
 		repositorySync:       cfg.RepositorySyncService,
+		projectRepositories:  cfg.ProjectRepositoryService,
+		githubApp:            cfg.GitHubAppService,
 		workspaces:           cfg.WorkspaceService,
 		knowledge:            cfg.KnowledgeService,
 		agentSessions:        cfg.AgentSessionService,
@@ -193,6 +219,15 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetProject))))
 	mux.Handle("GET /v1/projects/{projectID}/repository-sync", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetRepositorySync))))
 	mux.Handle("POST /v1/projects/{projectID}/repository-sync", api.requireAuth(api.requireProjectRole("maintainer", http.HandlerFunc(api.handleSyncRepository))))
+	mux.Handle("GET /v1/projects/{projectID}/repositories", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListProjectRepositories))))
+	mux.Handle("POST /v1/projects/{projectID}/repositories", api.requireAuth(api.requireProjectRole("maintainer", http.HandlerFunc(api.handleAttachProjectRepository))))
+	mux.Handle("GET /v1/projects/{projectID}/repositories/{repositoryID}/sync", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetProjectRepositorySync))))
+	mux.Handle("POST /v1/projects/{projectID}/repositories/{repositoryID}/sync", api.requireAuth(api.requireProjectRole("maintainer", http.HandlerFunc(api.handleSyncProjectRepository))))
+	mux.Handle("GET /v1/integrations/github", api.requireAuth(http.HandlerFunc(api.handleGitHubStatus)))
+	mux.Handle("POST /v1/integrations/github/connect", api.requireAuth(http.HandlerFunc(api.handleConnectGitHub)))
+	mux.Handle("GET /v1/integrations/github/repositories", api.requireAuth(http.HandlerFunc(api.handleListAuthorizedGitHubRepositories)))
+	mux.HandleFunc("GET /v1/integrations/github/callback", api.handleGitHubCallback)
+	mux.HandleFunc("POST /v1/integrations/github/webhook", api.handleGitHubWebhook)
 	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleProjectOverview))))
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
@@ -233,6 +268,13 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/workspaces/{workspaceID}/context", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/repository-sync", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/repositories", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/projects/{projectID}/repositories/{repositoryID}/sync", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/integrations/github", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/integrations/github/connect", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/integrations/github/repositories", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/integrations/github/callback", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/integrations/github/webhook", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/overview", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
@@ -1089,6 +1131,209 @@ func (a *API) handleSyncRepository(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
+func (a *API) handleListProjectRepositories(w http.ResponseWriter, r *http.Request) {
+	if a.projectRepositories == nil || a.repositorySync == nil {
+		a.writeDomainError(w, r, errors.New("project repository services are not configured"))
+		return
+	}
+	repositories, err := a.projectRepositories.List(r.Context(), r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	states, err := a.repositorySync.List(r.Context(), r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+		"repositories": repositories, "sync_states": states,
+	}})
+}
+
+func (a *API) handleAttachProjectRepository(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.projectRepositories == nil {
+		a.writeDomainError(w, r, errors.New("project repository service is not configured"))
+		return
+	}
+	var input projectrepo.AttachInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	repository, err := a.projectRepositories.Attach(r.Context(), principal.ID, r.PathValue("projectID"), input)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/v1/projects/"+r.PathValue("projectID")+"/repositories/"+repository.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": repository})
+}
+
+func (a *API) handleGetProjectRepositorySync(w http.ResponseWriter, r *http.Request) {
+	if a.repositorySync == nil {
+		a.writeDomainError(w, r, errors.New("repository sync service is not configured"))
+		return
+	}
+	state, err := a.repositorySync.GetRepository(
+		r.Context(), r.PathValue("projectID"), r.PathValue("repositoryID"),
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": state})
+}
+
+func (a *API) handleSyncProjectRepository(w http.ResponseWriter, r *http.Request) {
+	if a.repositorySync == nil {
+		a.writeDomainError(w, r, errors.New("repository sync service is not configured"))
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.repositorySync.SyncRepository(
+		r.Context(), principal.ID, r.PathValue("projectID"), r.PathValue("repositoryID"),
+		r.Header.Get("Idempotency-Key"),
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (a *API) handleGitHubStatus(w http.ResponseWriter, r *http.Request) {
+	if a.githubApp == nil {
+		a.writeDomainError(w, r, errors.New("GitHub App service is not configured"))
+		return
+	}
+	status, err := a.githubApp.Status(r.Context())
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": status})
+}
+
+func (a *API) handleConnectGitHub(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || !principalCanManageAll(principal) {
+		a.writeDomainError(w, r, access.ErrForbidden)
+		return
+	}
+	if a.githubApp == nil {
+		a.writeDomainError(w, r, errors.New("GitHub App service is not configured"))
+		return
+	}
+	connection, err := a.githubApp.Connect(r.Context(), principal.ID)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": connection})
+}
+
+func (a *API) handleListAuthorizedGitHubRepositories(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	if projectID == "" {
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", "project_id is required.")
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	if err := a.access.RequireProjectRole(r.Context(), principal, projectID, "viewer"); err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if a.projectRepositories == nil {
+		a.writeDomainError(w, r, errors.New("project repository service is not configured"))
+		return
+	}
+	repositories, err := a.projectRepositories.ListAvailable(r.Context(), projectID)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": repositories})
+}
+
+func (a *API) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
+	if a.githubApp == nil {
+		a.redirectGitHubResult(w, r, "error", "not_configured")
+		return
+	}
+	state := r.URL.Query().Get("state")
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	installationRaw := strings.TrimSpace(r.URL.Query().Get("installation_id"))
+	if installationRaw != "" {
+		installationID, err := strconv.ParseInt(installationRaw, 10, 64)
+		if err != nil || installationID <= 0 {
+			a.redirectGitHubResult(w, r, "error", "invalid_callback")
+			return
+		}
+		authorizationURL, err := a.githubApp.BeginUserAuthorization(r.Context(), state, installationID)
+		if err != nil {
+			a.redirectGitHubResult(w, r, "error", "connection_failed")
+			return
+		}
+		if code == "" {
+			http.Redirect(w, r, authorizationURL, http.StatusSeeOther)
+			return
+		}
+	}
+	if code == "" {
+		a.redirectGitHubResult(w, r, "error", "invalid_callback")
+		return
+	}
+	err := a.githubApp.CompleteConnection(r.Context(), state, code)
+	if err != nil {
+		a.logger.Warn("GitHub App connection failed", "error", err)
+		a.redirectGitHubResult(w, r, "error", "connection_failed")
+		return
+	}
+	a.redirectGitHubResult(w, r, "connected", "")
+}
+
+func (a *API) redirectGitHubResult(w http.ResponseWriter, r *http.Request, result, reason string) {
+	query := url.Values{"github": []string{result}}
+	if reason != "" {
+		query.Set("reason", reason)
+	}
+	http.Redirect(w, r, "/admin/?"+query.Encode(), http.StatusSeeOther)
+}
+
+func (a *API) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+	if a.githubApp == nil {
+		a.writeDomainError(w, r, githubapp.ErrNotConfigured)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBody+1))
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_webhook", "Invalid webhook", "The webhook body could not be read.")
+		return
+	}
+	if len(body) > maxRequestBody {
+		writeProblem(w, r, http.StatusRequestEntityTooLarge, "request_too_large", "Request too large", "The webhook body exceeds the maximum size.")
+		return
+	}
+	err = a.githubApp.HandleWebhook(
+		r.Context(), r.Header.Get("X-GitHub-Delivery"), r.Header.Get("X-GitHub-Event"),
+		r.Header.Get("X-Hub-Signature-256"), body,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *API) handleProjectOverview(w http.ResponseWriter, r *http.Request) {
 	project, err := a.projects.Get(r.Context(), r.PathValue("projectID"))
 	if err != nil {
@@ -1386,6 +1631,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var contextValidationErr *contextpack.ValidationError
 	var repositorySyncValidationErr *repositorysync.ValidationError
 	var providerErr *repositorysync.ProviderError
+	var projectRepositoryValidationErr *projectrepo.ValidationError
+	var githubProviderErr *githubapp.ProviderError
 	var scopeConflictErr *coordination.ScopeConflictError
 	switch {
 	case errors.As(err, &validationErr):
@@ -1404,6 +1651,10 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", contextValidationErr.Error())
 	case errors.As(err, &repositorySyncValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", repositorySyncValidationErr.Error())
+	case errors.As(err, &projectRepositoryValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", projectRepositoryValidationErr.Error())
+	case errors.As(err, &githubProviderErr):
+		writeProblem(w, r, http.StatusBadGateway, githubProviderErr.Code, "GitHub integration failed", "Pact could not complete the operation with GitHub.")
 	case errors.As(err, &providerErr):
 		if providerErr.RetryAfter != "" {
 			w.Header().Set("Retry-After", providerErr.RetryAfter)
@@ -1468,6 +1719,20 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, repositorysync.ErrCommandIncomplete):
 		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, projectrepo.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "project_repository_not_found", "Project repository not found", err.Error())
+	case errors.Is(err, projectrepo.ErrProviderNotFound):
+		writeProblem(w, r, http.StatusNotFound, "github_repository_not_found", "GitHub repository not found", err.Error())
+	case errors.Is(err, projectrepo.ErrAlreadyAttached):
+		writeProblem(w, r, http.StatusConflict, "repository_already_attached", "Repository already attached", err.Error())
+	case errors.Is(err, githubapp.ErrNotConfigured):
+		writeProblem(w, r, http.StatusServiceUnavailable, "github_app_not_configured", "GitHub App unavailable", err.Error())
+	case errors.Is(err, githubapp.ErrInvalidState):
+		writeProblem(w, r, http.StatusBadRequest, "github_connection_invalid", "Invalid GitHub connection", err.Error())
+	case errors.Is(err, githubapp.ErrInstallationDenied):
+		writeProblem(w, r, http.StatusForbidden, "github_installation_denied", "GitHub installation denied", err.Error())
+	case errors.Is(err, githubapp.ErrWebhookSignature):
+		writeProblem(w, r, http.StatusUnauthorized, "github_webhook_signature_invalid", "Invalid webhook signature", err.Error())
 	case errors.Is(err, workspaces.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "workspace_not_found", "Workspace not found", err.Error())
 	case errors.Is(err, workspaces.ErrProjectNotFound):
