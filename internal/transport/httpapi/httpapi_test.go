@@ -594,6 +594,18 @@ func TestAdminShellIsPublicButContainsNoCredentials(t *testing.T) {
 func TestAdminUsesCanonicalRouteAndNoSPAFallback(t *testing.T) {
 	handler := testHandler(t, fakeProjectService{}, fakeEventReader{})
 
+	rootRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	rootResponse := httptest.NewRecorder()
+	handler.ServeHTTP(rootResponse, rootRequest)
+	if rootResponse.Code != http.StatusPermanentRedirect ||
+		rootResponse.Header().Get("Location") != "/admin/" {
+		t.Fatalf(
+			"root redirect status=%d location=%q",
+			rootResponse.Code,
+			rootResponse.Header().Get("Location"),
+		)
+	}
+
 	redirectRequest := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	redirectResponse := httptest.NewRecorder()
 	handler.ServeHTTP(redirectResponse, redirectRequest)

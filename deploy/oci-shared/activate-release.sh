@@ -146,6 +146,22 @@ PACT_GITHUB_TIMEOUT=10s
 PACT_GITHUB_SYNC_INTERVAL=0s
 EOF
 fi
+
+ensure_runtime_default() {
+  local key="$1"
+  local value="$2"
+
+  if ! grep -q "^${key}=" "${secrets_file}"; then
+    printf '%s=%s\n' "${key}" "${value}" >>"${secrets_file}"
+  fi
+}
+
+# Existing installations keep their secrets while gaining safe defaults for
+# configuration introduced by newer Pact releases.
+ensure_runtime_default PACT_GITHUB_API_URL https://api.github.com
+ensure_runtime_default PACT_GITHUB_TOKEN ""
+ensure_runtime_default PACT_GITHUB_TIMEOUT 10s
+ensure_runtime_default PACT_GITHUB_SYNC_INTERVAL 0s
 chmod 600 "${secrets_file}"
 
 image="the-pact-server:${PACT_RELEASE_ID}"
