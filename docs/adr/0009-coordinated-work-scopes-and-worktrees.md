@@ -21,7 +21,7 @@ PACT incorpora un bucle coordinado único para clientes MCP y HTTP:
 
 ```text
 contexto → comprobar scopes → iniciar intención y leases
-         → crear worktree local → registrar workspace
+         → crear worktree local → registrar worktree
          → observar cambios → actualizar estado y resumen
 ```
 
@@ -53,7 +53,7 @@ heartbeat los renueva y cerrar la sesión los libera. Los claims expirados no
 bloquean trabajo nuevo. Completar, cancelar o abandonar una intención también
 los libera.
 
-### Workspace local
+### Worktree local
 
 Después de crear la intención, el adaptador local crea un Git worktree real en:
 
@@ -72,14 +72,14 @@ aparece en el contexto compartido de otros agentes.
 
 ### Observación y estados
 
-Cada workspace tiene su propia observación Git, separada de la observación del
+Cada worktree tiene su propia observación Git, separada de la observación del
 checkout principal. Un diff emite `pact.workspace.diff_updated.v1`; avanzar el
 HEAD dentro del worktree emite `pact.workspace.head_updated.v1`. Un cambio de
 HEAD en el checkout no gestionado conserva
 `pact.git.external_change_detected.v1`.
 
-Enviar una intención congela su workspace. Completar, cancelar o abandonar la
-intención archiva el workspace. Todas las transiciones escriben evento y outbox
+Enviar una intención congela su worktree. Completar, cancelar o abandonar la
+intención archiva el worktree. Todas las transiciones escriben evento y outbox
 en la misma transacción que el estado.
 
 ### Contrato para agentes
@@ -104,7 +104,7 @@ La vista del proyecto combina dos niveles:
 
 - presencia: sesiones y nodos que responden ahora;
 - trabajo: intención, responsable, objetivo o resumen, scopes, rama, revisión
-  base, workspace, estado y última señal.
+  base, worktree, estado y última señal.
 
 Los eventos se actualizan por SSE y una lectura del overview se programa tras
 cada evento. El panel no infiere “trabajando” solo porque una sesión exista:

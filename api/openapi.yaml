@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pact API
-  version: 0.5.0
+  version: 0.9.0
   description: |
     API del primer recorrido vertical de Pact.
 
@@ -14,9 +14,13 @@ tags:
   - name: System
   - name: Backoffice
   - name: Projects
+  - name: Workspaces
+  - name: Knowledge
   - name: Events
   - name: Agents
   - name: Coordination
+  - name: Handoffs
+  - name: Context Packs
   - name: Access
 paths:
   /livez:
@@ -222,6 +226,335 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces:
+    get:
+      tags:
+        - Workspaces
+      operationId: listWorkspaces
+      summary: Lista los espacios de colaboración visibles
+      description: Cada workspace reúne uno o más proyectos y será la frontera de contexto compartido de Pact.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Lista de workspaces y sus proyectos visibles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Workspaces
+      operationId: createWorkspace
+      summary: Crea un espacio de colaboración
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceRequest"
+      responses:
+        "201":
+          description: Workspace creado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/workspaces/{workspace_id}:
+    parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        description: UUID o slug del workspace.
+        schema:
+          type: string
+    get:
+      tags:
+        - Workspaces
+      operationId: getWorkspace
+      summary: Obtiene un workspace y sus proyectos visibles
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Workspace encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}:
+    parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/ProjectId"
+    put:
+      tags:
+        - Workspaces
+      operationId: attachProjectToWorkspace
+      summary: Mueve un proyecto al workspace
+      description: Un proyecto pertenece a un único workspace. La operación no modifica el repositorio Git.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Proyecto asociado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/resources:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Knowledge]
+      operationId: listWorkspaceResources
+      summary: Busca fuentes compartidas del Workspace
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeQuery"
+        - name: kind
+          in: query
+          schema:
+            $ref: "#/components/schemas/ResourceKind"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived]
+        - $ref: "#/components/parameters/KnowledgeLimit"
+      responses:
+        "200":
+          description: Fuentes visibles ordenadas por actividad.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Knowledge]
+      operationId: createWorkspaceResource
+      summary: Registra una fuente compartida sin copiar su contenido
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateResourceRequest"
+      responses:
+        "201":
+          description: Fuente registrada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/workspaces/{workspace_id}/records:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Knowledge]
+      operationId: listWorkspaceRecords
+      summary: Busca registros tipados de conocimiento
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeQuery"
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/RecordType"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/RecordStatus"
+        - $ref: "#/components/parameters/KnowledgeLimit"
+      responses:
+        "200":
+          description: Registros visibles con su evidencia.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Knowledge]
+      operationId: proposeWorkspaceRecord
+      summary: Propone un registro de conocimiento con evidencia opcional
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecordRequest"
+      responses:
+        "201":
+          description: Registro creado en estado proposed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/workspaces/{workspace_id}/records/{record_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/RecordId"
+    get:
+      tags: [Knowledge]
+      operationId: getWorkspaceRecord
+      summary: Obtiene un registro y sus fuentes de evidencia
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Registro encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/records/{record_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/RecordId"
+    post:
+      tags: [Knowledge]
+      operationId: updateWorkspaceRecordStatus
+      summary: Revisa el ciclo de vida de un registro
+      description: Requiere rol maintainer y usa control optimista de versión.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRecordStatusRequest"
+      responses:
+        "200":
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/workspaces/{workspace_id}/context:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Knowledge]
+      operationId: getWorkspaceContext
+      summary: Compila el contexto durable y vigente del Workspace
+      description: La respuesta es determinista; no usa un modelo de IA ni búsqueda vectorial.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Contexto compartido agrupado por semántica.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceContextResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/projects/{project_id}/overview:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -481,14 +814,207 @@ paths:
                   - $ref: "#/components/schemas/Problem"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/projects/{project_id}/handoffs:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Handoffs
+      operationId: listProjectHandoffs
+      summary: Lista los handoffs estructurados de un proyecto
+      description: El filtro de intención es opcional. La respuesta no contiene rutas locales ni conversaciones privadas.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: intent_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Handoffs ordenados desde el más reciente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/projects/{project_id}/intents/{intent_id}/handoffs:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags:
+        - Handoffs
+      operationId: offerIntentHandoff
+      summary: Ofrece un relevo estructurado de una intención
+      description: |
+        Registra lo completado, lo pendiente, bloqueos, próximos pasos,
+        validaciones y vínculos a conocimiento. No transfiere automáticamente
+        un worktree, una sesión ni una reserva de scope.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OfferHandoffRequest"
+      responses:
+        "201":
+          description: Handoff ofrecido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffCommandResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/projects/{project_id}/intents/{intent_id}/handoffs/{handoff_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/IntentId"
+      - name: handoff_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - Handoffs
+      operationId: updateHandoffStatus
+      summary: Acepta o retira un handoff
+      description: Aceptar confirma la recepción, pero no toma posesión del worktree ni de los scopes del emisor.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHandoffRequest"
+      responses:
+        "200":
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffCommandResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/projects/{project_id}/intents/{intent_id}/context-packs:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags:
+        - Context Packs
+      operationId: compileContextPack
+      summary: Compila una instantánea de contexto verificable
+      description: |
+        Persiste una vista acotada de proyecto, Workspace, intención, trabajo
+        vivo, conocimiento y handoffs. Incluye cursor de eventos, revisión Git,
+        expiración y huella SHA-256 de sus fuentes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompileContextPackRequest"
+      responses:
+        "201":
+          description: Context Pack persistido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextPackCommandResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/projects/{project_id}/context-packs/{context_pack_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - name: context_pack_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - Context Packs
+      operationId: getContextPack
+      summary: Recupera un Context Pack después de verificar su integridad
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Context Pack íntegro.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextPackResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/intents/{intent_id}/workspace:
     parameters:
       - $ref: "#/components/parameters/IntentId"
     post:
+      deprecated: true
       tags:
         - Coordination
       operationId: attachIntentWorkspace
       summary: Registra el worktree aislado de una intención
+      description: Compatibilidad con clientes v0.7. Usa `/worktree` en clientes nuevos.
       security:
         - bearerAuth: []
       parameters:
@@ -505,7 +1031,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkspaceResponse"
+                $ref: "#/components/schemas/LegacyWorktreeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/intents/{intent_id}/worktree:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags:
+        - Coordination
+      operationId: attachIntentWorktree
+      summary: Registra el worktree Git aislado de una intención
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachWorkspaceRequest"
+      responses:
+        "201":
+          description: Worktree listo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorktreeResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -794,6 +1357,39 @@ components:
       bearerFormat: opaque
       description: Token personal opaco y revocable, o credencial bootstrap de recuperación.
   parameters:
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      description: Identificador del Workspace compartido.
+      schema:
+        type: string
+        format: uuid
+    RecordId:
+      name: record_id
+      in: path
+      required: true
+      description: Identificador del registro durable.
+      schema:
+        type: string
+        format: uuid
+    KnowledgeQuery:
+      name: q
+      in: query
+      required: false
+      description: Consulta de texto completo con sintaxis web de PostgreSQL.
+      schema:
+        type: string
+        maxLength: 500
+    KnowledgeLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 250
+        default: 100
     ProjectId:
       name: project_id
       in: path
@@ -1093,6 +1689,428 @@ components:
         date:
           type: string
           minLength: 1
+    CreateWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        description:
+          type: string
+          maxLength: 4000
+        project_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    WorkspaceProject:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - slug
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          type: string
+          enum:
+            - initializing
+            - active
+            - archived
+        root_repository_remote_url:
+          type: string
+    Workspace:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - slug
+        - description
+        - status
+        - projects
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - archived
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceProject"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+    WorkspaceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/Workspace"
+    WorkspaceListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - workspaces
+          properties:
+            workspaces:
+              type: array
+              items:
+                $ref: "#/components/schemas/Workspace"
+    ResourceKind:
+      type: string
+      enum: [url, repository, document, pull_request, ticket, meeting, dashboard, infrastructure, other]
+    ResourceClassification:
+      type: string
+      enum: [public, internal, confidential, restricted]
+    CreateResourceRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, title, locator]
+      properties:
+        kind:
+          $ref: "#/components/schemas/ResourceKind"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        locator:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: No puede incluir credenciales ni parámetros que aparenten contener secretos.
+        description:
+          type: string
+          maxLength: 10000
+        classification:
+          $ref: "#/components/schemas/ResourceClassification"
+        metadata:
+          type: object
+          additionalProperties: true
+    KnowledgeResource:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, kind, title, locator, description, classification, status, metadata, created_by_actor_id, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/ResourceKind"
+        title:
+          type: string
+        locator:
+          type: string
+        description:
+          type: string
+        classification:
+          $ref: "#/components/schemas/ResourceClassification"
+        status:
+          type: string
+          enum: [active, archived]
+        metadata:
+          type: object
+          additionalProperties: true
+        created_by_actor_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+    ResourceResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/KnowledgeResource"
+    ResourceListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [resources]
+          properties:
+            resources:
+              type: array
+              items:
+                $ref: "#/components/schemas/KnowledgeResource"
+    RecordType:
+      type: string
+      enum: [decision, requirement, constraint, assumption, risk, open_question, finding, procedure, incident, validation_result, note]
+    RecordStatus:
+      type: string
+      enum: [proposed, accepted, disputed, superseded, revoked, expired, rejected]
+    RecordAuthority:
+      type: string
+      enum: [informational, team, organization, external]
+    EvidenceRelation:
+      type: string
+      enum: [supports, contradicts, origin, validates]
+    EvidenceInput:
+      type: object
+      additionalProperties: false
+      required: [resource_id]
+      properties:
+        resource_id:
+          type: string
+          format: uuid
+        relation:
+          $ref: "#/components/schemas/EvidenceRelation"
+        note:
+          type: string
+          maxLength: 4000
+    RecordEvidence:
+      type: object
+      additionalProperties: false
+      required: [relation, note, resource, created_at]
+      properties:
+        relation:
+          $ref: "#/components/schemas/EvidenceRelation"
+        note:
+          type: string
+        resource:
+          $ref: "#/components/schemas/KnowledgeResource"
+        created_at:
+          type: string
+          format: date-time
+    CreateRecordRequest:
+      type: object
+      additionalProperties: false
+      required: [type, title, body]
+      properties:
+        type:
+          $ref: "#/components/schemas/RecordType"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        body:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        authority:
+          $ref: "#/components/schemas/RecordAuthority"
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type: string
+          format: date-time
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceInput"
+        metadata:
+          type: object
+          additionalProperties: true
+    KnowledgeRecord:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, type, title, body, status, authority, valid_from, metadata, created_by_actor_id, last_changed_by_actor_id, evidence, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/RecordType"
+        title:
+          type: string
+        body:
+          type: string
+        status:
+          $ref: "#/components/schemas/RecordStatus"
+        authority:
+          $ref: "#/components/schemas/RecordAuthority"
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type: string
+          format: date-time
+        superseded_by_record_id:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+        created_by_actor_id:
+          type: string
+          format: uuid
+        last_changed_by_actor_id:
+          type: string
+          format: uuid
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecordEvidence"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpdateRecordStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status, expected_version]
+      properties:
+        status:
+          $ref: "#/components/schemas/RecordStatus"
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+        reason:
+          type: string
+          maxLength: 4000
+        superseding_record_id:
+          type: string
+          format: uuid
+    RecordResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/KnowledgeRecord"
+    RecordListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [records]
+          properties:
+            records:
+              type: array
+              items:
+                $ref: "#/components/schemas/KnowledgeRecord"
+    WorkspaceContext:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, decisions, requirements, constraints, open_questions, risks, other_records, resources, warnings, generated_at]
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRecord"
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRecord"
+        constraints:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRecord"
+        open_questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRecord"
+        risks:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRecord"
+        other_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRecord"
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeResource"
+        warnings:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+    WorkspaceContextResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/WorkspaceContext"
     CreateProjectRequest:
       type: object
       additionalProperties: false
@@ -1640,7 +2658,7 @@ components:
         completed_at:
           type: string
           format: date-time
-    Workspace:
+    ExecutionWorktree:
       type: object
       additionalProperties: false
       required:
@@ -1726,7 +2744,7 @@ components:
           items:
             $ref: "#/components/schemas/ScopeClaim"
         workspace:
-          $ref: "#/components/schemas/Workspace"
+          $ref: "#/components/schemas/ExecutionWorktree"
         session_live:
           type: boolean
         session_last_seen_at:
@@ -1748,6 +2766,371 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/WorkItem"
+    HandoffValidation:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+        status:
+          type: string
+          enum:
+            - passed
+            - failed
+            - pending
+            - skipped
+        details:
+          type: string
+          maxLength: 4000
+    Handoff:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workspace_id
+        - project_id
+        - intent_id
+        - from_session_id
+        - from_actor_id
+        - from_actor_name
+        - status
+        - summary
+        - completed
+        - remaining_work
+        - blockers
+        - next_steps
+        - validations
+        - linked_record_ids
+        - version
+        - offered_at
+        - expires_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        intent_id:
+          type: string
+          format: uuid
+        from_session_id:
+          type: string
+          format: uuid
+        from_actor_id:
+          type: string
+          format: uuid
+        from_actor_name:
+          type: string
+        to_session_id:
+          type: string
+          format: uuid
+        to_actor_id:
+          type: string
+          format: uuid
+        to_actor_name:
+          type: string
+        status:
+          type: string
+          enum:
+            - offered
+            - accepted
+            - withdrawn
+            - expired
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        completed:
+          $ref: "#/components/schemas/HandoffStringList"
+        remaining_work:
+          $ref: "#/components/schemas/HandoffStringList"
+        blockers:
+          $ref: "#/components/schemas/HandoffStringList"
+        next_steps:
+          $ref: "#/components/schemas/HandoffStringList"
+        validations:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/HandoffValidation"
+        linked_record_ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        offered_at:
+          type: string
+          format: date-time
+        responded_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    HandoffStringList:
+      type: array
+      maxItems: 100
+      items:
+        type: string
+        maxLength: 2000
+    OfferHandoffRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - summary
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        completed:
+          $ref: "#/components/schemas/HandoffStringList"
+        remaining_work:
+          $ref: "#/components/schemas/HandoffStringList"
+        blockers:
+          $ref: "#/components/schemas/HandoffStringList"
+        next_steps:
+          $ref: "#/components/schemas/HandoffStringList"
+        validations:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/HandoffValidation"
+        linked_record_ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+        expires_in_hours:
+          type: integer
+          minimum: 1
+          maximum: 168
+          default: 72
+    UpdateHandoffRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - status
+        - expected_version
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - accepted
+            - withdrawn
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+    HandoffListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - handoffs
+          properties:
+            handoffs:
+              type: array
+              items:
+                $ref: "#/components/schemas/Handoff"
+    HandoffCommandResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - handoff
+            - event_id
+            - replayed
+          properties:
+            handoff:
+              $ref: "#/components/schemas/Handoff"
+            event_id:
+              type: string
+              format: uuid
+            replayed:
+              type: boolean
+    CompileContextPackRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          default: implementation
+          enum:
+            - implementation
+            - handoff
+            - review
+            - onboarding
+            - meeting
+            - incident
+            - deployment
+        ttl_minutes:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 5
+    ContextPackSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - event_cursor
+        - consistency
+        - source_fingerprint
+        - generated_at
+        - expires_at
+      properties:
+        event_cursor:
+          $ref: "#/components/schemas/EventCursor"
+        git_revision:
+          type: string
+        consistency:
+          type: string
+          const: eventual
+        source_fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        generated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    ContextPack:
+      type: object
+      required:
+        - id
+        - type
+        - workspace_id
+        - project_id
+        - intent_id
+        - requested_by_actor_id
+        - project
+        - workspace
+        - intent
+        - active_work
+        - knowledge
+        - handoffs
+        - warnings
+        - snapshot
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        workspace_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        intent_id:
+          type: string
+          format: uuid
+        requesting_session_id:
+          type: string
+          format: uuid
+        requested_by_actor_id:
+          type: string
+          format: uuid
+        project:
+          type: object
+          additionalProperties: true
+        workspace:
+          type: object
+          additionalProperties: true
+        intent:
+          $ref: "#/components/schemas/Intent"
+        active_work:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        knowledge:
+          $ref: "#/components/schemas/WorkspaceContext"
+        handoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Handoff"
+        warnings:
+          type: array
+          items:
+            type: string
+        snapshot:
+          $ref: "#/components/schemas/ContextPackSnapshot"
+    ContextPackCommandResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - context_pack
+            - event_id
+            - replayed
+          properties:
+            context_pack:
+              $ref: "#/components/schemas/ContextPack"
+            event_id:
+              type: string
+              format: uuid
+            replayed:
+              type: boolean
+    ContextPackResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/ContextPack"
     StartWorkRequest:
       type: object
       additionalProperties: false
@@ -1841,7 +3224,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-    WorkspaceResponse:
+    LegacyWorktreeResponse:
       type: object
       additionalProperties: false
       required:
@@ -1856,7 +3239,28 @@ components:
             - replayed
           properties:
             workspace:
-              $ref: "#/components/schemas/Workspace"
+              $ref: "#/components/schemas/ExecutionWorktree"
+            event_id:
+              type: string
+              format: uuid
+            replayed:
+              type: boolean
+    WorktreeResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - worktree
+            - event_id
+            - replayed
+          properties:
+            worktree:
+              $ref: "#/components/schemas/ExecutionWorktree"
             event_id:
               type: string
               format: uuid
@@ -2047,6 +3451,7 @@ components:
         - active_work
         - recent_events
         - work_items
+        - handoffs
         - generated_at
       properties:
         project:
@@ -2067,6 +3472,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WorkItem"
+        handoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Handoff"
         generated_at:
           type: string
           format: date-time

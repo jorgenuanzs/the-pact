@@ -193,7 +193,7 @@ func (r *PostgresReader) loadCounts(
 			),
 			(
 				SELECT count(*)
-				FROM coordination.workspaces
+				FROM coordination.worktrees
 				WHERE organization_id = $1
 				  AND project_id = $2
 				  AND status IN ('provisioning', 'ready', 'active', 'frozen')
@@ -369,7 +369,7 @@ func (r *PostgresReader) loadActiveWork(
 		LEFT JOIN identity.nodes AS node
 		  ON node.organization_id = session.organization_id
 		 AND node.id = session.node_id
-		LEFT JOIN coordination.workspaces AS workspace
+		LEFT JOIN coordination.worktrees AS workspace
 		  ON workspace.organization_id = session.organization_id
 		 AND workspace.project_id = session.project_id
 		 AND workspace.session_id = session.id

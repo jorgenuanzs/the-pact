@@ -236,7 +236,7 @@ func (r *PostgresRepository) AttachWorkspace(
 	}
 
 	workspace, err := scanWorkspace(tx.QueryRow(ctx, `
-		INSERT INTO coordination.workspaces (
+		INSERT INTO coordination.worktrees (
 			organization_id, project_id, repository_id, intent_id, session_id,
 			base_revision, path_ref, git_branch, status
 		)
@@ -358,7 +358,7 @@ func (r *PostgresRepository) UpdateStatus(
 
 	if input.Status == "submitted" {
 		if _, err := tx.Exec(ctx, `
-			UPDATE coordination.workspaces
+			UPDATE coordination.worktrees
 			SET status = 'frozen', frozen_at = transaction_timestamp(),
 			    updated_at = transaction_timestamp(), version = version + 1
 			WHERE organization_id = $1 AND project_id = $2 AND intent_id = $3
@@ -377,7 +377,7 @@ func (r *PostgresRepository) UpdateStatus(
 			return StatusResult{}, fmt.Errorf("release intent scopes: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE coordination.workspaces
+			UPDATE coordination.worktrees
 			SET status = 'archived', archived_at = transaction_timestamp(),
 			    updated_at = transaction_timestamp(), version = version + 1
 			WHERE organization_id = $1 AND project_id = $2 AND intent_id = $3
@@ -466,7 +466,7 @@ func (r *PostgresRepository) List(
 		         AND session.expires_at > transaction_timestamp()
 		         AND session.last_seen_at >= transaction_timestamp() - interval '30 seconds',
 		       session.last_seen_at
-		FROM coordination.workspaces AS workspace
+		FROM coordination.worktrees AS workspace
 		LEFT JOIN identity.sessions AS session
 		  ON session.organization_id = workspace.organization_id
 		 AND session.project_id = workspace.project_id

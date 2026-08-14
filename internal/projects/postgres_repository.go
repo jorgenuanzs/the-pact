@@ -61,6 +61,9 @@ func (r *PostgresRepository) Create(
 	if err != nil {
 		return CreateResult{}, mapProjectWriteError(err)
 	}
+	if err := insertDefaultWorkspace(ctx, tx, project); err != nil {
+		return CreateResult{}, err
+	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO platform.project_event_counters (
@@ -175,6 +178,35 @@ func (r *PostgresRepository) Create(
 		return CreateResult{}, fmt.Errorf("commit project.create: %w", err)
 	}
 	return CreateResult{Project: project}, nil
+}
+
+func insertDefaultWorkspace(ctx context.Context, tx pgx.Tx, project Project) error {
+	var workspaceID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO identity.workspaces (
+			organization_id, name, slug, description, status, settings
+		)
+		VALUES ($1, $2, $3, '', $4, '{"managed_default": true}'::jsonb)
+		RETURNING id
+	`, project.OrganizationID, project.Name, project.Slug,
+		mapProjectStatusToWorkspace(project.Status)).Scan(&workspaceID)
+	if err != nil {
+		return fmt.Errorf("create default project workspace: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO identity.workspace_projects (organization_id, workspace_id, project_id)
+		VALUES ($1, $2, $3)
+	`, project.OrganizationID, workspaceID, project.ID); err != nil {
+		return fmt.Errorf("attach project to default workspace: %w", err)
+	}
+	return nil
+}
+
+func mapProjectStatusToWorkspace(status string) string {
+	if status == "archived" {
+		return "archived"
+	}
+	return "active"
 }
 
 func (r *PostgresRepository) Get(ctx context.Context, organizationID, projectID string) (Project, error) {

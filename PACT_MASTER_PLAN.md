@@ -265,8 +265,10 @@ Pact no puede asumir que su base de datos siempre refleja Git, la infraestructur
 
 | Término | Definición |
 |---|---|
-| Organización | Límite administrativo y de confianza que contiene proyectos |
-| Proyecto | Unidad de coordinación, conocimiento y políticas |
+| Organización | Límite administrativo y de confianza que contiene workspaces y proyectos |
+| Workspace | Frontera durable de colaboración y contexto que agrupa uno o más proyectos |
+| Proyecto | Unidad técnica de coordinación asociada a repositorios y trabajo ejecutable |
+| Worktree | Checkout Git aislado asociado a una intención y una sesión |
 | Humano | Persona autenticada responsable de acciones propias o delegadas |
 | Agente | Instancia de software o IA con identidad, sesión y capacidades limitadas |
 | Nodo | Proceso local asociado a una máquina o entorno que observa y ejecuta operaciones locales |
@@ -288,7 +290,7 @@ Pact no puede asumir que su base de datos siempre refleja Git, la infraestructur
 | Comando | Solicitud para producir un cambio de estado |
 | Evidencia | Fuente que permite verificar una afirmación, acción o resultado |
 | Fuente | Sistema o artefacto original del que se obtuvo información |
-| Context packet | Paquete de contexto acotado y trazable para una intención |
+| Context Pack | Paquete de contexto inmutable, acotado, trazable y con vencimiento para una intención |
 | Ambiente | Contexto operativo como local, desarrollo, staging o producción |
 | Recurso | Entidad operable: servidor, base de datos, servicio, clúster, secreto o repositorio |
 | Política | Regla evaluable que permite, deniega o exige condiciones |
@@ -311,7 +313,7 @@ Pact no puede asumir que su base de datos siempre refleja Git, la infraestructur
 │                           PACT SERVER                              │
 │                                                                    │
 │  Identidad     Coordinación     Eventos       Políticas            │
-│  Delegación    Git/workspaces   Conocimiento Aprobaciones          │
+│  Delegación    Git/worktrees    Conocimiento Aprobaciones          │
 │  Contexto      Infraestructura Auditoría      Suscripciones         │
 └────────────┬───────────────┬───────────────┬───────────────────────┘
              │               │               │
@@ -359,7 +361,7 @@ Responsabilidades:
 - conectar de forma saliente con Pact Server;
 - identificar la máquina y los repositorios registrados;
 - observar Git y el sistema de archivos;
-- crear y administrar worktrees o workspaces;
+- crear y administrar worktrees;
 - ejecutar comandos locales autorizados;
 - recopilar resultados y evidencias;
 - mantener una cola temporal si se pierde la conexión;
@@ -852,7 +854,7 @@ Pact gobierna el flujo y la integración, no impide que Git siga existiendo como
 
 #### Managed
 
-- Pact crea workspaces para agentes.
+- Pact crea worktrees para agentes.
 - Las ramas no protegidas pueden utilizarse directamente.
 - Pact valida integraciones a ramas canónicas.
 - Los cambios externos se reconcilian.
@@ -865,7 +867,7 @@ Pact gobierna el flujo y la integración, no impide que Git siga existiendo como
 - Pact exige intención, validaciones y aprobaciones.
 - Adecuado para entornos regulados o sensibles.
 
-### 10.3 Workspaces
+### 10.3 Worktrees
 
 Git permite múltiples árboles de trabajo vinculados al mismo repositorio. La [documentación de `git worktree`](https://git-scm.com/docs/git-worktree.html) confirma que cada worktree puede tener su propio `HEAD` e índice mientras comparte el repositorio.
 
@@ -1657,6 +1659,26 @@ Salida:
 - handoff entre agentes;
 - revisión;
 - despliegue.
+
+### 15.2.1 Contrato base ya adoptado
+
+La primera implementación denomina a este artefacto `Context Pack` y fija un
+envoltorio estable antes de incorporar retrieval semántico o síntesis:
+
+- es una instantánea inmutable asociada a un Workspace, proyecto e intención;
+- declara consistencia `eventual`, cursor de eventos y revisión Git;
+- incluye conocimiento durable, trabajo relevante y handoffs estructurados;
+- omite rutas locales de worktrees y credenciales de repositorios;
+- conserva una huella SHA-256 de las fuentes y verifica el hash del payload al
+  recuperarlo;
+- tiene un TTL corto y explícito;
+- no copia conversaciones privadas ni invoca una IA para construir el objeto
+  estructurado.
+
+Los tipos base son `implementation`, `handoff`, `review`, `onboarding`,
+`meeting`, `incident` y `deployment`. Los presupuestos de tokens, las facetas
+avanzadas, la recuperación híbrida, los deltas y la síntesis aparecen sobre
+este contrato, no en sustitución de él.
 
 ### 15.3 Contexto determinista y síntesis
 
@@ -3216,14 +3238,14 @@ Esta sección no reduce la visión a fases. Enumera todos los frentes que deben 
 - reconectar no crea estado contradictorio;
 - el nodo no accede fuera de rutas autorizadas.
 
-### W08. Workspaces y Git
+### W08. Worktrees y Git
 
 **Construir**
 
 - repository bindings;
 - detección Git;
 - worktrees;
-- workspace lifecycle;
+- worktree lifecycle;
 - observación de diffs;
 - ChangeSets inmutables;
 - provider adapters;

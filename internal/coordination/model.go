@@ -74,7 +74,7 @@ type Intent struct {
 	CompletedAt        *time.Time     `json:"completed_at,omitempty"`
 }
 
-type Workspace struct {
+type Worktree struct {
 	ID           string         `json:"id"`
 	ProjectID    string         `json:"project_id"`
 	RepositoryID string         `json:"repository_id"`
@@ -91,6 +91,11 @@ type Workspace struct {
 	FrozenAt     *time.Time     `json:"frozen_at,omitempty"`
 	ArchivedAt   *time.Time     `json:"archived_at,omitempty"`
 }
+
+// Workspace is kept as a source-compatible alias for v0.7 clients. In Pact's
+// domain vocabulary this execution checkout is now a Worktree; Workspace is
+// reserved for the durable collaboration boundary.
+type Workspace = Worktree
 
 type WorkItem struct {
 	Intent          Intent       `json:"intent"`
@@ -132,6 +137,14 @@ type WorkspaceResult struct {
 	Replayed  bool      `json:"replayed"`
 }
 
+type WorktreeInput = WorkspaceInput
+
+type WorktreeResult struct {
+	Worktree Worktree `json:"worktree"`
+	EventID  string   `json:"event_id"`
+	Replayed bool     `json:"replayed"`
+}
+
 type StatusInput struct {
 	SessionID       string `json:"session_id"`
 	Status          string `json:"status"`
@@ -144,4 +157,61 @@ type StatusResult struct {
 	Intent   Intent `json:"intent"`
 	EventID  string `json:"event_id"`
 	Replayed bool   `json:"replayed"`
+}
+
+type HandoffValidation struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Details string `json:"details,omitempty"`
+}
+
+type Handoff struct {
+	ID              string              `json:"id"`
+	WorkspaceID     string              `json:"workspace_id"`
+	ProjectID       string              `json:"project_id"`
+	IntentID        string              `json:"intent_id"`
+	FromSessionID   string              `json:"from_session_id"`
+	FromActorID     string              `json:"from_actor_id"`
+	FromActorName   string              `json:"from_actor_name"`
+	ToSessionID     *string             `json:"to_session_id,omitempty"`
+	ToActorID       *string             `json:"to_actor_id,omitempty"`
+	ToActorName     *string             `json:"to_actor_name,omitempty"`
+	Status          string              `json:"status"`
+	Summary         string              `json:"summary"`
+	Completed       []string            `json:"completed"`
+	RemainingWork   []string            `json:"remaining_work"`
+	Blockers        []string            `json:"blockers"`
+	NextSteps       []string            `json:"next_steps"`
+	Validations     []HandoffValidation `json:"validations"`
+	LinkedRecordIDs []string            `json:"linked_record_ids"`
+	Version         int64               `json:"version"`
+	OfferedAt       time.Time           `json:"offered_at"`
+	RespondedAt     *time.Time          `json:"responded_at,omitempty"`
+	ExpiresAt       time.Time           `json:"expires_at"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+}
+
+type OfferHandoffInput struct {
+	SessionID       string              `json:"session_id"`
+	Summary         string              `json:"summary"`
+	Completed       []string            `json:"completed,omitempty"`
+	RemainingWork   []string            `json:"remaining_work,omitempty"`
+	Blockers        []string            `json:"blockers,omitempty"`
+	NextSteps       []string            `json:"next_steps,omitempty"`
+	Validations     []HandoffValidation `json:"validations,omitempty"`
+	LinkedRecordIDs []string            `json:"linked_record_ids,omitempty"`
+	ExpiresInHours  int                 `json:"expires_in_hours,omitempty"`
+}
+
+type HandoffStatusInput struct {
+	SessionID       string `json:"session_id"`
+	Status          string `json:"status"`
+	ExpectedVersion int64  `json:"expected_version"`
+}
+
+type HandoffResult struct {
+	Handoff  Handoff `json:"handoff"`
+	EventID  string  `json:"event_id"`
+	Replayed bool    `json:"replayed"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"path"
 	"regexp"
 	"strings"
@@ -22,13 +23,148 @@ type Repository interface {
 	List(context.Context, string, string) ([]WorkItem, error)
 }
 
+type HandoffRepository interface {
+	OfferHandoff(context.Context, string, string, bool, string, string, string, [sha256.Size]byte, OfferHandoffInput) (HandoffResult, error)
+	ListHandoffs(context.Context, string, string, string) ([]Handoff, error)
+	UpdateHandoffStatus(context.Context, string, string, bool, string, string, string, string, [sha256.Size]byte, HandoffStatusInput) (HandoffResult, error)
+}
+
 type Service struct {
 	organizationID string
 	repository     Repository
+	handoffs       HandoffRepository
 }
 
 func NewService(organizationID string, repository Repository) *Service {
-	return &Service{organizationID: organizationID, repository: repository}
+	handoffs, _ := repository.(HandoffRepository)
+	return &Service{organizationID: organizationID, repository: repository, handoffs: handoffs}
+}
+
+func (s *Service) OfferHandoff(
+	ctx context.Context, principalID string, allowAll bool, projectID, intentID, key string, input OfferHandoffInput,
+) (HandoffResult, error) {
+	if s.handoffs == nil {
+		return HandoffResult{}, errors.New("handoff repository is not configured")
+	}
+	principalID, projectID, intentID = strings.TrimSpace(principalID), strings.TrimSpace(projectID), strings.TrimSpace(intentID)
+	key, input.SessionID, input.Summary = strings.TrimSpace(key), strings.TrimSpace(input.SessionID), strings.TrimSpace(input.Summary)
+	if !validUUID(principalID) || !validUUID(projectID) || !validUUID(intentID) || !validUUID(input.SessionID) {
+		return HandoffResult{}, &ValidationError{Field: "identity", Message: "principal, project, intent, and session IDs must be UUIDs"}
+	}
+	if err := validateIdempotencyKey(key); err != nil {
+		return HandoffResult{}, err
+	}
+	if input.Summary == "" || utf8.RuneCountInString(input.Summary) > 10000 {
+		return HandoffResult{}, &ValidationError{Field: "summary", Message: "must contain 1 to 10000 characters"}
+	}
+	input.Completed = compactHandoffStrings(input.Completed)
+	input.RemainingWork = compactHandoffStrings(input.RemainingWork)
+	input.Blockers = compactHandoffStrings(input.Blockers)
+	input.NextSteps = compactHandoffStrings(input.NextSteps)
+	if len(input.Completed) > 100 || len(input.RemainingWork) > 100 || len(input.Blockers) > 100 || len(input.NextSteps) > 100 {
+		return HandoffResult{}, &ValidationError{Field: "handoff", Message: "each work list must contain at most 100 items"}
+	}
+	for _, value := range append(append(append(input.Completed, input.RemainingWork...), input.Blockers...), input.NextSteps...) {
+		if utf8.RuneCountInString(value) > 2000 {
+			return HandoffResult{}, &ValidationError{Field: "handoff", Message: "work list items must contain at most 2000 characters"}
+		}
+	}
+	if len(input.Validations) > 100 {
+		return HandoffResult{}, &ValidationError{Field: "validations", Message: "must contain at most 100 items"}
+	}
+	for index := range input.Validations {
+		validation := &input.Validations[index]
+		validation.Name = strings.TrimSpace(validation.Name)
+		validation.Status = strings.ToLower(strings.TrimSpace(validation.Status))
+		validation.Details = strings.TrimSpace(validation.Details)
+		if validation.Name == "" || utf8.RuneCountInString(validation.Name) > 300 ||
+			(validation.Status != "passed" && validation.Status != "failed" && validation.Status != "pending" && validation.Status != "skipped") ||
+			utf8.RuneCountInString(validation.Details) > 4000 {
+			return HandoffResult{}, &ValidationError{Field: "validations", Message: "must contain a valid name, status, and optional details"}
+		}
+	}
+	input.LinkedRecordIDs = compactUUIDs(input.LinkedRecordIDs)
+	if len(input.LinkedRecordIDs) > 100 {
+		return HandoffResult{}, &ValidationError{Field: "linked_record_ids", Message: "must contain at most 100 records"}
+	}
+	for _, recordID := range input.LinkedRecordIDs {
+		if !validUUID(recordID) {
+			return HandoffResult{}, &ValidationError{Field: "linked_record_ids", Message: "items must be UUIDs"}
+		}
+	}
+	if input.ExpiresInHours == 0 {
+		input.ExpiresInHours = 72
+	}
+	if input.ExpiresInHours < 1 || input.ExpiresInHours > 168 {
+		return HandoffResult{}, &ValidationError{Field: "expires_in_hours", Message: "must be between 1 and 168"}
+	}
+	hash, err := commandHash("handoff.offer", s.organizationID, intentID, input)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	return s.handoffs.OfferHandoff(ctx, s.organizationID, principalID, allowAll, projectID, intentID, key, hash, input)
+}
+
+func (s *Service) ListHandoffs(ctx context.Context, projectID, intentID string) ([]Handoff, error) {
+	if s.handoffs == nil {
+		return nil, errors.New("handoff repository is not configured")
+	}
+	projectID, intentID = strings.TrimSpace(projectID), strings.TrimSpace(intentID)
+	if !validUUID(projectID) || (intentID != "" && !validUUID(intentID)) {
+		return nil, &ValidationError{Field: "intent_id", Message: "project and optional intent IDs must be UUIDs"}
+	}
+	return s.handoffs.ListHandoffs(ctx, s.organizationID, projectID, intentID)
+}
+
+func (s *Service) UpdateHandoffStatus(
+	ctx context.Context, principalID string, allowAll bool, projectID, intentID, handoffID, key string, input HandoffStatusInput,
+) (HandoffResult, error) {
+	if s.handoffs == nil {
+		return HandoffResult{}, errors.New("handoff repository is not configured")
+	}
+	principalID, projectID, intentID = strings.TrimSpace(principalID), strings.TrimSpace(projectID), strings.TrimSpace(intentID)
+	handoffID, key, input.SessionID = strings.TrimSpace(handoffID), strings.TrimSpace(key), strings.TrimSpace(input.SessionID)
+	input.Status = strings.ToLower(strings.TrimSpace(input.Status))
+	if !validUUID(principalID) || !validUUID(projectID) || !validUUID(intentID) || !validUUID(handoffID) || !validUUID(input.SessionID) {
+		return HandoffResult{}, &ValidationError{Field: "identity", Message: "principal, project, intent, handoff, and session IDs must be UUIDs"}
+	}
+	if err := validateIdempotencyKey(key); err != nil {
+		return HandoffResult{}, err
+	}
+	if input.Status != "accepted" && input.Status != "withdrawn" {
+		return HandoffResult{}, &ValidationError{Field: "status", Message: "must be accepted or withdrawn"}
+	}
+	if input.ExpectedVersion < 1 {
+		return HandoffResult{}, &ValidationError{Field: "expected_version", Message: "must be greater than zero"}
+	}
+	hash, err := commandHash("handoff.status", s.organizationID, handoffID, input)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	return s.handoffs.UpdateHandoffStatus(ctx, s.organizationID, principalID, allowAll, projectID, intentID, handoffID, key, hash, input)
+}
+
+func compactHandoffStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func compactUUIDs(values []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func (s *Service) CheckScopes(ctx context.Context, projectID string, scopes []ScopeInput) (ScopeCheckResult, error) {

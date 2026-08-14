@@ -109,7 +109,7 @@
           <div class="rail-heading">
             <div>
               <p class="section-kicker">Organización</p>
-              <h2 id="projects-heading">Proyectos</h2>
+              <h2 id="projects-heading">Workspaces</h2>
             </div>
             <button
               id="refresh-projects"
@@ -128,7 +128,7 @@
             <input
               id="project-search"
               type="search"
-              placeholder="Filtrar proyectos"
+              placeholder="Filtrar espacios y proyectos"
               autocomplete="off"
             />
           </label>
@@ -156,7 +156,9 @@
             <header class="project-header">
               <div class="project-identity">
                 <p class="breadcrumb">
-                  Proyectos <span aria-hidden="true">/</span>
+                  Workspaces <span aria-hidden="true">/</span>
+                  <span id="workspace-name">—</span>
+                  <span aria-hidden="true">/</span>
                   <span id="project-slug">—</span>
                 </p>
                 <div class="project-title-row">
@@ -247,11 +249,11 @@
               </article>
               <article class="metric-card">
                 <div class="metric-head">
-                  <span>Workspaces vivos</span>
+                  <span>Worktrees vivos</span>
                   <span class="metric-index" aria-hidden="true">03</span>
                 </div>
                 <strong id="metric-workspaces">—</strong>
-                <p>Entornos gestionados por Pact</p>
+                <p>Checkouts Git gestionados</p>
               </article>
               <article class="metric-card">
                 <div class="metric-head">
@@ -261,6 +263,38 @@
                 <strong id="metric-changesets">—</strong>
                 <p>Esperando integración</p>
               </article>
+            </section>
+
+            <section class="panel knowledge-panel" aria-labelledby="knowledge-title">
+              <header class="panel-header knowledge-header">
+                <div>
+                  <p class="section-kicker">CONTEXTO COMPARTIDO</p>
+                  <h2 id="knowledge-title">Conocimiento del Workspace</h2>
+                </div>
+                <span id="knowledge-count" class="count-chip">—</span>
+              </header>
+              <div id="knowledge-grid" class="knowledge-grid"></div>
+              <div id="knowledge-empty" class="panel-empty" hidden>
+                <span class="empty-line" aria-hidden="true"></span>
+                <h3>Aún no hay contexto durable</h3>
+                <p>Las IA pueden registrar fuentes y proponer decisiones, requisitos, restricciones, preguntas y riesgos mediante MCP.</p>
+              </div>
+            </section>
+
+            <section class="panel handoff-panel" aria-labelledby="handoff-title">
+              <header class="panel-header handoff-header">
+                <div>
+                  <p class="section-kicker">RELEVOS ENTRE COLABORADORES</p>
+                  <h2 id="handoff-title">Handoffs estructurados</h2>
+                </div>
+                <span id="handoff-count" class="count-chip">—</span>
+              </header>
+              <div id="handoff-list" class="handoff-list"></div>
+              <div id="handoff-empty" class="panel-empty" hidden>
+                <span class="empty-line" aria-hidden="true"></span>
+                <h3>No hay relevos registrados</h3>
+                <p>Un handoff conserva lo completado, lo pendiente, los bloqueos, las validaciones y los próximos pasos sin copiar conversaciones privadas.</p>
+              </div>
             </section>
 
             <section class="panel workboard-panel" aria-labelledby="workboard-title">

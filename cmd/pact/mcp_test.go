@@ -18,9 +18,11 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -40,6 +42,28 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 			VCSType: "git", Status: "active", RemoteURL: &remote, DefaultBranch: "main",
 			ObjectFormat: "sha1", Version: 1,
 		},
+	}
+	sharedWorkspace := workspaces.Workspace{
+		ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e4a", Name: "Footfall Product",
+		Slug: "footfall-product", Description: "Shared product context", Status: "active", Version: 1,
+		Projects: []workspaces.Project{{
+			ID: projectID, Name: project.Name, Slug: project.Slug, Status: project.Status,
+			RootRepositoryRemoteURL: &remote,
+		}},
+		CreatedAt: now.Add(-time.Hour), UpdatedAt: now,
+	}
+	sharedKnowledge := knowledge.WorkspaceContext{
+		WorkspaceID: sharedWorkspace.ID,
+		Decisions: []knowledge.Record{{
+			ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e5b", WorkspaceID: sharedWorkspace.ID,
+			Type: "decision", Title: "Use PostgreSQL", Body: "One durable shared store",
+			Status: "accepted", Authority: "team", Evidence: []knowledge.Evidence{},
+			Metadata: map[string]any{}, Version: 2, CreatedAt: now, UpdatedAt: now,
+		}},
+		Requirements: []knowledge.Record{}, Constraints: []knowledge.Record{},
+		OpenQuestions: []knowledge.Record{}, Risks: []knowledge.Record{},
+		OtherRecords: []knowledge.Record{}, Resources: []knowledge.Resource{},
+		Warnings: []string{}, GeneratedAt: now,
 	}
 	privatePath := "/Users/private/workspaces/footfall"
 	overview := backoffice.Overview{
@@ -87,6 +111,10 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": principal})
 		case "/v1/projects":
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"projects": []projects.Project{project}}})
+		case "/v1/workspaces":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workspaces": []workspaces.Workspace{sharedWorkspace}}})
+		case "/v1/workspaces/" + sharedWorkspace.ID + "/context":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": sharedKnowledge})
 		case "/v1/projects/" + projectID:
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": project})
 		case "/v1/projects/" + projectID + "/overview":
@@ -163,8 +191,11 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 		toolNames[tool.Name] = true
 	}
 	for _, expected := range []string{
-		"pact.project_context", "pact.list_projects", "pact.refresh_git_observation",
-		"pact.check_scopes", "pact.start_work", "pact.list_work", "pact.update_work",
+		"pact.project_context", "pact.list_projects", "pact.list_workspaces", "pact.refresh_git_observation",
+		"pact.workspace_context", "pact.list_resources", "pact.add_resource", "pact.list_records",
+		"pact.propose_record", "pact.review_record", "pact.check_scopes", "pact.start_work",
+		"pact.list_work", "pact.update_work", "pact.list_handoffs", "pact.offer_handoff",
+		"pact.update_handoff", "pact.compile_context_pack", "pact.get_context_pack",
 	} {
 		if !toolNames[expected] {
 			t.Errorf("MCP tool %q was not registered", expected)
@@ -184,7 +215,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	}
 	contextJSON := string(encoded)
 	for _, expected := range []string{
-		"Footfall", "codex-mcp", "Improve API", "internal/api", "pact/intent-improve-api",
+		"Footfall", "Footfall Product", "Shared product context", "Use PostgreSQL", "One durable shared store", "codex-mcp", "Improve API", "internal/api", "pact/intent-improve-api",
 		`"changed_paths":1`, `"remote_url":"[REDACTED]"`, `"api_token":"[REDACTED]"`,
 	} {
 		if !strings.Contains(contextJSON, expected) {
@@ -207,6 +238,17 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	}
 	if strings.Contains(string(listJSON), "embedded-secret") || strings.Contains(string(listJSON), "remote_url") {
 		t.Fatalf("project list leaked the remote URL: %s", listJSON)
+	}
+	workspaceResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "pact.list_workspaces"})
+	if err != nil || workspaceResult.IsError {
+		t.Fatalf("list workspaces error = %v; result = %#v", err, workspaceResult)
+	}
+	workspaceJSON, err := json.Marshal(workspaceResult.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(workspaceJSON), "embedded-secret") || strings.Contains(string(workspaceJSON), "remote_url") {
+		t.Fatalf("workspace list leaked the remote URL: %s", workspaceJSON)
 	}
 
 	refreshResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "pact.refresh_git_observation"})
