@@ -34,7 +34,9 @@ jobs:
       - name: Validate WinGet manifest generator
         if: runner.os == 'Linux'
         shell: bash
-        run: bash -n scripts/generate-winget-manifests.sh
+        run: |
+          sh -n scripts/install.sh
+          bash -n scripts/generate-winget-manifests.sh
 
   build:
     needs: test
@@ -103,6 +105,7 @@ jobs:
           merge-multiple: true
       - name: Create checksums
         run: |
+          cp scripts/install.sh dist/install-pact.sh
           cp scripts/install-windows.ps1 dist/install-pact.ps1
           cd dist
           sha256sum pact_*.tar.gz pact_*.zip > checksums.txt
@@ -139,3 +142,23 @@ jobs:
             -InstallDir (Join-Path $env:RUNNER_TEMP "Pact") `
             -NoPathUpdate
           & (Join-Path $env:RUNNER_TEMP "Pact\pact.exe") help
+
+  smoke-unix:
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the published release
+        shell: bash
+        env:
+          PACT_VERSION: ${{ github.ref_name }}
+          PACT_INSTALL_DIR: ${{ runner.temp }}/pact-bin
+        run: |
+          sh scripts/install.sh
+          "${PACT_INSTALL_DIR}/pact" help

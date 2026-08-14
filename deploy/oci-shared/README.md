@@ -20,8 +20,8 @@ The `the-pact-gateway-reconcile.timer` unit reconnects Caddy and reapplies the
 small managed PACT route after a Magi gateway deployment. It does not copy
 secrets or connect either application's private network.
 
-The canonical backoffice address is `https://pact.nuanzs.com/admin/`. Its DNS
-record is a DNS-only `A` record named `pact` pointing to `80.225.187.244`.
+The hosted backoffice address is `https://pact.nuanzs.com/admin/`. DNS and the
+VM address are managed outside this repository.
 
 ## Deploy
 
@@ -33,7 +33,8 @@ state, or local build output.
 ./deploy/oci-shared/deploy.sh
 ```
 
-Override the defaults with `PACT_DEPLOY_HOST` and `PACT_SSH_KEY` when needed.
+Set `PACT_DEPLOY_HOST` and `PACT_SSH_KEY` explicitly before deploying. No
+production host or private-key path is stored in this repository.
 The server keeps the two newest PACT images and ten newest source releases. It
 prunes only the dedicated `the-pact-builder-prod` cache and PACT-labelled
 containers; PostgreSQL volumes are never removed automatically.
@@ -45,7 +46,7 @@ application deployment never edits or restarts Caddy.
 ## Operations
 
 ```sh
-ssh -i ~/.ssh/nuanzs-infra-oci ubuntu@80.225.187.244
+ssh -i "$PACT_SSH_KEY" "$PACT_DEPLOY_HOST"
 sudo docker compose --project-name the-pact \
   --env-file /opt/the-pact/shared/runtime.env \
   --env-file /opt/the-pact/current/release.env \

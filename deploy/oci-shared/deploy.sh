@@ -3,14 +3,23 @@ set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$(cd "${script_dir}/../.." && pwd)"
-deploy_host="${PACT_DEPLOY_HOST:-ubuntu@80.225.187.244}"
-ssh_key="${PACT_SSH_KEY:-${HOME}/.ssh/nuanzs-infra-oci}"
+deploy_host="${PACT_DEPLOY_HOST:-}"
+ssh_key="${PACT_SSH_KEY:-}"
 temporary_dir="$(mktemp -d)"
 
 cleanup() {
   rm -rf -- "${temporary_dir}"
 }
 trap cleanup EXIT
+
+[[ -n "${deploy_host}" ]] || {
+  echo "PACT_DEPLOY_HOST is required, for example ubuntu@server.example.com." >&2
+  exit 1
+}
+[[ -n "${ssh_key}" ]] || {
+  echo "PACT_SSH_KEY is required and must point to a private SSH key." >&2
+  exit 1
+}
 
 for command_name in git scp shasum ssh tar; do
   command -v "${command_name}" >/dev/null 2>&1 || {

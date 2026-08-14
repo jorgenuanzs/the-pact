@@ -37,6 +37,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          sh -n scripts/install.sh
           bash -n scripts/generate-winget-manifests.sh
           OUTPUT_DIRECTORY="$(mktemp -d)"
           HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -72,7 +73,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install from the private GitHub release
+      - name: Install from the latest GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,349 +1,568 @@
-# The Pact
+# Pact
 
-Pact es un plano de control para proyectos en los que personas y agentes de IA
-comparten conocimiento, coordinan trabajo y realizan acciones verificables
-sobre código, infraestructura y otros recursos.
+[![CI](https://github.com/jorgenuanzs/the-pact/actions/workflows/ci.yml/badge.svg)](https://github.com/jorgenuanzs/the-pact/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/jorgenuanzs/the-pact)](https://github.com/jorgenuanzs/the-pact/releases/latest)
+[![License](https://img.shields.io/github/license/jorgenuanzs/the-pact)](LICENSE)
 
-El objetivo no es sustituir Git. Git conserva el contenido y el historial del
-código; Pact mantiene el estado operativo vivo alrededor de ese contenido:
-quién actúa, qué intenta conseguir, qué recursos afecta, qué ocurrió y qué
-contexto necesita el siguiente participante.
+**Live coordination and shared project context for people and AI agents.**
 
-## Estado
+Pact is an open-source control plane for projects where humans and AI agents
+work on the same codebase. Git remains the source of truth for files and
+history; Pact maintains the live operational state around Git: who is working,
+what they intend to change, which scopes they have reserved, what the repository
+currently looks like, and what context the next participant needs.
 
-El primer vertical técnico ya tiene una base ejecutable:
+> [!IMPORTANT]
+> Pact is currently an early alpha. The implemented vertical slice is useful
+> for controlled development environments, but it is not yet a hardened
+> authorization boundary or a replacement for code review, CI, Git hosting, or
+> an operating-system sandbox.
 
-- Pact Server como monolito modular en Go;
-- PostgreSQL 18 con pgvector como persistencia canónica;
-- migraciones SQL embebidas y verificadas mediante checksum;
-- API HTTP local autenticada;
-- creación idempotente de proyectos;
-- estado, evento y outbox confirmados en una sola transacción;
-- recuperación de eventos por cursor y stream SSE reanudable;
-- backoffice local para consultar proyectos, trabajo activo y eventos;
-- CLI de acceso y bootstrap con `pact login`, `pact init` y `pact connect`;
-- identidades personales, invitaciones de un solo uso, roles y revocación;
-- identidad remota del repositorio para conectar varios checkouts sin duplicar proyectos;
-- registro de nodos y sesiones vivas mediante `pact agent run`;
-- Pact Node y observación Git privada mediante `pact node run`;
-- servidor MCP local para entregar contexto operativo seguro a cualquier agente compatible;
-- intenciones durables, scopes con leases y detección transaccional de solapamientos;
-- worktrees Git aislados creados por PACT para cada trabajo coordinado;
-- tablero en vivo con responsable, objetivo, scopes, rama, estado y actividad;
-- entorno reproducible mediante Docker Compose.
+## Why Pact exists
 
-## Inicio rápido
+Branching solved an important human coordination problem: several developers
+can change one project without continuously overwriting each other's work. AI
+agents increase the amount of concurrent work, but a branch alone does not tell
+them:
 
-Solo se requieren Docker, Docker Compose y Make:
+- who else is active right now;
+- what outcome another agent is pursuing;
+- whether two changes overlap semantically;
+- which decisions and constraints still apply;
+- which machine, actor, and intention produced a change;
+- whether local uncommitted work is already in progress;
+- where an isolated workspace should be created.
+
+Pact adds that live coordination layer without replacing Git.
+
+```text
+Git   = durable content and history
+Pact  = live presence, intent, coordination, context, and evidence
+```
+
+## What works today
+
+The current implementation includes:
+
+- a modular Go server with a versioned HTTP API;
+- PostgreSQL 18 with pgvector as the canonical data store;
+- transactional state changes, durable events, an outbox, and resumable SSE;
+- personal identities, project roles, one-time invitations, and revocation;
+- project discovery based on normalized Git remotes;
+- machine identities, agent sessions, heartbeats, and live presence;
+- privacy-preserving Git observation from Pact Node and wrapped agents;
+- a local MCP server for project context and coordinated work;
+- durable work intentions, hierarchical scopes, leases, and overlap detection;
+- isolated Git worktrees provisioned for coordinated tasks;
+- a live web backoffice for projects, active work, and recent events;
+- native CLI releases for Windows, macOS, and Linux on `amd64` and `arm64`;
+- Docker Compose development and production deployment examples.
+
+The broader knowledge base, document ingestion, hybrid search, infrastructure
+capability broker, policy engine, and semantic conflict analysis remain on the
+roadmap. See [Project status and limitations](#project-status-and-limitations).
+
+## Architecture
+
+```text
+┌──────────────────────────── Local machine ────────────────────────────┐
+│                                                                      │
+│  Codex / Claude / Kimi ── stdio MCP ── pact mcp serve               │
+│             │                               │                        │
+│             └── optional wrapper ── pact agent run                  │
+│                                             │                        │
+│  IDE / terminal / human changes ── pact node run                    │
+│                                             │                        │
+│  Git repository + .pact runtime + isolated worktrees                │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │ HTTPS
+                                ▼
+┌──────────────────────────── Pact Server ─────────────────────────────┐
+│  Identity · projects · sessions · intents · scopes · events · API   │
+│  Embedded live backoffice                                           │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │
+                                ▼
+                    PostgreSQL + pgvector
+```
+
+One Pact Server can host many projects for a team. Each checkout keeps only its
+machine-specific binding locally and connects to the shared server. A developer
+does not need PostgreSQL or Docker on their computer when using a remote Pact
+Server.
+
+## Quick start: run Pact Server locally
+
+### Requirements
+
+- Git;
+- Docker Desktop, or Docker Engine with Docker Compose v2 and Buildx;
+- GNU Make;
+- `curl` for the health checks.
+
+Clone and initialize the environment:
 
 ```sh
+git clone https://github.com/jorgenuanzs/the-pact.git
+cd the-pact
 make init
+```
+
+`make init` creates `.env` from `.env.example`. Set both blank secrets before
+continuing:
+
+```dotenv
+PACT_DB_PASSWORD=<at-least-16-url-safe-characters>
+PACT_LOCAL_API_TOKEN=<at-least-24-random-characters>
+```
+
+For example, `openssl rand -hex 32` generates an appropriate value. Use a
+different value for each setting and never commit `.env`.
+
+Start the server and PostgreSQL:
+
+```sh
 make dev
 ```
 
-Comprueba el servidor:
+Check the service:
 
 ```sh
 curl --fail-with-body http://127.0.0.1:8080/livez
 curl --fail-with-body http://127.0.0.1:8080/readyz
 ```
 
-Abre el backoffice local en:
+Open the backoffice at [http://127.0.0.1:8080/admin/](http://127.0.0.1:8080/admin/)
+and enter `PACT_LOCAL_API_TOKEN`. The UI keeps it only in the browser tab's
+`sessionStorage`; it is not embedded in the page or added to the URL.
 
-```text
-http://127.0.0.1:8080/admin/
-```
+## Install the CLI
 
-La interfaz solicita un token personal o el bootstrap configurado en `.env`.
-Lo conserva únicamente en `sessionStorage` dentro de la pestaña y lo utiliza
-como Bearer para consultar la API; no viene incluido en los archivos del panel
-ni se añade a la URL.
+Every release contains checksummed native binaries for:
 
-El panel recibe eventos duraderos en vivo y consulta el estado operativo del
-proyecto. La actividad aparece como `unobserved` hasta que se ejecuta Pact Node
-o un agente a través del wrapper observador; no significa «nadie está
-modificando código», sino «PACT no lo está observando».
+| Operating system | Architectures |
+|---|---|
+| Windows | `amd64`, `arm64` |
+| macOS | `amd64`, `arm64` |
+| Linux | `amd64`, `arm64` |
 
-El backoffice utiliza las consultas autenticadas `GET /v1/projects`,
-`GET /v1/projects/{project_id}/overview` y el stream SSE de eventos del
-proyecto. Su tablero diferencia presencia, trabajo coordinado y evidencia de
-cambios; es una superficie de observación y no ejecuta comandos sobre Git.
+### macOS and Linux
 
-La guía de [desarrollo local](docs/development.md) contiene el flujo completo
-para crear un proyecto, recuperar eventos, ejecutar pruebas y diagnosticar el
-entorno.
-
-## Conectar un repositorio
-
-Las versiones etiquetadas publican binarios nativos para Windows, macOS y
-Linux, tanto arm64 como amd64.
-
-En Windows 10 u 11, instala Git for Windows. Como este repositorio es privado,
-el flujo recomendado utiliza GitHub CLI para descargar el instalador sin clonar
-el código. El instalador reutiliza la sesión de `gh`, detecta la arquitectura,
-verifica el SHA-256 publicado y agrega Pact al `PATH` del usuario:
-
-```powershell
-winget install --id GitHub.cli --exact
-gh auth login
-
-$installerDir = Join-Path $env:TEMP "pact-installer"
-New-Item -ItemType Directory -Force $installerDir | Out-Null
-gh release download `
-  --repo jorgenuanzs/the-pact `
-  --pattern install-pact.ps1 `
-  --dir $installerDir `
-  --clobber
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File (Join-Path $installerDir "install-pact.ps1")
-```
-
-Como alternativa automatizada, el instalador acepta `-GitHubToken` y lee
-`GH_TOKEN` o `GITHUB_TOKEN`. El token solo requiere acceso de lectura a
-`Contents` y no se guarda en Pact. Si el repositorio se hace público, el script
-puede descargarse directamente desde la URL de la release sin autenticación.
-
-Cada release también genera el manifiesto portable de WinGet para
-`Nuanzs.Pact`. La fuente comunitaria de WinGet exige artefactos públicos; por
-eso el manifiesto podrá enviarse a Microsoft cuando decidamos publicar el
-repositorio o alojar los ZIP en una URL pública estable. Después de su
-aceptación, las versiones podrán instalarse o actualizarse con:
-
-```powershell
-winget install --id Nuanzs.Pact --exact
-winget upgrade --id Nuanzs.Pact --exact
-```
-
-En macOS o Linux, por ejemplo en un Mac con Apple Silicon:
+Download and inspect the installer, then run it:
 
 ```sh
-PACT_VERSION=v0.6.1
-curl -fL -o pact.tar.gz \
-  "https://github.com/jorgenuanzs/the-pact/releases/download/${PACT_VERSION}/pact_darwin_arm64.tar.gz"
-curl -fL -o checksums.txt \
-  "https://github.com/jorgenuanzs/the-pact/releases/download/${PACT_VERSION}/checksums.txt"
-grep 'pact_darwin_arm64.tar.gz' checksums.txt | shasum -a 256 -c -
-tar -xzf pact.tar.gz
-mkdir -p "$HOME/.local/bin"
-install -m 755 pact "$HOME/.local/bin/pact"
+curl -fL https://github.com/jorgenuanzs/the-pact/releases/latest/download/install-pact.sh \
+  -o /tmp/install-pact.sh
+sh /tmp/install-pact.sh
 ```
 
-Para construir el CLI desde el repositorio sin instalar Go en macOS o Linux:
+The default destination is `~/.local/bin/pact`. Override it when needed:
+
+```sh
+PACT_INSTALL_DIR=/usr/local/bin sh /tmp/install-pact.sh
+```
+
+### Windows
+
+Git for Windows is required for project operations. Download and run the native
+PowerShell installer:
+
+```powershell
+$installer = Join-Path $env:TEMP "install-pact.ps1"
+Invoke-WebRequest `
+  "https://github.com/jorgenuanzs/the-pact/releases/latest/download/install-pact.ps1" `
+  -OutFile $installer
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
+Remove-Item $installer
+```
+
+The installer detects `amd64` or `arm64`, verifies the published SHA-256, places
+`pact.exe` in `%LOCALAPPDATA%\Programs\Pact`, and adds that directory to the
+user's `PATH`.
+
+### Build from source
+
+With the Go version declared in `go.mod`:
+
+```sh
+go build -o ./bin/pact ./cmd/pact
+```
+
+Or use Docker without installing Go locally:
 
 ```sh
 make cli
 ```
 
-Inicia sesión una vez por computador. Para el propietario inicial, el bootstrap
-se lee desde la entrada estándar para que no quede en el historial del shell:
+## Connect your first repository
+
+Pact Server and the Pact CLI are separate. The server is shared; the CLI runs
+next to each participant's Git checkout.
+
+### 1. Log in on the first computer
+
+For a self-hosted server, use the bootstrap token from its `.env`. Read it from
+standard input so it does not appear in shell history:
 
 ```sh
-printf '%s' "$PACT_API_TOKEN" | ./bin/pact login \
-  --server https://pact.example.com \
+printf '%s' "$PACT_API_TOKEN" | pact login \
+  --server http://127.0.0.1:8080 \
   --token-stdin
 ```
 
-En PowerShell, el comando equivalente es:
+PowerShell equivalent:
 
 ```powershell
 $env:PACT_API_TOKEN | pact login `
-  --server https://pact.example.com `
+  --server http://127.0.0.1:8080 `
   --token-stdin
 ```
 
-La configuración privada vive en `%APPDATA%\Pact\config.json` en Windows y en
-`~/.config/pact/config.json` en macOS y Linux. No se guarda dentro de ningún
-repositorio. El computador del colaborador solo necesita el CLI y Git; se
-conecta al Pact Server central y no necesita ejecutar PostgreSQL localmente.
+Remote non-loopback servers must use HTTPS.
 
-Después, el propietario inicializa el proyecto desde cualquier ruta de su
-repositorio Git:
+### 2. Initialize the project
+
+Run this anywhere inside the Git repository:
 
 ```sh
-cd repository
+cd your-repository
 pact init
 ```
 
-El comando crea el proyecto remoto, `pact.yaml`, que se versiona con Git, y
-`.pact/config.json`, que es local y está ignorado. No escribe tokens ni
-credenciales de PostgreSQL en el repositorio.
+Pact discovers the Git root and remote, creates or recovers the project on the
+server, and writes two different surfaces:
 
-Un colaborador conecta otro checkout del mismo proyecto así:
+| Path | Purpose | Git visibility |
+|---|---|---|
+| `pact.yaml` | Shared project manifest | Commit it |
+| `.pact/config.json` | Server URL and remote project UUID for this checkout | Ignored |
+| `.pact/node.json` | Private machine identity, created when observation starts | Ignored |
+| `.pact/worktrees/` | Isolated workspaces created for coordinated work | Ignored |
+
+No API token, PostgreSQL credential, or cloud secret is written into the
+repository.
+
+### 3. Verify the identity
 
 ```sh
-git clone https://github.com/example/repository.git
-cd repository
+pact whoami
+pact version
+```
+
+## Add another person or computer
+
+The project owner creates a one-time invitation from a connected checkout:
+
+```sh
+pact invite create \
+  --email collaborator@example.com \
+  --role contributor
+```
+
+Available project roles are `owner`, `maintainer`, `contributor`, and `viewer`.
+Invitations last 24 hours by default and may be configured between one hour and
+seven days with `--expires`.
+
+Send the displayed `pact_inv_...` secret through a private channel. It is shown
+only once.
+
+The collaborator installs Pact, clones the repository, and accepts the
+invitation:
+
+```sh
+git clone https://github.com/example/project.git
+cd project
+
+printf '%s' "$PACT_INVITATION" | pact join \
+  --server https://pact.example.com \
+  --name "Collaborator name" \
+  --invite-stdin
+
 pact connect
 ```
 
-PACT normaliza los remotos Git SSH y HTTPS antes de compararlos. `pact connect`
-solo enlaza proyectos existentes; nunca crea silenciosamente un proyecto nuevo.
-Ejecutar `pact init` en un clon que ya contiene `pact.yaml` también reutiliza el
-proyecto remoto cuando el repositorio coincide.
+`pact connect` requires the `pact.yaml` created by the owner and connects only
+to an existing remote project. It never creates a project silently. SSH and
+HTTPS Git remotes are normalized before comparison, so different clone methods
+still resolve to the same Pact project.
 
-Una vez conectado, cualquier cliente de IA puede anunciar su presencia mientras
-trabaja ejecutándose a través del CLI:
+## Connect AI agents
 
-```sh
-pact agent run --client kimi -- kimi
-pact agent run --client claude -- claude
-pact agent run --client codex -- codex
-```
+### Codex
 
-PACT registra por separado el computador, el actor y su sesión. La sesión
-permanece activa mientras vive el proceso hijo y se cierra al terminarlo; se
-envían heartbeats, pero no se captura la conversación ni la entrada o salida del
-agente. Mientras trabaja, el wrapper también observa el checkout Git. El comando
-después de `--` puede ser cualquier ejecutable local.
-
-Para observar también cambios realizados directamente por una persona, un IDE
-u otra herramienta que no esté envuelta por el CLI, mantiene Pact Node activo:
+From the connected repository:
 
 ```sh
-pact node run
-```
-
-`pact node run --once` realiza una comprobación y termina. El modo continuo
-consulta Git cada dos segundos y mantiene una sesión con heartbeat. PACT envía
-únicamente el estado dirty/clean, rama, revisión, cantidad de rutas y una huella
-SHA-256. Los nombres y contenidos de archivos nunca salen del computador.
-
-## Conectar un agente mediante MCP
-
-Para Codex, PACT configura el MCP del repositorio con un solo comando:
-
-```sh
-cd repository
 pact enable codex
 ```
 
-La configuración queda en `.codex/config.toml`, se limita al checkout actual y
-se excluye localmente mediante `.git/info/exclude`. No ensucia Git ni aparece en
-otros proyectos. Codex CLI, la extensión de VS Code y la aplicación de
-escritorio comparten esta configuración; hay que reiniciarlos después del alta.
-El comando es idempotente, por lo que se puede repetir después de actualizar el
-binario de PACT. El mismo comando funciona de forma nativa en Windows y escribe
-correctamente las rutas absolutas de `pact.exe` en el archivo TOML.
+This writes a machine-local MCP block to `.codex/config.toml` and excludes that
+file through `.git/info/exclude`. It does not dirty the repository or affect
+another checkout. Restart Codex or reload the VS Code window before opening a
+new chat.
 
-Un cliente compatible con Model Context Protocol puede iniciar PACT como un
-servidor local por `stdio`. Para clientes que aún no tienen automatización, la
-configuración equivalente es:
+Codex CLI, the Codex VS Code extension, and the desktop application can use the
+same project-scoped configuration.
+
+### Any MCP-compatible client
+
+Start Pact as a local `stdio` MCP server:
 
 ```json
 {
   "mcpServers": {
     "pact": {
-      "command": "/ruta/absoluta/a/pact",
+      "command": "/absolute/path/to/pact",
       "args": [
         "mcp", "serve",
-        "--client", "nombre-del-cliente",
-        "--path", "/ruta/absoluta/al/repositorio"
+        "--client", "your-client",
+        "--name", "Your agent",
+        "--path", "/absolute/path/to/repository"
       ]
     }
   }
 }
 ```
 
-El cliente inicia y detiene el proceso: la persona no necesita ejecutar comandos
-de PACT durante la conversación. La máquina sí debe haber completado una vez
-`pact login` y el checkout debe estar conectado mediante `pact init` o
-`pact connect`.
+The MCP client owns the process lifecycle. The computer must already be logged
+in, and the checkout must have completed `pact init` or `pact connect`.
 
-El servidor registra una sesión viva del agente y ofrece siete herramientas:
+### Wrap a command-line agent
 
-- `pact.project_context`: proyecto, identidad, sesión, estado Git resumido,
-  trabajo activo, actividad y eventos recientes;
-- `pact.list_projects`: proyectos visibles para la identidad autenticada;
-- `pact.refresh_git_observation`: actualiza explícitamente la observación Git;
-- `pact.check_scopes`: comprueba reservas jerárquicas antes de escribir;
-- `pact.start_work`: crea intención, leases y un worktree Git aislado;
-- `pact.list_work`: consulta responsables, estados, scopes y workspaces;
-- `pact.update_work`: bloquea, reanuda, envía o termina el trabajo con resumen.
-
-El flujo recomendado para un agente es `project_context → check_scopes →
-start_work`. Las modificaciones se hacen únicamente dentro de
-`workspace_path`, la ruta privada devuelta al agente asignado. Un scope es
-exclusivo por defecto; dos reservas solapadas se rechazan salvo que el cliente
-declare una anulación explícita con `allow_overlap`.
-
-El token se lee desde la configuración privada del usuario y nunca forma parte
-del protocolo MCP. Tampoco se exponen rutas del computador, nombres o contenidos
-de archivos, ni la URL remota del repositorio. Los campos sensibles encontrados
-en eventos se sustituyen por `[REDACTED]`.
-
-## Invitar a otra persona
-
-El owner crea una invitación desde un checkout conectado:
+Agents without MCP integration can still publish presence and Git observations
+by running through Pact:
 
 ```sh
-pact invite create \
-  --email persona@example.com \
-  --role contributor
-```
-
-PACT muestra una sola vez un secreto `pact_inv_...`. Debe enviarse por un canal
-privado y nunca añadirse a Git, una URL o un chat público. En el otro computador:
-
-```sh
-printf '%s' "$PACT_INVITATION" | pact join \
-  --server https://pact.example.com \
-  --name "Nombre de la persona" \
-  --invite-stdin
-
-git clone git@github.com:example/repository.git
-cd repository
-pact connect
+pact agent run --client claude -- claude
 pact agent run --client kimi -- kimi
+pact agent run --client codex -- codex
 ```
 
-`pact join` consume la invitación y guarda un token personal. `pact whoami`
-muestra la identidad actual y `pact logout --revoke` retira inmediatamente ese
-token del servidor antes de borrarlo del computador.
+Pact opens an attributed session, maintains its heartbeat, observes the Git
+checkout, and closes the session when the child process exits. It does not
+capture prompts, conversations, stdin, or stdout.
 
-La credencial bootstrap queda reservada para recuperación y para establecer al
-primer owner mediante una invitación `--role owner`; no debe compartirse con
-colaboradores.
+### Observe human and IDE changes
 
-## Arquitectura del primer corte
+Run Pact Node in a separate terminal:
+
+```sh
+pact node run
+```
+
+Or capture one observation and exit:
+
+```sh
+pact node run --once
+```
+
+Pact sends only dirty/clean state, branch, HEAD revision, changed-path count,
+and a SHA-256 fingerprint. File names and contents are not sent to Pact Server.
+
+## Coordinated work through MCP
+
+The local MCP adapter currently exposes seven tools:
+
+| Tool | Purpose |
+|---|---|
+| `pact.project_context` | Return project identity, live work, recent events, and summarized Git state |
+| `pact.list_projects` | List projects visible to the current identity |
+| `pact.refresh_git_observation` | Refresh the current checkout observation |
+| `pact.check_scopes` | Detect conflicting hierarchical reservations before work begins |
+| `pact.start_work` | Create an intent, acquire scopes, and provision an isolated worktree |
+| `pact.list_work` | List active and historical coordinated work |
+| `pact.update_work` | Block, resume, submit, cancel, abandon, or complete work |
+
+The recommended agent flow is:
 
 ```text
-Agente o herramienta local
-            │
-            ▼
-  PACT MCP ── contexto y herramientas para el agente
-            │
-  Pact CLI ── sesión, heartbeat y observación del agente
-            │
-  Pact Node ── observación Git del checkout y worktrees
-            │ HTTPS / JSON / SSE
-            ▼
-        Pact Server
-            │ red privada
-            ▼
-     PostgreSQL + pgvector
+project_context → check_scopes → start_work → edit workspace_path → update_work
 ```
 
-Pact Server no monta el repositorio del usuario ni el socket de Docker. La base
-de datos permanece en una red privada y la API se publica únicamente en
-loopback durante el desarrollo local.
+`pact.start_work` returns a private `workspace_path` created under
+`.pact/worktrees/`. Agents should edit only that workspace during coordinated
+work. Exclusive overlapping scopes are rejected unless a caller explicitly
+requests an override.
 
-## Documentación
+Git still owns commits and branches. Pact adds intent, responsibility, leases,
+and conflict signals around them.
 
-- [Documento maestro](PACT_MASTER_PLAN.md)
-- [ADR-0001: primer recorrido de producto](docs/adr/0001-first-product-slice.md)
-- [ADR-0002: fundación de plataforma](docs/adr/0002-platform-foundation.md)
-- [ADR-0003: actividad de código observada](docs/adr/0003-observed-code-activity.md)
-- [ADR-0004: bootstrap local y vínculo con el servidor](docs/adr/0004-local-project-bootstrap.md)
-- [ADR-0005: incorporación y conexión entre máquinas](docs/adr/0005-cli-onboarding-and-machine-connection.md)
-- [ADR-0006: acceso personal, invitaciones y roles](docs/adr/0006-personal-access-and-project-roles.md)
-- [ADR-0007: Pact Node y observación Git privada](docs/adr/0007-pact-node-git-observation.md)
-- [ADR-0008: adaptador MCP local](docs/adr/0008-local-mcp-adapter.md)
-- [ADR-0009: trabajo coordinado, scopes y worktrees](docs/adr/0009-coordinated-work-scopes-and-worktrees.md)
-- [Especificación del bucle central v0.1](docs/spec/core-loop-v0.1.md)
-- [Contrato OpenAPI](api/openapi.yaml)
-- [Desarrollo local](docs/development.md)
+## Live backoffice
 
-## Primer objetivo de producto
+The embedded backoffice is available at `/admin/` on Pact Server. It shows:
 
-Demostrar que dos agentes pueden trabajar sobre el mismo repositorio, compartir
-estado útil y coordinar cambios sin tener que intercambiar sus conversaciones.
+- all projects visible to the authenticated identity;
+- currently active humans and agents;
+- intended work, reserved scopes, branches, and workspace status;
+- observed dirty/clean activity;
+- durable recent events in real time through SSE.
+
+The dashboard distinguishes presence, coordinated intent, and evidence of code
+changes. `unobserved` means no recent observer has reported the checkout; it
+does not prove that nobody is changing code.
+
+The backoffice is read-only with respect to Git. It does not run commands,
+merge branches, or mutate repositories.
+
+## Security and privacy model
+
+Pact is designed around several boundaries:
+
+- tokens are accepted through stdin or environment variables, never URL query
+  parameters;
+- PostgreSQL stores digests of invitations and personal access tokens;
+- user credentials live outside repositories in `~/.config/pact/config.json`
+  on macOS/Linux and `%APPDATA%\Pact\config.json` on Windows;
+- `.pact/` contains machine-local state and is ignored by Git;
+- agent conversations and command output are not captured;
+- Git observations do not upload file names, diffs, or source contents;
+- non-loopback server URLs require HTTPS;
+- generated containers drop Linux capabilities and use read-only filesystems
+  where practical;
+- database, server, and backup volumes are never removed by routine cleanup
+  commands.
+
+Current limitations matter:
+
+- Pact does not sandbox an AI agent. The operating system and the agent client
+  still determine what local files and commands it can access;
+- observer mode does not prevent someone from bypassing Pact and changing Git
+  directly;
+- local tokens are permission-protected files, not yet OS keychain entries;
+- the bootstrap token is powerful and should be replaced by personal
+  invitations for routine collaboration;
+- production deployment requires HTTPS, backups, monitoring, and appropriate
+  secret management.
+
+Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+## CLI reference
+
+| Command | Description |
+|---|---|
+| `pact login --server URL --token-stdin` | Authenticate this computer with a bootstrap or personal token |
+| `pact init [PATH]` | Create or recover a project and connect the owner checkout |
+| `pact connect [PATH]` | Connect another checkout to an existing Pact project |
+| `pact enable codex` | Install the project-scoped Codex MCP configuration |
+| `pact invite create --email EMAIL` | Create a one-time project invitation |
+| `pact join --server URL --name NAME --invite-stdin` | Accept an invitation and store the new personal token |
+| `pact whoami` | Show the current identity and server |
+| `pact logout --revoke` | Revoke the current token and delete it locally |
+| `pact agent run --client TYPE -- COMMAND` | Run and observe an agent process |
+| `pact node run` | Continuously observe human, IDE, and external Git changes |
+| `pact mcp serve --client TYPE` | Start the local MCP adapter over stdio |
+| `pact version` | Print version, commit, and build metadata as JSON |
+
+Run `pact help` or append `-h` to a subcommand for flags.
+
+## Server configuration
+
+The local Compose environment is documented in `.env.example`. Important
+settings include:
+
+| Variable | Purpose |
+|---|---|
+| `PACT_DB_PASSWORD` | PostgreSQL password; use a URL-safe random value |
+| `PACT_LOCAL_API_TOKEN` | Initial bootstrap credential |
+| `PACT_LOCAL_ORGANIZATION_ID` | UUID of the initial organization |
+| `PACT_HTTP_PORT` | Loopback port exposed by Docker Compose |
+| `PACT_DATABASE_TIMEOUT` | Database connection timeout |
+| `PACT_DATABASE_STATEMENT_TIMEOUT` | PostgreSQL statement timeout |
+| `PACT_DATABASE_LOCK_TIMEOUT` | PostgreSQL lock timeout |
+| `PACT_SHUTDOWN_TIMEOUT` | Graceful server shutdown timeout |
+| `PACT_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+
+The API contract is available in [api/openapi.yaml](api/openapi.yaml).
+
+## Development
+
+Common commands:
+
+| Command | Purpose |
+|---|---|
+| `make doctor` | Validate Docker and local configuration |
+| `make dev` | Build and start the development stack |
+| `make ps` | Show Pact containers |
+| `make logs` | Follow server and database logs |
+| `make test` | Run unit tests in the reproducible Docker build |
+| `make test-race` | Run the Go race detector |
+| `make test-integration` | Run PostgreSQL integration tests |
+| `make build` | Build the hardened server image |
+| `make verify` | Validate Compose, test, build, and clean stale artifacts |
+| `make docker-audit` | Show only Pact-related containers, images, volumes, and cache |
+| `make docker-clean-stale` | Remove stale Pact build artifacts while preserving volumes |
+| `make down` | Stop the local stack without deleting PostgreSQL data |
+
+Native Go checks:
+
+```sh
+go vet ./...
+go test ./...
+go test -race ./...
+```
+
+CI runs the complete suite on Windows, macOS, and Linux and cross-compiles both
+Windows architectures. A release is smoke-tested by installing its published
+artifact on clean runners before the workflow succeeds.
+
+For a detailed setup and API walkthrough, see
+[docs/development.md](docs/development.md). Architecture decisions live under
+[docs/adr](docs/adr).
+
+## Project layout
+
+```text
+cmd/pact/                 CLI, agent wrapper, Pact Node, and MCP adapter
+cmd/pact-server/          server entry point and migrations command
+internal/                 domain modules and infrastructure adapters
+internal/transport/       HTTP API and embedded backoffice
+api/openapi.yaml          versioned HTTP contract
+docs/adr/                 accepted architecture decisions
+docs/spec/                protocol and core-loop specifications
+infra/                    infrastructure examples
+deploy/                   production deployment examples
+scripts/                  cross-platform installers and packaging helpers
+PACT_MASTER_PLAN.md       complete long-term product and architecture vision
+```
+
+## Project status and limitations
+
+Pact is intentionally building the deterministic coordination core before
+adding a large AI knowledge layer.
+
+Implemented now:
+
+- project and repository identity;
+- access, invitations, roles, and revocation;
+- live sessions and Git observation;
+- MCP project context;
+- coordinated intentions, scopes, leases, and worktrees;
+- backoffice and durable event stream;
+- reproducible self-hosting and native clients.
+
+Not implemented yet:
+
+- OIDC, SSO, SCIM, and operating-system keychain integration;
+- automatic Git merge governance or a mandatory write gateway;
+- document ingestion, transcripts, decisions, and knowledge provenance;
+- vector and hybrid search exposed as product capabilities;
+- code graph and semantic conflict analysis;
+- infrastructure inventory and delegated execution capabilities;
+- cloud secret-manager mediation;
+- policy-as-code approvals and protected environment runners;
+- high-availability deployment and off-host backup replication;
+- public hosted account registration.
+
+The long-term design is documented in
+[PACT_MASTER_PLAN.md](PACT_MASTER_PLAN.md). That document describes the target
+system, not a claim that every component already exists.
+
+## Contributing
+
+Issues, design discussions, and pull requests are welcome. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md), preserve Git as the authority for files, and
+keep security-sensitive behavior deterministic and auditable.
+
+## License
+
+Pact is licensed under the [Apache License 2.0](LICENSE).

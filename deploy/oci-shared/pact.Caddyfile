@@ -1,4 +1,4 @@
-# This block is added to the shared Caddy gateway on nuanzs-infra.
+# This block is added to the shared production Caddy gateway.
 (pact_app) {
 	encode zstd gzip
 	reverse_proxy pact-server:8080

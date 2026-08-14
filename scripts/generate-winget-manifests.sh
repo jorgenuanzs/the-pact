@@ -66,7 +66,8 @@ Publisher: Nuanzs
 PublisherUrl: https://github.com/jorgenuanzs
 PackageName: Pact
 PackageUrl: https://github.com/jorgenuanzs/the-pact
-License: Proprietary
+License: Apache-2.0
+LicenseUrl: https://github.com/jorgenuanzs/the-pact/blob/v$version/LICENSE
 ShortDescription: Live coordination and shared project context for people and AI agents.
 Description: Pact coordinates people and AI agents around Git repositories through durable work intents, live presence, isolated worktrees, and shared operational context.
 Tags:
