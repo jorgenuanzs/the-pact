@@ -82,3 +82,12 @@ func TestLoadRejectsOverlyFrequentGitHubPolling(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
+
+func TestLoadRejectsPartialGitHubAppConfiguration(t *testing.T) {
+	t.Setenv("PACT_DATABASE_URL", "postgres://example")
+	t.Setenv("PACT_GITHUB_APP_ID", "123")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "GitHub App configuration is incomplete") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}

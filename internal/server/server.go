@@ -16,10 +16,12 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/config"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
+	"github.com/jorgenuanzs/the-pact/internal/githubapp"
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
+	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi"
@@ -68,9 +70,37 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	projectRepository := projects.NewPostgresRepository(pool)
 	projectService := projects.NewService(cfg.LocalOrganization, projectRepository)
+	projectRepositoryStore := projectrepo.NewPostgresRepository(pool)
+	projectRepositoryService := projectrepo.NewService(cfg.LocalOrganization, projectRepositoryStore)
+	githubAppRepository := githubapp.NewPostgresRepository(pool)
+	var githubAppClient *githubapp.Client
+	if cfg.GitHubAppConfigured() {
+		githubAppClient, err = githubapp.NewClient(githubapp.ClientConfig{
+			AppID: cfg.GitHubAppID, ClientID: cfg.GitHubAppClientID,
+			ClientSecret: cfg.GitHubAppSecret, PrivateKeyBase64: cfg.GitHubAppPrivateKey,
+			APIURL: cfg.GitHubAPIURL, WebURL: cfg.GitHubWebURL,
+			RedirectURL: cfg.PublicURL + "/v1/integrations/github/callback",
+			Timeout:     cfg.GitHubTimeout, UserAgent: "the-pact/" + buildinfo.Current().Version,
+		})
+		if err != nil {
+			return fmt.Errorf("configure GitHub App client: %w", err)
+		}
+	}
+	githubAppService := githubapp.NewService(githubapp.ServiceConfig{
+		OrganizationID: cfg.LocalOrganization, AppSlug: cfg.GitHubAppSlug,
+		WebURL: cfg.GitHubWebURL, WebhookSecret: cfg.GitHubWebhookSecret,
+		ClientID:    cfg.GitHubAppClientID,
+		RedirectURL: cfg.PublicURL + "/v1/integrations/github/callback",
+		OAuthSecret: cfg.GitHubAppSecret,
+		Configured:  cfg.GitHubAppConfigured(),
+	}, githubAppRepository, githubAppClient)
+	var tokenSource repositorysync.TokenSource
+	if cfg.GitHubAppConfigured() {
+		tokenSource = githubAppTokenSource{service: githubAppService}
+	}
 	githubProvider, err := repositorysync.NewGitHubClient(repositorysync.GitHubOptions{
 		APIURL: cfg.GitHubAPIURL, Token: cfg.GitHubToken, Timeout: cfg.GitHubTimeout,
-		UserAgent: "the-pact/" + buildinfo.Current().Version,
+		UserAgent: "the-pact/" + buildinfo.Current().Version, TokenSource: tokenSource,
 	})
 	if err != nil {
 		return fmt.Errorf("configure GitHub repository provider: %w", err)
@@ -78,6 +108,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	repositorySyncRepository := repositorysync.NewPostgresRepository(pool)
 	repositorySyncService := repositorysync.NewService(
 		cfg.LocalOrganization, projectService, repositorySyncRepository, githubProvider,
+		projectRepositoryService,
 	)
 	workspaceRepository := workspaces.NewPostgresRepository(pool)
 	workspaceService := workspaces.NewService(cfg.LocalOrganization, workspaceRepository)
@@ -90,7 +121,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	contextPackRepository := contextpack.NewPostgresRepository(pool)
 	contextPackService := contextpack.NewService(
 		cfg.LocalOrganization, contextPackRepository, projectService,
-		workspaceService, coordinationService, knowledgeService,
+		workspaceService, coordinationService, knowledgeService, projectRepositoryService,
 	)
 	eventReader := eventlog.NewPostgresReader(pool)
 	backofficeReader := backoffice.NewPostgresReader(pool)
@@ -106,22 +137,24 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	handler := httpapi.New(httpapi.Config{
-		Logger:                logger,
-		OrganizationID:        cfg.LocalOrganization,
-		Build:                 buildinfo.Current(),
-		Readiness:             pool.Ping,
-		ProjectService:        projectService,
-		RepositorySyncService: repositorySyncService,
-		WorkspaceService:      workspaceService,
-		KnowledgeService:      knowledgeService,
-		AgentSessionService:   agentSessionService,
-		CoordinationService:   coordinationService,
-		HandoffService:        coordinationService,
-		ContextPackService:    contextPackService,
-		AccessService:         accessService,
-		BackofficeReader:      backofficeReader,
-		EventReader:           eventReader,
-		StreamShutdown:        streamContext.Done(),
+		Logger:                   logger,
+		OrganizationID:           cfg.LocalOrganization,
+		Build:                    buildinfo.Current(),
+		Readiness:                pool.Ping,
+		ProjectService:           projectService,
+		RepositorySyncService:    repositorySyncService,
+		ProjectRepositoryService: projectRepositoryService,
+		GitHubAppService:         githubAppService,
+		WorkspaceService:         workspaceService,
+		KnowledgeService:         knowledgeService,
+		AgentSessionService:      agentSessionService,
+		CoordinationService:      coordinationService,
+		HandoffService:           coordinationService,
+		ContextPackService:       contextPackService,
+		AccessService:            accessService,
+		BackofficeReader:         backofficeReader,
+		EventReader:              eventReader,
+		StreamShutdown:           streamContext.Done(),
 	})
 
 	httpServer := &http.Server{
@@ -178,4 +211,14 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+type githubAppTokenSource struct{ service *githubapp.Service }
+
+func (s githubAppTokenSource) Token(ctx context.Context, reference repositorysync.Reference) (string, error) {
+	token, err := s.service.TokenForRepository(ctx, reference.FullName)
+	if errors.Is(err, githubapp.ErrNotFound) || errors.Is(err, githubapp.ErrNotConfigured) {
+		return "", nil
+	}
+	return token, err
 }

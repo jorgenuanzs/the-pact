@@ -25,21 +25,27 @@ type Provider interface {
 	Fetch(context.Context, Reference) (Snapshot, error)
 }
 
+type TokenSource interface {
+	Token(context.Context, Reference) (string, error)
+}
+
 type GitHubClient struct {
-	baseURL    *url.URL
-	token      string
-	apiVersion string
-	httpClient *http.Client
-	userAgent  string
+	baseURL     *url.URL
+	token       string
+	tokenSource TokenSource
+	apiVersion  string
+	httpClient  *http.Client
+	userAgent   string
 }
 
 type GitHubOptions struct {
-	APIURL     string
-	Token      string
-	APIVersion string
-	Timeout    time.Duration
-	UserAgent  string
-	HTTPClient *http.Client
+	APIURL      string
+	Token       string
+	APIVersion  string
+	Timeout     time.Duration
+	UserAgent   string
+	HTTPClient  *http.Client
+	TokenSource TokenSource
 }
 
 func NewGitHubClient(options GitHubOptions) (*GitHubClient, error) {
@@ -85,7 +91,7 @@ func NewGitHubClient(options GitHubOptions) (*GitHubClient, error) {
 		userAgent = "the-pact"
 	}
 	return &GitHubClient{
-		baseURL: parsed, token: strings.TrimSpace(options.Token), apiVersion: apiVersion,
+		baseURL: parsed, token: strings.TrimSpace(options.Token), tokenSource: options.TokenSource, apiVersion: apiVersion,
 		httpClient: client, userAgent: userAgent,
 	}, nil
 }
@@ -132,6 +138,15 @@ func splitGitHubPath(raw string) (string, string) {
 }
 
 func (c *GitHubClient) Fetch(ctx context.Context, reference Reference) (Snapshot, error) {
+	token := c.token
+	if c.tokenSource != nil {
+		dynamicToken, err := c.tokenSource.Token(ctx, reference)
+		if err == nil && strings.TrimSpace(dynamicToken) != "" {
+			token = strings.TrimSpace(dynamicToken)
+		} else if token == "" {
+			return Snapshot{}, &ProviderError{Code: "credentials_unavailable", Err: err}
+		}
+	}
 	var repository struct {
 		FullName      string     `json:"full_name"`
 		DefaultBranch string     `json:"default_branch"`
@@ -140,7 +155,7 @@ func (c *GitHubClient) Fetch(ctx context.Context, reference Reference) (Snapshot
 		UpdatedAt     *time.Time `json:"updated_at"`
 	}
 	path := "/repos/" + url.PathEscape(reference.Owner) + "/" + url.PathEscape(reference.Name)
-	if err := c.get(ctx, path, &repository); err != nil {
+	if err := c.get(ctx, path, token, &repository); err != nil {
 		return Snapshot{}, err
 	}
 	if strings.TrimSpace(repository.DefaultBranch) == "" {
@@ -156,7 +171,7 @@ func (c *GitHubClient) Fetch(ctx context.Context, reference Reference) (Snapshot
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	if err := c.get(ctx, path+"/git/ref/heads/"+escapePath(repository.DefaultBranch), &referenceState); err != nil {
+	if err := c.get(ctx, path+"/git/ref/heads/"+escapePath(repository.DefaultBranch), token, &referenceState); err != nil {
 		return Snapshot{}, err
 	}
 	referenceState.Object.SHA = strings.ToLower(strings.TrimSpace(referenceState.Object.SHA))
@@ -193,7 +208,7 @@ func escapePath(value string) string {
 	return strings.Join(parts, "/")
 }
 
-func (c *GitHubClient) get(ctx context.Context, path string, output any) error {
+func (c *GitHubClient) get(ctx context.Context, path, token string, output any) error {
 	requestURL := strings.TrimRight(c.baseURL.String(), "/") + path
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -202,8 +217,8 @@ func (c *GitHubClient) get(ctx context.Context, path string, output any) error {
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("X-GitHub-Api-Version", c.apiVersion)
 	request.Header.Set("User-Agent", c.userAgent)
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	response, err := c.httpClient.Do(request)

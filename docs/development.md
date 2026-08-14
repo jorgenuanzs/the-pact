@@ -322,7 +322,7 @@ los roles se siguen validando en Pact Server. Consulta
 [ADR-0008](adr/0008-local-mcp-adapter.md) para conocer el contrato y su frontera
 de privacidad.
 
-## Sincronizar el repositorio canónico
+## Sincronizar los repositorios del proyecto
 
 Desde un checkout conectado, PACT puede contrastar su revisión compartida con
 la rama por defecto real de GitHub:
@@ -330,20 +330,29 @@ la rama por defecto real de GitHub:
 ```sh
 pact repository status
 pact repository sync
+pact repository list
+pact repository status --repository REPOSITORY_UUID
+pact repository sync --repository REPOSITORY_UUID
 ```
 
-La segunda operación requiere rol `maintainer`. Los repositorios públicos no
-requieren credencial de proveedor. Para un repositorio privado, configura
-`PACT_GITHUB_TOKEN` solo en el entorno de Pact Server; nunca en `pact.yaml`,
-`.pact/` ni en la configuración MCP del proyecto. El polling automático es
-opcional y se activa con un intervalo mínimo de un minuto:
+Las operaciones de sincronización requieren rol `maintainer`. El repositorio
+principal mantiene la proyección histórica `project.canonical_revision`; los
+repositorios adicionales conservan una revisión verificada independiente.
+
+En producción, configura la GitHub App descrita en el README y selecciona los
+repositorios desde Pact Control. `PACT_GITHUB_TOKEN` queda como alternativa de
+desarrollo o GHES y nunca debe aparecer en `pact.yaml`, `.pact/` ni en la
+configuración MCP del proyecto. El polling automático es opcional y se activa
+con un intervalo mínimo de un minuto:
 
 ```sh
 PACT_GITHUB_SYNC_INTERVAL=5m
 ```
 
-Consulta [ADR-0014](adr/0014-github-canonical-repository-sync.md) para conocer
-el modelo persistido, los eventos y la evolución prevista hacia GitHub Apps.
+Consulta [ADR-0014](adr/0014-github-canonical-repository-sync.md) y
+[ADR-0015](adr/0015-github-app-and-multi-repository-projects.md) para conocer
+el modelo persistido, la verificación de instalaciones y el conjunto de
+revisiones por proyecto.
 
 ## Crear un proyecto
 

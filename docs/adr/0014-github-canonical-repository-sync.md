@@ -4,6 +4,9 @@
 
 **Fecha:** 14 de agosto de 2026
 
+**Extensión:** ADR-0015 implementa la GitHub App, los webhooks y los proyectos
+multirrepositorio previstos por esta decisión.
+
 ## Contexto
 
 PACT recibía observaciones privadas desde cada checkout, pero

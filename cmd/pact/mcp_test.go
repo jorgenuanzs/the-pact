@@ -124,6 +124,10 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 				"work_items":   overview.WorkItems,
 				"generated_at": overview.GeneratedAt,
 			}})
+		case "/v1/projects/" + projectID + "/repositories":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"repositories": []any{}, "sync_states": []any{},
+			}})
 		case "/v1/agent-sessions/" + sessionID + "/repository-observations":
 			var input agentsession.ObservationInput
 			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
@@ -196,6 +200,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 		"pact.propose_record", "pact.review_record", "pact.check_scopes", "pact.start_work",
 		"pact.list_work", "pact.update_work", "pact.list_handoffs", "pact.offer_handoff",
 		"pact.update_handoff", "pact.compile_context_pack", "pact.get_context_pack",
+		"pact.list_repositories", "pact.get_repository_sync", "pact.sync_repository",
 	} {
 		if !toolNames[expected] {
 			t.Errorf("MCP tool %q was not registered", expected)

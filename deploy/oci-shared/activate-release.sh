@@ -140,8 +140,16 @@ PACT_LOCAL_API_TOKEN=${api_token}
 PACT_LOCAL_ORGANIZATION_ID=00000000-0000-4000-8000-000000000001
 PACT_LOG_LEVEL=info
 PACT_BACKUP_RETENTION_DAYS=30
+PACT_PUBLIC_URL=https://pact.nuanzs.com
 PACT_GITHUB_API_URL=https://api.github.com
+PACT_GITHUB_WEB_URL=https://github.com
 PACT_GITHUB_TOKEN=
+PACT_GITHUB_APP_ID=
+PACT_GITHUB_APP_SLUG=
+PACT_GITHUB_APP_CLIENT_ID=
+PACT_GITHUB_APP_CLIENT_SECRET=
+PACT_GITHUB_APP_PRIVATE_KEY_BASE64=
+PACT_GITHUB_APP_WEBHOOK_SECRET=
 PACT_GITHUB_TIMEOUT=10s
 PACT_GITHUB_SYNC_INTERVAL=0s
 EOF
@@ -159,7 +167,15 @@ ensure_runtime_default() {
 # Existing installations keep their secrets while gaining safe defaults for
 # configuration introduced by newer Pact releases.
 ensure_runtime_default PACT_GITHUB_API_URL https://api.github.com
+ensure_runtime_default PACT_PUBLIC_URL https://pact.nuanzs.com
+ensure_runtime_default PACT_GITHUB_WEB_URL https://github.com
 ensure_runtime_default PACT_GITHUB_TOKEN ""
+ensure_runtime_default PACT_GITHUB_APP_ID ""
+ensure_runtime_default PACT_GITHUB_APP_SLUG ""
+ensure_runtime_default PACT_GITHUB_APP_CLIENT_ID ""
+ensure_runtime_default PACT_GITHUB_APP_CLIENT_SECRET ""
+ensure_runtime_default PACT_GITHUB_APP_PRIVATE_KEY_BASE64 ""
+ensure_runtime_default PACT_GITHUB_APP_WEBHOOK_SECRET ""
 ensure_runtime_default PACT_GITHUB_TIMEOUT 10s
 ensure_runtime_default PACT_GITHUB_SYNC_INTERVAL 0s
 chmod 600 "${secrets_file}"
@@ -240,6 +256,7 @@ docker run \
     ./internal/workspaces \
     ./internal/knowledge \
     ./internal/contextpack \
+    ./internal/projectrepo \
     ./internal/repositorysync
 cleanup_integration
 integration_database_container=""

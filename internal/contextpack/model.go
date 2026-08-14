@@ -8,12 +8,26 @@ import (
 )
 
 type ProjectSnapshot struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	Slug              string  `json:"slug"`
-	Status            string  `json:"status"`
-	CanonicalRevision *string `json:"canonical_revision,omitempty"`
-	Version           int64   `json:"version"`
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	Slug              string               `json:"slug"`
+	Status            string               `json:"status"`
+	CanonicalRevision *string              `json:"canonical_revision,omitempty"`
+	Version           int64                `json:"version"`
+	Repositories      []RepositorySnapshot `json:"repositories"`
+}
+
+type RepositorySnapshot struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	FullName          string     `json:"full_name,omitempty"`
+	Purpose           string     `json:"purpose"`
+	Primary           bool       `json:"primary"`
+	Required          bool       `json:"required"`
+	DefaultBranch     string     `json:"default_branch"`
+	CanonicalRevision *string    `json:"canonical_revision,omitempty"`
+	SyncStatus        string     `json:"sync_status"`
+	LastSuccessAt     *time.Time `json:"last_success_at,omitempty"`
 }
 
 type WorkspaceSnapshot struct {

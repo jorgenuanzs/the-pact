@@ -18,6 +18,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
+	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
@@ -117,6 +118,60 @@ func (c *Client) SyncRepository(
 	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
 		Headers: map[string]string{"Idempotency-Key": idempotencyKey},
 		Body:    map[string]any{},
+	}, &response); err != nil {
+		return repositorysync.Result{}, err
+	}
+	return response.Data, nil
+}
+
+type ProjectRepositories struct {
+	Repositories []projectrepo.Repository `json:"repositories"`
+	SyncStates   []repositorysync.State   `json:"sync_states"`
+}
+
+func (c *Client) ListProjectRepositories(
+	ctx context.Context, projectID string,
+) (ProjectRepositories, error) {
+	var response struct {
+		Data ProjectRepositories `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/repositories"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return ProjectRepositories{}, err
+	}
+	if response.Data.Repositories == nil {
+		response.Data.Repositories = make([]projectrepo.Repository, 0)
+	}
+	if response.Data.SyncStates == nil {
+		response.Data.SyncStates = make([]repositorysync.State, 0)
+	}
+	return response.Data, nil
+}
+
+func (c *Client) GetProjectRepositorySync(
+	ctx context.Context, projectID, repositoryID string,
+) (repositorysync.State, error) {
+	var response struct {
+		Data repositorysync.State `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/repositories/" +
+		url.PathEscape(repositoryID) + "/sync"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return repositorysync.State{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) SyncProjectRepository(
+	ctx context.Context, projectID, repositoryID, idempotencyKey string,
+) (repositorysync.Result, error) {
+	var response struct {
+		Data repositorysync.Result `json:"data"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/repositories/" +
+		url.PathEscape(repositoryID) + "/sync"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: map[string]any{},
 	}, &response); err != nil {
 		return repositorysync.Result{}, err
 	}

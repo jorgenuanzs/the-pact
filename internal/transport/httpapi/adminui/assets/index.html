@@ -136,6 +136,22 @@
           <div id="project-list-status" class="rail-status" role="status"></div>
           <nav id="project-list" class="project-list" aria-label="Proyectos"></nav>
 
+          <section class="github-connection-card" aria-labelledby="github-connection-title">
+            <div class="github-connection-heading">
+              <div>
+                <p class="section-kicker">INTEGRACIÓN</p>
+                <h3 id="github-connection-title">GitHub</h3>
+              </div>
+              <span id="github-connection-status" class="sync-status-chip">Consultando</span>
+            </div>
+            <p id="github-connection-description">
+              Comprueba la conexión organizacional con GitHub.
+            </p>
+            <button id="connect-github" class="secondary-button" type="button">
+              Conectar GitHub
+            </button>
+          </section>
+
           <div class="rail-footer">
             <p>
               <span class="rail-footer-mark" aria-hidden="true"></span>
@@ -250,6 +266,43 @@
               <button id="sync-repository" class="secondary-button" type="button">
                 Verificar con GitHub
               </button>
+            </section>
+
+            <section class="panel project-repositories-panel" aria-labelledby="project-repositories-title">
+              <div class="panel-heading repository-panel-heading">
+                <div>
+                  <p class="section-kicker">ARQUITECTURA MULTIRREPOSITORIO</p>
+                  <h2 id="project-repositories-title">Repositorios del proyecto</h2>
+                  <p>La revisión del repositorio principal representa al proyecto; cada repositorio adicional conserva su propio estado.</p>
+                </div>
+                <span id="project-repository-count" class="count-chip">0</span>
+              </div>
+
+              <form id="attach-repository-form" class="repository-attach-form">
+                <label>
+                  <span>Repositorio autorizado</span>
+                  <select id="available-repository" required>
+                    <option value="">Selecciona un repositorio</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Propósito</span>
+                  <input id="repository-purpose" type="text" value="application" maxlength="64" pattern="[a-z][a-z0-9_-]*" required />
+                </label>
+                <label class="repository-option">
+                  <input id="repository-required" type="checkbox" checked />
+                  <span>Necesario para el proyecto</span>
+                </label>
+                <label class="repository-option">
+                  <input id="repository-primary" type="checkbox" />
+                  <span>Convertir en principal</span>
+                </label>
+                <button id="attach-repository" class="primary-button" type="submit">Añadir repositorio</button>
+              </form>
+              <p id="repository-attach-hint" class="field-hint">
+                Conecta GitHub para elegir entre los repositorios autorizados para esta organización.
+              </p>
+              <div id="project-repository-list" class="project-repository-list"></div>
             </section>
 
             <section class="metric-grid" aria-label="Indicadores principales">

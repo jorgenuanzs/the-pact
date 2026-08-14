@@ -24,6 +24,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
+	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
@@ -138,6 +139,7 @@ type mcpProjectContextOutput struct {
 	Git            mcpGitSnapshot              `json:"git"`
 	Overview       mcpOverview                 `json:"overview"`
 	RepositorySync repositorysync.State        `json:"repository_sync"`
+	Repositories   []projectrepo.Repository    `json:"repositories"`
 }
 
 type mcpProjectListOutput struct {
@@ -199,6 +201,10 @@ type mcpWorkItem struct {
 
 type mcpScopeCheckInput struct {
 	Scopes []coordination.ScopeInput `json:"scopes" jsonschema:"minimum safe repository scopes to inspect for overlap"`
+}
+
+type mcpRepositoryInput struct {
+	RepositoryID string `json:"repository_id,omitempty" jsonschema:"optional project repository UUID; omit it to use the primary repository"`
 }
 
 type mcpStartWorkInput struct {
@@ -438,7 +444,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 				"Its workspace field identifies the durable shared context boundary for this project. " +
 				"Use pact.workspace_context when you need the current accepted decisions, requirements, constraints, questions, risks, and sources. " +
 				"Register durable sources with pact.add_resource and propose reusable facts with pact.propose_record instead of copying private conversations. " +
-				"Use pact.get_repository_sync to distinguish the last GitHub-verified canonical commit from this checkout's local HEAD; maintainers may call pact.sync_repository when a fresh verification is necessary. " +
+				"Use pact.list_repositories to learn the complete project repository set and its purposes. Use pact.get_repository_sync to distinguish a GitHub-verified commit from this checkout's local HEAD; maintainers may call pact.sync_repository when a fresh verification is necessary. " +
 				"Before modifying files, call pact.check_scopes and then pact.start_work; " +
 				"perform edits only inside the worktree_path returned by pact.start_work. " +
 				"Use pact.update_work to report blocked, submitted, completed, cancelled, or abandoned work with a durable summary. " +
@@ -533,9 +539,17 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 		},
 	}, runtime.refreshObservation)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.list_repositories",
+		Title:       "List project repositories",
+		Description: "List the connected project's primary and additional repositories, purposes, requirement flags, and verified revisions.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.listRepositories)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.get_repository_sync",
-		Title:       "Get canonical repository sync state",
-		Description: "Return PACT's last verified GitHub default branch, canonical commit, visibility, sync status, and timestamps for the connected project.",
+		Title:       "Get repository sync state",
+		Description: "Return PACT's last verified GitHub default branch, commit, visibility, sync status, and timestamps for the primary or specified project repository.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
 		},
@@ -543,7 +557,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.sync_repository",
 		Title:       "Synchronize canonical repository state",
-		Description: "Ask Pact Server to verify the connected project's canonical branch and commit directly with GitHub. Requires project maintainer access.",
+		Description: "Ask Pact Server to verify the primary or specified project repository directly with GitHub. Requires project maintainer access.",
 		Annotations: &mcp.ToolAnnotations{
 			DestructiveHint: &nonDestructive, OpenWorldHint: &openWorld,
 		},
@@ -635,8 +649,14 @@ func (r *mcpRuntime) projectContext(
 		overview        backoffice.Overview
 		snapshot        gitobserve.Snapshot
 		repositoryState repositorysync.State
+		repositorySet   pactclient.ProjectRepositories
 	)
 	group, groupContext := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		var err error
+		repositorySet, err = r.client.ListProjectRepositories(groupContext, r.binding.ProjectID)
+		return err
+	})
 	group.Go(func() error {
 		var err error
 		principal, err = r.client.Me(groupContext)
@@ -705,24 +725,43 @@ func (r *mcpRuntime) projectContext(
 		Session: sessionSummary(r.session), Git: snapshotOutput(snapshot),
 		Overview:       overviewOutput(overview),
 		RepositorySync: repositoryState,
+		Repositories:   repositorySet.Repositories,
 	}, nil
 }
 
-func (r *mcpRuntime) getRepositorySync(
+func (r *mcpRuntime) listRepositories(
 	ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyInput,
+) (*mcp.CallToolResult, pactclient.ProjectRepositories, error) {
+	value, err := r.client.ListProjectRepositories(ctx, r.binding.ProjectID)
+	return nil, value, err
+}
+
+func (r *mcpRuntime) getRepositorySync(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpRepositoryInput,
 ) (*mcp.CallToolResult, repositorysync.State, error) {
-	state, err := r.client.GetRepositorySync(ctx, r.binding.ProjectID)
+	var state repositorysync.State
+	var err error
+	if strings.TrimSpace(input.RepositoryID) == "" {
+		state, err = r.client.GetRepositorySync(ctx, r.binding.ProjectID)
+	} else {
+		state, err = r.client.GetProjectRepositorySync(ctx, r.binding.ProjectID, input.RepositoryID)
+	}
 	return nil, state, err
 }
 
 func (r *mcpRuntime) syncRepository(
-	ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyInput,
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpRepositoryInput,
 ) (*mcp.CallToolResult, repositorysync.Result, error) {
 	key, err := newIdempotencyKey("pact-repository-sync")
 	if err != nil {
 		return nil, repositorysync.Result{}, err
 	}
-	result, err := r.client.SyncRepository(ctx, r.binding.ProjectID, key)
+	var result repositorysync.Result
+	if strings.TrimSpace(input.RepositoryID) == "" {
+		result, err = r.client.SyncRepository(ctx, r.binding.ProjectID, key)
+	} else {
+		result, err = r.client.SyncProjectRepository(ctx, r.binding.ProjectID, input.RepositoryID, key)
+	}
 	return nil, result, err
 }
 
