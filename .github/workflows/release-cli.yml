@@ -130,14 +130,16 @@ jobs:
     needs: release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
       - name: Install the published release
         shell: pwsh
         env:
           PACT_RELEASE_TAG: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          ./scripts/install-windows.ps1 `
+          $installer = Join-Path $env:RUNNER_TEMP "install-pact.ps1"
+          Invoke-WebRequest `
+            "https://github.com/${{ github.repository }}/releases/download/$env:PACT_RELEASE_TAG/install-pact.ps1" `
+            -OutFile $installer
+          & $installer `
             -Version $env:PACT_RELEASE_TAG `
             -InstallDir (Join-Path $env:RUNNER_TEMP "Pact") `
             -NoPathUpdate
@@ -153,12 +155,14 @@ jobs:
           - ubuntu-latest
           - macos-latest
     steps:
-      - uses: actions/checkout@v5
       - name: Install the published release
         shell: bash
         env:
           PACT_VERSION: ${{ github.ref_name }}
           PACT_INSTALL_DIR: ${{ runner.temp }}/pact-bin
         run: |
-          sh scripts/install.sh
+          curl --fail --location --retry 3 \
+            "https://github.com/${{ github.repository }}/releases/download/${PACT_VERSION}/install-pact.sh" \
+            --output "${RUNNER_TEMP}/install-pact.sh"
+          sh "${RUNNER_TEMP}/install-pact.sh"
           "${PACT_INSTALL_DIR}/pact" help

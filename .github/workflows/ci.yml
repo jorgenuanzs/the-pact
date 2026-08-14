@@ -72,13 +72,14 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
       - name: Install from the latest GitHub release
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          ./scripts/install-windows.ps1 `
+          $installer = Join-Path $env:RUNNER_TEMP "install-pact.ps1"
+          Invoke-WebRequest `
+            "https://github.com/jorgenuanzs/the-pact/releases/latest/download/install-pact.ps1" `
+            -OutFile $installer
+          & $installer `
             -InstallDir (Join-Path $env:RUNNER_TEMP "Pact") `
             -NoPathUpdate
           & (Join-Path $env:RUNNER_TEMP "Pact\pact.exe") help
