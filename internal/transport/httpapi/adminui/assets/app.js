@@ -10,7 +10,10 @@
     token: "",
     workspaces: [],
     projects: [],
+    selectedWorkspaceID: null,
     selectedProjectID: null,
+    activeView: "live",
+    workspaceContext: null,
     overview: null,
     knowledge: null,
     githubStatus: null,
@@ -45,6 +48,17 @@
     projectList: document.querySelector("#project-list"),
     projectListStatus: document.querySelector("#project-list-status"),
     refreshProjects: document.querySelector("#refresh-projects"),
+    workspaceOverview: document.querySelector("#workspace-overview"),
+    workspaceOverviewName: document.querySelector("#workspace-overview-name"),
+    workspaceOverviewStatus: document.querySelector("#workspace-overview-status"),
+    workspaceOverviewDescription: document.querySelector("#workspace-overview-description"),
+    workspaceProjectCount: document.querySelector("#workspace-project-count"),
+    workspaceActiveProjectCount: document.querySelector("#workspace-active-project-count"),
+    workspaceRepositoryCount: document.querySelector("#workspace-repository-count"),
+    workspaceContextCount: document.querySelector("#workspace-context-count"),
+    workspaceProjectListCount: document.querySelector("#workspace-project-list-count"),
+    workspaceProjectList: document.querySelector("#workspace-project-list"),
+    workspaceContextPreview: document.querySelector("#workspace-context-preview"),
     workspaceEmpty: document.querySelector("#workspace-empty"),
     workspaceContent: document.querySelector("#workspace-content"),
     workspaceError: document.querySelector("#workspace-error"),
@@ -58,8 +72,23 @@
     projectVersion: document.querySelector("#project-version"),
     projectRevision: document.querySelector("#project-revision"),
     projectID: document.querySelector("#project-id"),
+    projectTabs: document.querySelector("#project-tabs"),
+    dashboardPanels: [...document.querySelectorAll("[data-dashboard-sections]")],
+    dashboardViewKicker: document.querySelector("#dashboard-view-kicker"),
+    dashboardViewTitle: document.querySelector("#dashboard-view-title"),
+    dashboardViewDescription: document.querySelector("#dashboard-view-description"),
+    tabLiveCount: document.querySelector("#tab-live-count"),
+    tabWorkCount: document.querySelector("#tab-work-count"),
+    tabKnowledgeCount: document.querySelector("#tab-knowledge-count"),
+    tabRepositoryCount: document.querySelector("#tab-repository-count"),
+    tabActivityCount: document.querySelector("#tab-activity-count"),
     streamStatus: document.querySelector("#stream-status"),
     eventLiveLabel: document.querySelector("#event-live-label"),
+    attentionPanel: document.querySelector("#attention-panel"),
+    attentionDescription: document.querySelector("#attention-description"),
+    attentionStatus: document.querySelector("#attention-status"),
+    attentionStats: document.querySelector("#attention-stats"),
+    attentionList: document.querySelector("#attention-list"),
     activityPanel: document.querySelector("#activity-panel"),
     activityTitle: document.querySelector("#activity-title"),
     activityDescription: document.querySelector("#activity-description"),
@@ -108,6 +137,9 @@
     handoffCount: document.querySelector("#handoff-count"),
     eventList: document.querySelector("#event-list"),
     eventEmpty: document.querySelector("#event-empty"),
+    settingsWorkspace: document.querySelector("#settings-workspace"),
+    settingsRole: document.querySelector("#settings-role"),
+    settingsProjectID: document.querySelector("#settings-project-id"),
     generatedAt: document.querySelector("#generated-at"),
     toastRegion: document.querySelector("#toast-region"),
   };
@@ -155,6 +187,13 @@
     archived: "Archivado",
   };
 
+  const organizationRoleCopy = {
+    owner: "Propietario",
+    admin: "Administrador",
+    member: "Miembro",
+    viewer: "Observador",
+  };
+
   const intentStatusCopy = {
     draft: "Borrador",
     active: "En curso",
@@ -166,6 +205,7 @@
   };
 
   const eventTypeCopy = {
+    "pact.project.created.v1": "Proyecto creado",
     "pact.intent.started.v1": "Trabajo iniciado",
     "pact.workspace.ready.v1": "Worktree preparado",
     "pact.intent.active.v1": "Trabajo reanudado",
@@ -182,6 +222,52 @@
     "pact.repository.canonical_synced.v1": "Repositorio canónico verificado",
     "pact.repository.sync_failed.v1": "Falló la verificación de GitHub",
     "pact.project.repository_attached.v1": "Repositorio vinculado",
+    "pact.repository-observation.v1": "Código observado",
+    "pact.changeset.created.v1": "Cambios preparados",
+    "pact.handoff.offered.v1": "Relevo ofrecido",
+    "pact.handoff.accepted.v1": "Relevo aceptado",
+    "pact.handoff.expired.v1": "Relevo vencido",
+    "pact.context.compiled.v1": "Contexto compilado",
+    "pact.knowledge.record.proposed.v1": "Conocimiento propuesto",
+    "pact.knowledge.resource.added.v1": "Fuente añadida",
+  };
+
+  const dashboardViews = {
+    live: {
+      kicker: "OPERACIÓN · AHORA",
+      title: "Quién trabaja y dónde",
+      description: "Presencia, alcances y señales de código actualizadas en tiempo real.",
+    },
+    overview: {
+      kicker: "SALUD DEL PROYECTO",
+      title: "Resumen operativo",
+      description: "Indicadores, fuente canónica e inventario para entender el estado general.",
+    },
+    work: {
+      kicker: "COORDINACIÓN",
+      title: "Trabajo e intercambios",
+      description: "Intenciones, alcances, bloqueos y handoffs entre colaboradores.",
+    },
+    knowledge: {
+      kicker: "MEMORIA COMPARTIDA",
+      title: "Conocimiento del workspace",
+      description: "Decisiones, requisitos, restricciones, riesgos y fuentes durables.",
+    },
+    repositories: {
+      kicker: "CÓDIGO Y PROVEEDORES",
+      title: "Repositorios del proyecto",
+      description: "Fuentes autorizadas, propósito y revisión verificable de cada componente.",
+    },
+    activity: {
+      kicker: "AUDITORÍA · EN VIVO",
+      title: "Actividad del proyecto",
+      description: "Un registro humano y durable de lo que ocurre en PACT.",
+    },
+    settings: {
+      kicker: "ADMINISTRACIÓN",
+      title: "Configuración",
+      description: "Integraciones, acceso y pertenencia del proyecto dentro de la organización.",
+    },
   };
 
   class APIError extends Error {
@@ -238,6 +324,10 @@
       loadOverview({ announce: true }),
     );
     elements.projectSearch.addEventListener("input", () => renderProjectList());
+    for (const tab of elements.projectTabs.querySelectorAll("[data-dashboard-view]")) {
+      tab.addEventListener("click", () => setDashboardView(tab.dataset.dashboardView));
+      tab.addEventListener("keydown", handleDashboardTabKey);
+    }
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && state.selectedProjectID) {
         loadOverview({ silent: true });
@@ -301,7 +391,9 @@
     state.token = "";
     state.workspaces = [];
     state.projects = [];
+    state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.workspaceContext = null;
     state.overview = null;
     state.knowledge = null;
     state.githubStatus = null;
@@ -352,6 +444,16 @@
         )
       ) {
         clearSelection();
+      } else if (
+        state.selectedWorkspaceID &&
+        !state.workspaces.some((workspace) => workspace.id === state.selectedWorkspaceID)
+      ) {
+        clearSelection();
+      } else if (state.selectedWorkspaceID && !state.selectedProjectID) {
+        const workspace = state.workspaces.find(
+          (item) => item.id === state.selectedWorkspaceID,
+        );
+        if (workspace) renderWorkspaceOverview(workspace, state.workspaceContext);
       }
       renderProjectList();
       showToast("Workspaces y proyectos actualizados.");
@@ -414,7 +516,7 @@
 
     elements.projectList.replaceChildren();
 
-    if (state.projects.length === 0) {
+    if (state.workspaces.length === 0) {
       elements.projectListStatus.textContent = "0 workspaces · 0 proyectos";
       const empty = document.createElement("p");
       empty.className = "rail-empty";
@@ -440,13 +542,25 @@
     for (const group of groups) {
       const groupElement = document.createElement("section");
       groupElement.className = "workspace-group";
-      const heading = document.createElement("div");
+      const heading = document.createElement("button");
+      heading.type = "button";
       heading.className = "workspace-group-heading";
+      heading.classList.toggle(
+        "is-selected",
+        group.workspace.id === state.selectedWorkspaceID && !state.selectedProjectID,
+      );
+      heading.setAttribute(
+        "aria-current",
+        group.workspace.id === state.selectedWorkspaceID && !state.selectedProjectID
+          ? "page"
+          : "false",
+      );
       const workspaceName = document.createElement("strong");
       workspaceName.textContent = valueOrDash(group.workspace.name);
       const workspaceCount = document.createElement("span");
       workspaceCount.textContent = String(group.projects.length);
       heading.append(workspaceName, workspaceCount);
+      heading.addEventListener("click", () => selectWorkspace(group.workspace.id));
       groupElement.append(heading);
 
       for (const project of group.projects) {
@@ -493,9 +607,12 @@
   async function selectProject(projectID, { focusProject = false } = {}) {
     const project = state.projects.find((item) => item.id === projectID);
     if (!project) return;
+    const workspace = workspaceForProject(projectID);
 
     stopLiveUpdates();
+    state.selectedWorkspaceID = workspace?.id || null;
     state.selectedProjectID = projectID;
+    state.workspaceContext = null;
     state.overview = null;
     state.knowledge = null;
     state.projectRepositories = [];
@@ -507,8 +624,10 @@
     });
     renderProjectHeader(project);
     resetOverview();
+    elements.workspaceOverview.hidden = true;
     elements.workspaceEmpty.hidden = true;
     elements.workspaceContent.hidden = false;
+    setDashboardView("live");
     hideWorkspaceError();
 
     const generation = state.streamGeneration;
@@ -525,15 +644,157 @@
     runEventStream(projectID, generation);
   }
 
-  function clearSelection() {
+  async function selectWorkspace(workspaceID) {
+    const workspace = state.workspaces.find((item) => item.id === workspaceID);
+    if (!workspace) return;
+
     stopLiveUpdates();
+    state.selectedWorkspaceID = workspaceID;
     state.selectedProjectID = null;
+    state.workspaceContext = null;
     state.overview = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
     state.availableRepositories = [];
     state.events = [];
+    renderProjectList();
+    elements.workspaceContent.hidden = true;
+    elements.workspaceEmpty.hidden = true;
+    elements.workspaceOverview.hidden = false;
+    renderWorkspaceOverview(workspace, null, { loading: true });
+
+    try {
+      const payload = await requestJSON(
+        `/v1/workspaces/${encodeURIComponent(workspaceID)}/context`,
+      );
+      if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
+      state.workspaceContext = payload?.data || payload || {};
+      renderWorkspaceOverview(workspace, state.workspaceContext);
+    } catch (error) {
+      if (handleUnauthorized(error)) return;
+      if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
+      renderWorkspaceOverview(workspace, null, { failed: true });
+    }
+  }
+
+  function renderWorkspaceOverview(workspace, context, { loading = false, failed = false } = {}) {
+    const projectByID = new Map(state.projects.map((project) => [project.id, project]));
+    const projects = (workspace.projects || []).map(
+      (project) => projectByID.get(project.id) || project,
+    );
+    const activeProjects = projects.filter((project) => project.status === "active");
+    const repositories = projects.filter(
+      (project) => project.root_repository || project.root_repository_remote_url,
+    );
+    const contextItems = workspaceContextItems(context);
+
+    elements.workspaceOverviewName.textContent = valueOrDash(workspace.name);
+    elements.workspaceOverviewStatus.textContent =
+      projectStatusCopy[workspace.status] || valueOrDash(workspace.status);
+    elements.workspaceOverviewDescription.textContent =
+      workspace.description ||
+      "Frontera compartida de proyectos, contexto y colaboradores.";
+    elements.workspaceProjectCount.textContent = formatInteger(projects.length);
+    elements.workspaceActiveProjectCount.textContent = formatInteger(activeProjects.length);
+    elements.workspaceRepositoryCount.textContent = formatInteger(repositories.length);
+    elements.workspaceContextCount.textContent = loading ? "…" : formatInteger(contextItems.length);
+    elements.workspaceProjectListCount.textContent = formatInteger(projects.length);
+
+    elements.workspaceProjectList.replaceChildren();
+    if (projects.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "panel-empty compact-empty";
+      empty.textContent = "Este workspace todavía no contiene proyectos.";
+      elements.workspaceProjectList.append(empty);
+    }
+    for (const project of projects) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "workspace-project-card";
+      const heading = document.createElement("span");
+      heading.className = "workspace-project-card-heading";
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(project.name);
+      const status = document.createElement("span");
+      status.textContent = projectStatusCopy[project.status] || valueOrDash(project.status);
+      heading.append(name, status);
+      const repository = document.createElement("code");
+      repository.textContent = valueOrDash(
+        project.root_repository?.remote_url || project.root_repository_remote_url,
+      );
+      const action = document.createElement("span");
+      action.className = "workspace-project-card-action";
+      action.textContent = "Abrir proyecto →";
+      card.append(heading, repository, action);
+      card.addEventListener("click", () => selectProject(project.id, { focusProject: true }));
+      elements.workspaceProjectList.append(card);
+    }
+
+    elements.workspaceContextPreview.replaceChildren();
+    if (loading) {
+      const loadingCopy = document.createElement("p");
+      loadingCopy.className = "workspace-context-state";
+      loadingCopy.textContent = "Cargando la memoria compartida…";
+      elements.workspaceContextPreview.append(loadingCopy);
+      return;
+    }
+    if (failed) {
+      const failedCopy = document.createElement("p");
+      failedCopy.className = "workspace-context-state is-error";
+      failedCopy.textContent = "No se pudo cargar el contexto de este workspace.";
+      elements.workspaceContextPreview.append(failedCopy);
+      return;
+    }
+    if (contextItems.length === 0) {
+      const emptyCopy = document.createElement("p");
+      emptyCopy.className = "workspace-context-state";
+      emptyCopy.textContent = "Aún no hay conocimiento durable compartido.";
+      elements.workspaceContextPreview.append(emptyCopy);
+      return;
+    }
+    for (const item of contextItems.slice(0, 8)) {
+      const card = document.createElement("article");
+      card.className = "workspace-context-item";
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      const title = document.createElement("strong");
+      title.textContent = valueOrDash(item.title);
+      card.append(label, title);
+      elements.workspaceContextPreview.append(card);
+    }
+  }
+
+  function workspaceContextItems(context) {
+    if (!context || typeof context !== "object") return [];
+    const groups = [
+      ["Decisión", context.decisions],
+      ["Requisito", context.requirements],
+      ["Restricción", context.constraints],
+      ["Pregunta", context.open_questions],
+      ["Riesgo", context.risks],
+      ["Fuente", context.resources],
+    ];
+    return groups.flatMap(([label, values]) =>
+      (Array.isArray(values) ? values : []).map((value) => ({
+        label,
+        title: value.title || value.body || value.locator,
+      })),
+    );
+  }
+
+  function clearSelection() {
+    stopLiveUpdates();
+    state.selectedWorkspaceID = null;
+    state.selectedProjectID = null;
+    state.workspaceContext = null;
+    state.overview = null;
+    state.knowledge = null;
+    state.projectRepositories = [];
+    state.repositorySyncStates = [];
+    state.availableRepositories = [];
+    state.events = [];
+    elements.workspaceOverview.hidden = true;
     elements.workspaceContent.hidden = true;
     elements.workspaceEmpty.hidden = false;
     renderProjectList();
@@ -548,6 +809,14 @@
     elements.projectSlug.textContent = valueOrDash(project.slug);
     elements.projectID.textContent = valueOrDash(project.id);
     elements.projectID.title = project.id || "";
+    elements.settingsWorkspace.textContent = workspace
+      ? valueOrDash(workspace.name)
+      : "Sin workspace";
+    elements.settingsRole.textContent =
+      organizationRoleCopy[state.principal?.organization_role] ||
+      valueOrDash(state.principal?.organization_role);
+    elements.settingsProjectID.textContent = valueOrDash(project.id);
+    elements.settingsProjectID.title = project.id || "";
 
     const revision = project.canonical_revision;
     elements.projectRevision.textContent = revision
@@ -566,7 +835,44 @@
       : "";
   }
 
+  function setDashboardView(view, { focus = false } = {}) {
+    if (!Object.hasOwn(dashboardViews, view)) return;
+    state.activeView = view;
+    const copy = dashboardViews[view];
+    elements.dashboardViewKicker.textContent = copy.kicker;
+    elements.dashboardViewTitle.textContent = copy.title;
+    elements.dashboardViewDescription.textContent = copy.description;
+
+    for (const tab of elements.projectTabs.querySelectorAll("[data-dashboard-view]")) {
+      const selected = tab.dataset.dashboardView === view;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && focus) tab.focus();
+    }
+    for (const panel of elements.dashboardPanels) {
+      const sections = String(panel.dataset.dashboardSections || "")
+        .split(/\s+/)
+        .filter(Boolean);
+      panel.hidden = !sections.includes(view);
+    }
+  }
+
+  function handleDashboardTabKey(event) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = [...elements.projectTabs.querySelectorAll("[data-dashboard-view]")];
+    const current = tabs.indexOf(event.currentTarget);
+    if (current < 0) return;
+    event.preventDefault();
+    let next = current;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabs.length - 1;
+    if (event.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+    if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+    setDashboardView(tabs[next].dataset.dashboardView, { focus: true });
+  }
+
   function resetOverview() {
+    renderAttention(null);
     renderActivity(null);
     renderRepositorySync(null);
     renderProjectRepositories();
@@ -576,6 +882,11 @@
     renderKnowledge(null);
     renderHandoffs([]);
     renderEvents([]);
+    elements.tabLiveCount.textContent = "—";
+    elements.tabWorkCount.textContent = "—";
+    elements.tabKnowledgeCount.textContent = "—";
+    elements.tabRepositoryCount.textContent = "—";
+    elements.tabActivityCount.textContent = "—";
     elements.generatedAt.textContent = "Actualizando estado…";
     setStreamStatus("stopped", "Preparando flujo");
   }
@@ -653,6 +964,7 @@
 
   function renderOverview() {
     const overview = state.overview || {};
+    renderAttention(overview);
     renderActivity(overview.code_activity);
     renderRepositorySync(overview.repository_sync);
     renderCounts(overview.counts);
@@ -810,6 +1122,7 @@
     const repositories = state.projectRepositories;
     const states = new Map(state.repositorySyncStates.map((item) => [item.repository_id, item]));
     elements.projectRepositoryCount.textContent = formatInteger(repositories.length);
+    elements.tabRepositoryCount.textContent = formatInteger(repositories.length);
     elements.projectRepositoryList.replaceChildren();
 
     const unattached = state.availableRepositories.filter((repository) => !repository.attached_repository_id);
@@ -1008,6 +1321,7 @@
       0,
     );
     elements.knowledgeCount.textContent = context ? formatInteger(total) : "—";
+    elements.tabKnowledgeCount.textContent = context ? formatInteger(total) : "—";
     elements.knowledgeEmpty.hidden = !context || total !== 0;
     elements.knowledgeGrid.hidden = !context || total === 0;
     if (!context || total === 0) return;
@@ -1132,6 +1446,124 @@
       withdrawn: "Retirado",
       expired: "Expirado",
     })[status] || status || "Ofrecido";
+  }
+
+  function renderAttention(overview) {
+    const value = overview && typeof overview === "object" ? overview : null;
+    const counts = value?.counts || {};
+    const activity = value?.code_activity || {};
+    const repository = value?.repository_sync || {};
+    elements.attentionStats.replaceChildren();
+    elements.attentionList.replaceChildren();
+    elements.attentionPanel.classList.remove("has-warning", "has-critical");
+
+    if (!value) {
+      elements.attentionStatus.textContent = "Consultando";
+      elements.attentionDescription.textContent =
+        "Esperando el estado actual del proyecto.";
+      for (const label of ["En vivo", "Trabajo activo", "Bloqueos", "Cambios pendientes"]) {
+        appendAttentionStat(label, "—");
+      }
+      return;
+    }
+
+    const liveSessions = numericCount(counts.live_sessions);
+    const activeIntents = numericCount(counts.active_intents);
+    const blockedIntents = numericCount(counts.blocked_intents);
+    const pendingChanges = numericCount(counts.pending_changesets);
+    appendAttentionStat("En vivo", liveSessions);
+    appendAttentionStat("Trabajo activo", activeIntents);
+    appendAttentionStat("Bloqueos", blockedIntents, blockedIntents > 0 ? "critical" : "stable");
+    appendAttentionStat("Cambios pendientes", pendingChanges, pendingChanges > 0 ? "warning" : "stable");
+
+    const issues = [];
+    if (blockedIntents > 0) {
+      issues.push({
+        severity: "critical",
+        title: `${formatInteger(blockedIntents)} ${blockedIntents === 1 ? "trabajo bloqueado" : "trabajos bloqueados"}`,
+        detail: "Revisa la sección Trabajo para resolver el bloqueo o preparar un handoff.",
+      });
+    }
+    if (!activity.observer_connected) {
+      issues.push({
+        severity: "warning",
+        title: "No hay un observador de código conectado",
+        detail: "PACT no puede confirmar modificaciones locales hasta que un nodo publique señales.",
+      });
+    }
+    if (repository.status === "failed") {
+      issues.push({
+        severity: "critical",
+        title: "GitHub no pudo verificar el repositorio principal",
+        detail: "Abre Repositorios para revisar la conexión y volver a verificar la revisión canónica.",
+      });
+    }
+    if (pendingChanges > 0) {
+      issues.push({
+        severity: "warning",
+        title: `${formatInteger(pendingChanges)} ${pendingChanges === 1 ? "cambio espera integración" : "cambios esperan integración"}`,
+        detail: "Hay trabajo preparado que todavía no ha completado el flujo de integración.",
+      });
+    }
+
+    const criticalCount = issues.filter((issue) => issue.severity === "critical").length;
+    if (criticalCount > 0) {
+      elements.attentionPanel.classList.add("has-critical");
+      elements.attentionStatus.textContent = `${formatInteger(criticalCount)} crítico${criticalCount === 1 ? "" : "s"}`;
+      elements.attentionDescription.textContent =
+        "Hay situaciones que requieren intervención antes de continuar el trabajo.";
+    } else if (issues.length > 0) {
+      elements.attentionPanel.classList.add("has-warning");
+      elements.attentionStatus.textContent = `${formatInteger(issues.length)} por revisar`;
+      elements.attentionDescription.textContent =
+        "La operación continúa, pero conviene revisar estas señales.";
+    } else {
+      elements.attentionStatus.textContent = "Operación estable";
+      elements.attentionDescription.textContent =
+        "No hay bloqueos ni señales críticas en este momento.";
+      issues.push({
+        severity: "stable",
+        title: liveSessions > 0 ? "Colaboradores conectados y sin bloqueos" : "Proyecto disponible y sin bloqueos",
+        detail: liveSessions > 0
+          ? "PACT está recibiendo presencia y puede coordinar nuevo trabajo."
+          : "Cuando una persona o IA se conecte, su actividad aparecerá aquí.",
+      });
+    }
+
+    for (const issue of issues) appendAttentionItem(issue);
+    elements.tabLiveCount.textContent = formatInteger(liveSessions);
+    elements.tabWorkCount.textContent = formatInteger(activeIntents);
+  }
+
+  function appendAttentionStat(label, value, severity = "neutral") {
+    const item = document.createElement("div");
+    item.className = `attention-stat severity-${severity}`;
+    const number = document.createElement("strong");
+    number.textContent = String(value);
+    const copy = document.createElement("span");
+    copy.textContent = label;
+    item.append(number, copy);
+    elements.attentionStats.append(item);
+  }
+
+  function appendAttentionItem({ severity, title, detail }) {
+    const item = document.createElement("li");
+    item.className = `attention-item severity-${severity}`;
+    const marker = document.createElement("span");
+    marker.className = "attention-marker";
+    marker.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("div");
+    const heading = document.createElement("strong");
+    heading.textContent = title;
+    const description = document.createElement("p");
+    description.textContent = detail;
+    copy.append(heading, description);
+    item.append(marker, copy);
+    elements.attentionList.append(item);
+  }
+
+  function numericCount(value) {
+    return isNumber(value) ? Number(value) : 0;
   }
 
   function renderActivity(activity) {
@@ -1347,6 +1779,7 @@
 
     elements.eventList.replaceChildren();
     elements.eventEmpty.hidden = events.length !== 0;
+    elements.tabActivityCount.textContent = formatInteger(events.length);
 
     for (const event of events.slice(0, MAX_VISIBLE_EVENTS)) {
       const item = document.createElement("li");
@@ -1361,10 +1794,16 @@
       body.className = "event-body";
       const titleRow = document.createElement("div");
       titleRow.className = "event-title-row";
+      const headline = document.createElement("div");
+      headline.className = "event-headline";
       const type = document.createElement("strong");
       type.className = "event-type";
-      type.textContent = eventTypeCopy[event.type] || valueOrDash(event.type);
+      type.textContent = eventNarrative(event);
       type.title = event.type || "";
+      const kind = document.createElement("span");
+      kind.className = "event-kind";
+      kind.textContent = eventTypeCopy[event.type] || "Evento de PACT";
+      headline.append(type, kind);
       const time = document.createElement("time");
       time.className = "event-time";
       time.textContent = event.occurred_at
@@ -1374,13 +1813,26 @@
         time.dateTime = event.occurred_at;
         time.title = formatDateTime(event.occurred_at);
       }
-      titleRow.append(type, time);
+      titleRow.append(headline, time);
 
       const meta = document.createElement("div");
       meta.className = "event-meta";
-      appendEventMeta(meta, "Actor", event.actor_name || event.actor_id, event.actor_id);
+      const eventData = eventDataObject(event.data);
+      appendEventTextMeta(
+        meta,
+        "Repositorio",
+        eventData.repository_full_name || eventData.repository_sync?.repository_full_name,
+      );
+      appendEventTextMeta(meta, "Rama", eventData.branch || eventData.git_branch);
+      appendEventTextMeta(
+        meta,
+        "Archivos",
+        isNumber(eventData.changed_paths)
+          ? formatInteger(eventData.changed_paths)
+          : null,
+      );
       appendEventMeta(meta, "Sesión", event.session_id);
-      appendEventMeta(meta, "Intent", event.intent_id);
+      appendEventMeta(meta, "Trabajo", event.intent_id);
 
       const data = document.createElement("pre");
       data.className = "event-data";
@@ -1423,6 +1875,82 @@
     code.title = fullValue || value;
     span.append(`${label} `, code);
     container.append(span);
+  }
+
+  function appendEventTextMeta(container, label, value) {
+    if (value === null || value === undefined || value === "") return;
+    const span = document.createElement("span");
+    const strong = document.createElement("strong");
+    strong.textContent = String(value);
+    span.append(`${label} `, strong);
+    container.append(span);
+  }
+
+  function eventNarrative(event) {
+    const data = eventDataObject(event.data);
+    const actor = event.actor_name || "PACT";
+    const title = data.title || data.intent?.title || "un trabajo";
+    const project = data.name || data.project?.name || "el proyecto";
+    const handoff = data.handoff?.summary || data.summary || "el relevo de trabajo";
+    const knowledge =
+      data.record?.title ||
+      data.resource?.title ||
+      data.resource?.name ||
+      "nuevo conocimiento";
+    const repository =
+      data.repository_full_name ||
+      data.repository_sync?.repository_full_name ||
+      "el repositorio";
+    const changedPaths = numericCount(data.changed_paths);
+    const changeCopy = `${formatInteger(changedPaths)} ${changedPaths === 1 ? "archivo" : "archivos"}`;
+
+    const narratives = {
+      "pact.project.created.v1": () => `Se creó ${project}`,
+      "pact.intent.started.v1": () => `${actor} comenzó “${title}”`,
+      "pact.intent.active.v1": () => `${actor} reanudó “${title}”`,
+      "pact.intent.blocked.v1": () => `${actor} bloqueó “${title}”`,
+      "pact.intent.submitted.v1": () => `${actor} envió “${title}” a revisión`,
+      "pact.intent.completed.v1": () => `${actor} completó “${title}”`,
+      "pact.intent.cancelled.v1": () => `${actor} canceló “${title}”`,
+      "pact.intent.abandoned.v1": () => `${actor} abandonó “${title}”`,
+      "pact.workspace.ready.v1": () => `${actor} preparó un worktree para “${title}”`,
+      "pact.workspace.diff_updated.v1": () =>
+        changedPaths > 0
+          ? `${actor} modificó ${changeCopy}`
+          : `${actor} actualizó el estado del código`,
+      "pact.workspace.head_updated.v1": () => `${actor} avanzó la revisión del worktree`,
+      "pact.git.external_change_detected.v1": () =>
+        `${actor} produjo un cambio fuera del flujo coordinado`,
+      "pact.session.started.v1": () => `${actor} se conectó al proyecto`,
+      "pact.session.closed.v1": () => `${actor} cerró su sesión`,
+      "pact.repository.canonical_synced.v1": () => `${actor} verificó ${repository} con GitHub`,
+      "pact.repository.sync_failed.v1": () => `PACT no pudo verificar ${repository}`,
+      "pact.project.repository_attached.v1": () => `${actor} vinculó ${repository} al proyecto`,
+      "pact.repository-observation.v1": () =>
+        changedPaths > 0
+          ? `${actor} observó cambios en ${changeCopy}`
+          : `${actor} comprobó el estado del código`,
+      "pact.changeset.created.v1": () => `${actor} preparó un conjunto de cambios`,
+      "pact.handoff.offered.v1": () => `${actor} ofreció “${handoff}”`,
+      "pact.handoff.accepted.v1": () => `${actor} aceptó “${handoff}”`,
+      "pact.handoff.expired.v1": () => `Venció “${handoff}”`,
+      "pact.context.compiled.v1": () => `${actor} compiló un nuevo paquete de contexto`,
+      "pact.knowledge.record.proposed.v1": () => `${actor} propuso “${knowledge}”`,
+      "pact.knowledge.resource.added.v1": () => `${actor} añadió “${knowledge}”`,
+    };
+    return narratives[event.type]?.() ||
+      `${actor} registró ${eventTypeCopy[event.type] || "un evento del proyecto"}`;
+  }
+
+  function eventDataObject(value) {
+    if (value && typeof value === "object") return value;
+    if (typeof value !== "string") return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
   }
 
   function startOverviewPolling() {
@@ -1724,7 +2252,9 @@
     state.token = "";
     state.workspaces = [];
     state.projects = [];
+    state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.workspaceContext = null;
     showAuth();
     setGlobalConnection("error", "Sesión vencida");
     showAuthError("El token fue rechazado. Introduce uno válido para continuar.");

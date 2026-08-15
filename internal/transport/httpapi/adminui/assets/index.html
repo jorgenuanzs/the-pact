@@ -136,22 +136,6 @@
           <div id="project-list-status" class="rail-status" role="status"></div>
           <nav id="project-list" class="project-list" aria-label="Proyectos"></nav>
 
-          <section class="github-connection-card" aria-labelledby="github-connection-title">
-            <div class="github-connection-heading">
-              <div>
-                <p class="section-kicker">INTEGRACIÓN</p>
-                <h3 id="github-connection-title">GitHub</h3>
-              </div>
-              <span id="github-connection-status" class="sync-status-chip">Consultando</span>
-            </div>
-            <p id="github-connection-description">
-              Comprueba la conexión organizacional con GitHub.
-            </p>
-            <button id="connect-github" class="secondary-button" type="button">
-              Conectar GitHub
-            </button>
-          </section>
-
           <div class="rail-footer">
             <p>
               <span class="rail-footer-mark" aria-hidden="true"></span>
@@ -161,6 +145,67 @@
         </aside>
 
         <section class="workspace">
+          <div id="workspace-overview" class="workspace-overview" hidden>
+            <header class="workspace-overview-header">
+              <div>
+                <p class="breadcrumb">Organización <span aria-hidden="true">/</span> Workspace</p>
+                <div class="project-title-row">
+                  <h1 id="workspace-overview-name">—</h1>
+                  <span id="workspace-overview-status" class="version-chip">—</span>
+                </div>
+                <p id="workspace-overview-description" class="workspace-overview-description">
+                  Frontera compartida de proyectos, contexto y colaboradores.
+                </p>
+              </div>
+            </header>
+
+            <section class="workspace-summary-grid" aria-label="Resumen del workspace">
+              <article>
+                <span>Proyectos</span>
+                <strong id="workspace-project-count">—</strong>
+                <p>Productos y sistemas coordinados</p>
+              </article>
+              <article>
+                <span>Activos</span>
+                <strong id="workspace-active-project-count">—</strong>
+                <p>Proyectos operativos</p>
+              </article>
+              <article>
+                <span>Repositorios raíz</span>
+                <strong id="workspace-repository-count">—</strong>
+                <p>Fuentes vinculadas</p>
+              </article>
+              <article>
+                <span>Contexto durable</span>
+                <strong id="workspace-context-count">—</strong>
+                <p>Registros y fuentes compartidas</p>
+              </article>
+            </section>
+
+            <div class="workspace-overview-grid">
+              <section class="panel workspace-projects-panel" aria-labelledby="workspace-projects-title">
+                <header class="panel-header">
+                  <div>
+                    <p class="section-kicker">PROYECTOS DEL ESPACIO</p>
+                    <h2 id="workspace-projects-title">Dónde vive el trabajo</h2>
+                  </div>
+                  <span id="workspace-project-list-count" class="count-chip">—</span>
+                </header>
+                <div id="workspace-project-list" class="workspace-project-list"></div>
+              </section>
+
+              <section class="panel workspace-context-panel" aria-labelledby="workspace-context-title">
+                <header class="panel-header">
+                  <div>
+                    <p class="section-kicker">CONTEXTO COMPARTIDO</p>
+                    <h2 id="workspace-context-title">Memoria del workspace</h2>
+                  </div>
+                </header>
+                <div id="workspace-context-preview" class="workspace-context-preview"></div>
+              </section>
+            </div>
+          </div>
+
           <div id="workspace-empty" class="workspace-empty">
             <div class="empty-glyph" aria-hidden="true"><span></span></div>
             <p class="section-kicker">Sin selección</p>
@@ -203,6 +248,40 @@
               </div>
             </header>
 
+            <nav id="project-tabs" class="project-tabs" role="tablist" aria-label="Secciones del proyecto">
+              <button type="button" role="tab" data-dashboard-view="live" aria-selected="true">
+                En vivo <span id="tab-live-count" class="tab-count">—</span>
+              </button>
+              <button type="button" role="tab" data-dashboard-view="overview" aria-selected="false">
+                Resumen
+              </button>
+              <button type="button" role="tab" data-dashboard-view="work" aria-selected="false">
+                Trabajo <span id="tab-work-count" class="tab-count">—</span>
+              </button>
+              <button type="button" role="tab" data-dashboard-view="knowledge" aria-selected="false">
+                Conocimiento <span id="tab-knowledge-count" class="tab-count">—</span>
+              </button>
+              <button type="button" role="tab" data-dashboard-view="repositories" aria-selected="false">
+                Repositorios <span id="tab-repository-count" class="tab-count">—</span>
+              </button>
+              <button type="button" role="tab" data-dashboard-view="activity" aria-selected="false">
+                Actividad <span id="tab-activity-count" class="tab-count">—</span>
+              </button>
+              <button type="button" role="tab" data-dashboard-view="settings" aria-selected="false">
+                Configuración
+              </button>
+            </nav>
+
+            <header class="dashboard-view-intro">
+              <div>
+                <p id="dashboard-view-kicker" class="section-kicker">OPERACIÓN · AHORA</p>
+                <h2 id="dashboard-view-title">Quién trabaja y dónde</h2>
+                <p id="dashboard-view-description">
+                  Presencia, alcances y señales de código actualizadas en tiempo real.
+                </p>
+              </div>
+            </header>
+
             <div id="workspace-error" class="inline-error" role="alert" hidden>
               <div>
                 <strong>No se pudo actualizar esta vista</strong>
@@ -214,8 +293,27 @@
             </div>
 
             <section
+              id="attention-panel"
+              class="attention-panel"
+              data-dashboard-sections="live overview"
+              aria-labelledby="attention-title"
+            >
+              <header class="attention-heading">
+                <div>
+                  <p class="section-kicker">ATENCIÓN OPERATIVA</p>
+                  <h2 id="attention-title">Estado de coordinación</h2>
+                  <p id="attention-description">Esperando el estado actual del proyecto.</p>
+                </div>
+                <span id="attention-status" class="attention-status">Consultando</span>
+              </header>
+              <div id="attention-stats" class="attention-stats"></div>
+              <ul id="attention-list" class="attention-list"></ul>
+            </section>
+
+            <section
               id="activity-panel"
               class="activity-panel state-unobserved"
+              data-dashboard-sections="live"
               aria-labelledby="activity-title"
               aria-live="polite"
             >
@@ -246,7 +344,7 @@
               </dl>
             </section>
 
-            <section id="repository-sync-panel" class="repository-sync-panel state-never" aria-labelledby="repository-sync-title">
+            <section id="repository-sync-panel" class="repository-sync-panel state-never" data-dashboard-sections="overview repositories" aria-labelledby="repository-sync-title">
               <div>
                 <p class="section-kicker">FUENTE CANÓNICA · GITHUB</p>
                 <div class="repository-sync-heading">
@@ -268,7 +366,7 @@
               </button>
             </section>
 
-            <section class="panel project-repositories-panel" aria-labelledby="project-repositories-title">
+            <section class="panel project-repositories-panel" data-dashboard-sections="repositories" aria-labelledby="project-repositories-title">
               <div class="panel-heading repository-panel-heading">
                 <div>
                   <p class="section-kicker">ARQUITECTURA MULTIRREPOSITORIO</p>
@@ -305,7 +403,7 @@
               <div id="project-repository-list" class="project-repository-list"></div>
             </section>
 
-            <section class="metric-grid" aria-label="Indicadores principales">
+            <section class="metric-grid" data-dashboard-sections="overview" aria-label="Indicadores principales">
               <article class="metric-card">
                 <div class="metric-head">
                   <span>Sesiones vivas</span>
@@ -340,7 +438,7 @@
               </article>
             </section>
 
-            <section class="panel knowledge-panel" aria-labelledby="knowledge-title">
+            <section class="panel knowledge-panel" data-dashboard-sections="knowledge" aria-labelledby="knowledge-title">
               <header class="panel-header knowledge-header">
                 <div>
                   <p class="section-kicker">CONTEXTO COMPARTIDO</p>
@@ -356,7 +454,7 @@
               </div>
             </section>
 
-            <section class="panel handoff-panel" aria-labelledby="handoff-title">
+            <section class="panel handoff-panel" data-dashboard-sections="work" aria-labelledby="handoff-title">
               <header class="panel-header handoff-header">
                 <div>
                   <p class="section-kicker">RELEVOS ENTRE COLABORADORES</p>
@@ -372,7 +470,7 @@
               </div>
             </section>
 
-            <section class="panel workboard-panel" aria-labelledby="workboard-title">
+            <section class="panel workboard-panel" data-dashboard-sections="live work" aria-labelledby="workboard-title">
               <header class="panel-header workboard-header">
                 <div>
                   <p class="section-kicker">TRABAJO COORDINADO</p>
@@ -395,9 +493,7 @@
               </div>
             </section>
 
-            <div class="dashboard-grid">
-              <div class="dashboard-primary">
-                <section class="panel" aria-labelledby="active-work-title">
+            <section class="panel active-work-panel" data-dashboard-sections="live" aria-labelledby="active-work-title">
                   <header class="panel-header">
                     <div>
                       <p class="section-kicker">AHORA</p>
@@ -412,9 +508,9 @@
                     <h3>No hay sesiones vigentes</h3>
                     <p>Cuando un humano o agente se conecte, aparecerá aquí.</p>
                   </div>
-                </section>
+            </section>
 
-                <section class="panel" aria-labelledby="inventory-title">
+            <section class="panel inventory-panel" data-dashboard-sections="overview" aria-labelledby="inventory-title">
                   <header class="panel-header">
                     <div>
                       <p class="section-kicker">ESTRUCTURA</p>
@@ -429,10 +525,9 @@
                     <div><dt>Scopes reclamados</dt><dd data-count="active_scope_claims">—</dd></div>
                     <div><dt>Eventos registrados</dt><dd data-count="events">—</dd></div>
                   </dl>
-                </section>
-              </div>
+            </section>
 
-              <section class="panel event-panel" aria-labelledby="events-title">
+            <section class="panel event-panel" data-dashboard-sections="activity" aria-labelledby="events-title">
                 <header class="panel-header event-header">
                   <div>
                     <p class="section-kicker">REGISTRO DURABLE</p>
@@ -450,8 +545,46 @@
                   <h3>No hay eventos recientes</h3>
                   <p>El registro se actualizará cuando Pact reciba actividad.</p>
                 </div>
-              </section>
-            </div>
+            </section>
+
+            <section class="panel settings-panel" data-dashboard-sections="settings" aria-labelledby="settings-title">
+              <header class="panel-header">
+                <div>
+                  <p class="section-kicker">ADMINISTRACIÓN</p>
+                  <h2 id="settings-title">Configuración del proyecto</h2>
+                  <p>Integraciones y pertenencia organizacional fuera del flujo operativo diario.</p>
+                </div>
+              </header>
+              <div class="settings-grid">
+                <section class="settings-card github-connection-card" aria-labelledby="github-connection-title">
+                  <div class="github-connection-heading">
+                    <div>
+                      <p class="section-kicker">INTEGRACIÓN ORGANIZACIONAL</p>
+                      <h3 id="github-connection-title">GitHub</h3>
+                    </div>
+                    <span id="github-connection-status" class="sync-status-chip">Consultando</span>
+                  </div>
+                  <p id="github-connection-description">
+                    Comprueba la conexión organizacional con GitHub.
+                  </p>
+                  <button id="connect-github" class="secondary-button" type="button">
+                    Conectar GitHub
+                  </button>
+                </section>
+
+                <section class="settings-card" aria-labelledby="project-membership-title">
+                  <div>
+                    <p class="section-kicker">PERTENENCIA</p>
+                    <h3 id="project-membership-title">Workspace y acceso</h3>
+                  </div>
+                  <dl class="settings-facts">
+                    <div><dt>Workspace</dt><dd id="settings-workspace">—</dd></div>
+                    <div><dt>Rol actual</dt><dd id="settings-role">—</dd></div>
+                    <div><dt>Proyecto</dt><dd id="settings-project-id">—</dd></div>
+                  </dl>
+                </section>
+              </div>
+            </section>
 
             <footer class="data-footer">
               <span id="generated-at">Sin actualizar</span>
