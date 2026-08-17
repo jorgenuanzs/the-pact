@@ -23,6 +23,17 @@
       </a>
 
       <div class="topbar-actions">
+        <button
+          id="global-room-mentions"
+          class="topbar-mentions-button"
+          type="button"
+          aria-label="Abrir menciones pendientes"
+          hidden
+        >
+          <span aria-hidden="true">@</span>
+          <span>Menciones</span>
+          <strong id="global-room-mention-count">0</strong>
+        </button>
         <span class="environment-chip" title="Este backoffice se conecta al Pact Server del mismo origen">
           <span class="environment-dot" aria-hidden="true"></span>
           Pact Server
@@ -109,7 +120,7 @@
           <div class="rail-heading">
             <div>
               <p class="section-kicker">Organización</p>
-              <h2 id="projects-heading">Workspaces</h2>
+              <h2 id="projects-heading">Navegación</h2>
             </div>
             <button
               id="refresh-projects"
@@ -134,7 +145,11 @@
           </label>
 
           <div id="project-list-status" class="rail-status" role="status"></div>
-          <nav id="project-list" class="project-list" aria-label="Proyectos"></nav>
+          <nav
+            id="project-list"
+            class="project-list"
+            aria-label="Workspaces, conversaciones y proyectos"
+          ></nav>
 
           <div class="rail-footer">
             <p>
@@ -148,6 +163,7 @@
           <div id="workspace-overview" class="workspace-overview" hidden>
             <header class="workspace-overview-header">
               <div>
+                <p class="context-type">WORKSPACE</p>
                 <p class="breadcrumb">Organización <span aria-hidden="true">/</span> Workspace</p>
                 <div class="project-title-row">
                   <h1 id="workspace-overview-name">—</h1>
@@ -182,13 +198,13 @@
               </article>
             </section>
 
-            <section class="panel workspace-rooms-panel" aria-labelledby="workspace-rooms-title">
+            <section id="workspace-conversations" class="panel workspace-rooms-panel" aria-labelledby="workspace-rooms-title" tabindex="-1">
               <header class="panel-header rooms-panel-header">
                 <div>
-                  <p class="section-kicker">CONVERSACIÓN DEL WORKSPACE</p>
-                  <h2 id="workspace-rooms-title">Rooms de contexto</h2>
+                  <p class="section-kicker">CONTEXTO HUMANO Y DE AGENTES</p>
+                  <h2 id="workspace-rooms-title">Conversaciones</h2>
                   <p>
-                    Espacios durables creados por personas. El chat solo entra al contexto de un
+                    Espacios durables creados por personas. Una conversación solo entra al contexto de un
                     agente cuando se le menciona o se le pide consultarlo.
                   </p>
                 </div>
@@ -197,28 +213,28 @@
                     Menciones <span id="room-mention-count" class="count-chip">0</span>
                   </button>
                   <button id="open-create-room" class="primary-button compact-button" type="button">
-                    <span>Nueva room</span>
+                    <span>Nueva conversación</span>
                     <span aria-hidden="true">＋</span>
                   </button>
                 </div>
               </header>
 
               <div class="rooms-layout">
-                <aside class="room-directory" aria-label="Rooms del workspace">
+                <aside class="room-directory" aria-label="Conversaciones del workspace">
                   <div class="room-directory-heading">
-                    <span>ROOMS</span>
+                    <span>CONVERSACIONES</span>
                     <span id="workspace-room-count">—</span>
                   </div>
                   <nav id="workspace-room-list" class="workspace-room-list"></nav>
                   <p class="room-directory-note">
-                    Las rooms son manuales y estables: un mensaje no crea trabajo ni metadata adicional.
+                    Son manuales y estables: un mensaje no crea trabajo ni metadata adicional.
                   </p>
                 </aside>
 
                 <div class="room-conversation">
                   <header class="room-conversation-header">
                     <div>
-                      <h3 id="selected-room-name">Selecciona una room</h3>
+                      <h3 id="selected-room-name">Selecciona una conversación</h3>
                       <p id="selected-room-description">
                         Elige un espacio para consultar o enriquecer el contexto compartido.
                       </p>
@@ -232,7 +248,7 @@
                   <div id="room-message-list" class="room-message-list" role="log" aria-live="polite"></div>
                   <div id="room-message-empty" class="room-message-empty">
                     <span aria-hidden="true">#</span>
-                    <h3>Esta room todavía está en silencio</h3>
+                    <h3>Esta conversación todavía está en silencio</h3>
                     <p>Comparte una decisión, una reunión o menciona a alguien para pedirle contexto.</p>
                   </div>
 
@@ -242,7 +258,7 @@
                       <button id="cancel-room-reply" type="button" aria-label="Cancelar respuesta">×</button>
                     </div>
                     <div class="room-composer-wrap">
-                      <label class="visually-hidden" for="room-message-input">Mensaje para la room</label>
+                      <label class="visually-hidden" for="room-message-input">Mensaje para la conversación</label>
                       <textarea
                         id="room-message-input"
                         rows="3"
@@ -298,11 +314,12 @@
           <div id="workspace-content" hidden>
             <header class="project-header">
               <div class="project-identity">
+                <p class="context-type">PROYECTO</p>
                 <p class="breadcrumb">
-                  Workspaces <span aria-hidden="true">/</span>
-                  <span id="workspace-name">—</span>
+                  Workspace:
+                  <button id="workspace-name" class="breadcrumb-link" type="button">—</button>
                   <span aria-hidden="true">/</span>
-                  <span id="project-slug">—</span>
+                  Proyecto: <span id="project-slug">—</span>
                 </p>
                 <div class="project-title-row">
                   <h1 id="project-name">—</h1>
@@ -327,6 +344,13 @@
                 >
                   Actualizar
                 </button>
+                <button
+                  id="open-project-settings"
+                  class="secondary-button project-settings-button"
+                  type="button"
+                >
+                  Configuración
+                </button>
               </div>
             </header>
 
@@ -341,16 +365,13 @@
                 Trabajo <span id="tab-work-count" class="tab-count">—</span>
               </button>
               <button type="button" role="tab" data-dashboard-view="knowledge" aria-selected="false">
-                Conocimiento <span id="tab-knowledge-count" class="tab-count">—</span>
+                Contexto <span id="tab-knowledge-count" class="tab-count">—</span>
               </button>
               <button type="button" role="tab" data-dashboard-view="repositories" aria-selected="false">
-                Repositorios <span id="tab-repository-count" class="tab-count">—</span>
+                Código <span id="tab-repository-count" class="tab-count">—</span>
               </button>
               <button type="button" role="tab" data-dashboard-view="activity" aria-selected="false">
                 Actividad <span id="tab-activity-count" class="tab-count">—</span>
-              </button>
-              <button type="button" role="tab" data-dashboard-view="settings" aria-selected="false">
-                Configuración
               </button>
             </nav>
 
@@ -683,12 +704,12 @@
         <header>
           <div>
             <p class="section-kicker">NUEVO ESPACIO HUMANO</p>
-            <h2>Crear una room</h2>
+            <h2>Nueva conversación</h2>
           </div>
           <button id="cancel-create-room" class="dialog-close" type="button" aria-label="Cerrar">×</button>
         </header>
         <p class="muted">
-          Úsala para un tema durable del workspace, no para convertir cada tarea pequeña en una sala.
+          Úsala para un tema durable del workspace, no para convertir cada tarea pequeña en una conversación.
         </p>
         <div class="field">
           <label for="create-room-name">Nombre</label>
@@ -701,7 +722,7 @@
         <footer>
           <button class="secondary-button" type="button" data-close-room-dialog>Cancelar</button>
           <button id="create-room-submit" class="primary-button" type="submit">
-            <span>Crear room</span><span aria-hidden="true">→</span>
+            <span>Crear conversación</span><span aria-hidden="true">→</span>
           </button>
         </footer>
       </form>
@@ -711,8 +732,8 @@
       <section>
         <header>
           <div>
-            <p class="section-kicker">PARA TI</p>
-            <h2>Menciones pendientes</h2>
+            <p id="room-mentions-kicker" class="section-kicker">PARA TI</p>
+            <h2 id="room-mentions-title">Menciones pendientes</h2>
           </div>
           <button class="dialog-close" type="button" data-close-mentions-dialog aria-label="Cerrar">×</button>
         </header>
