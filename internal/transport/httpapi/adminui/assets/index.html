@@ -42,9 +42,46 @@
           <span class="connection-dot" aria-hidden="true"></span>
           Sin conectar
         </span>
-        <button id="disconnect-button" class="text-button" type="button" hidden>
-          Cerrar sesión
-        </button>
+        <div id="account-menu-shell" class="account-menu-shell" hidden>
+          <button
+            id="account-menu-trigger"
+            class="account-menu-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="account-menu"
+          >
+            <span id="account-trigger-avatar" class="account-avatar" aria-hidden="true">—</span>
+            <span class="account-trigger-copy">
+              <strong id="account-trigger-name">Cuenta</strong>
+              <small id="account-trigger-role">—</small>
+            </span>
+            <span class="account-menu-chevron" aria-hidden="true">⌄</span>
+          </button>
+
+          <div id="account-menu" class="account-menu" role="menu" hidden>
+            <header class="account-menu-identity">
+              <span id="account-menu-avatar" class="account-avatar" aria-hidden="true">—</span>
+              <span>
+                <strong id="account-menu-name">—</strong>
+                <small id="account-menu-email">—</small>
+              </span>
+            </header>
+            <button id="open-user-admin" class="account-menu-item" type="button" role="menuitem" hidden>
+              <span class="account-menu-item-icon" aria-hidden="true">◎</span>
+              <span>
+                <strong>Acceso y seguridad</strong>
+                <small>Usuarios, permisos y sesiones</small>
+              </span>
+              <em id="rail-user-count">—</em>
+            </button>
+            <div class="account-menu-separator" role="separator"></div>
+            <button id="disconnect-button" class="account-menu-item account-menu-signout" type="button" role="menuitem">
+              <span class="account-menu-item-icon" aria-hidden="true">↪</span>
+              <span><strong>Cerrar sesión</strong><small>Salir de Pact Control</small></span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -150,17 +187,6 @@
             />
           </label>
 
-          <div class="organization-navigation">
-            <button id="open-user-admin" class="organization-navigation-button" type="button" hidden>
-              <span class="organization-navigation-icon" aria-hidden="true">◎</span>
-              <span>
-                <strong>Usuarios y permisos</strong>
-                <small>Organización</small>
-              </span>
-              <em id="rail-user-count">—</em>
-            </button>
-          </div>
-
           <div id="project-list-status" class="rail-status" role="status"></div>
           <nav
             id="project-list"
@@ -181,9 +207,9 @@
             <header class="user-admin-header">
               <div>
                 <p class="context-type">ORGANIZACIÓN</p>
-                <p class="breadcrumb">Administración <span aria-hidden="true">/</span> Identidad y acceso</p>
-                <h1 id="user-admin-title">Usuarios y permisos</h1>
-                <p>Gestiona cuentas humanas, invitaciones, roles globales, acceso por proyecto y sesiones activas.</p>
+                <p class="breadcrumb">Administración <span aria-hidden="true">/</span> Acceso y seguridad</p>
+                <h1 id="user-admin-title">Acceso y seguridad</h1>
+                <p>Controla quién puede entrar, qué puede hacer y cómo se protege cada cuenta.</p>
               </div>
               <div class="user-admin-header-actions">
                 <button id="refresh-users" class="secondary-button" type="button">Actualizar</button>
@@ -193,12 +219,17 @@
               </div>
             </header>
 
-            <section class="user-admin-summary" aria-label="Resumen de usuarios">
-              <article><span>Usuarios</span><strong id="user-total-count">—</strong><p>Cuentas registradas</p></article>
-              <article><span>Activos</span><strong id="user-active-count">—</strong><p>Con acceso vigente</p></article>
-              <article><span>Administradores</span><strong id="user-admin-count">—</strong><p>Propietarios y administradores</p></article>
-              <article><span>Invitaciones</span><strong id="user-invitation-count">—</strong><p>Pendientes de aceptar</p></article>
-            </section>
+            <nav id="user-admin-tabs" class="user-admin-tabs" role="tablist" aria-label="Secciones de acceso y seguridad">
+              <button id="user-admin-tab-users" type="button" role="tab" aria-selected="true" aria-controls="user-admin-panel-users" data-user-admin-tab="users">
+                Usuarios <span id="user-tab-count" class="tab-count">—</span>
+              </button>
+              <button id="user-admin-tab-invitations" type="button" role="tab" aria-selected="false" aria-controls="user-admin-panel-invitations" data-user-admin-tab="invitations">
+                Invitaciones <span id="user-invitation-tab-count" class="tab-count">—</span>
+              </button>
+              <button id="user-admin-tab-activity" type="button" role="tab" aria-selected="false" aria-controls="user-admin-panel-activity" data-user-admin-tab="activity">
+                Actividad <span id="user-activity-tab-count" class="tab-count">—</span>
+              </button>
+            </nav>
 
             <div id="user-admin-error" class="inline-error" role="alert" hidden>
               <strong>No se pudo cargar la administración de usuarios.</strong>
@@ -206,33 +237,58 @@
               <button id="retry-users" class="text-button" type="button">Reintentar</button>
             </div>
 
+            <section id="user-admin-panel-users" class="user-admin-panel" role="tabpanel" aria-labelledby="user-admin-tab-users" data-user-admin-panel="users">
+            <section class="user-admin-summary" aria-label="Resumen de usuarios">
+              <article><span>Usuarios</span><strong id="user-total-count">—</strong><p>Cuentas registradas</p></article>
+              <article><span>Activos</span><strong id="user-active-count">—</strong><p>Con acceso vigente</p></article>
+              <article><span>Administradores</span><strong id="user-admin-count">—</strong><p>Propietarios y administradores</p></article>
+              <article><span>Invitaciones</span><strong id="user-invitation-count">—</strong><p>Pendientes de aceptar</p></article>
+            </section>
+
             <div class="user-admin-layout">
               <section class="panel user-directory-panel" aria-labelledby="user-directory-title">
                 <header class="user-directory-header">
                   <div>
                     <p class="section-kicker">DIRECTORIO</p>
-                    <h2 id="user-directory-title">Personas</h2>
+                    <h2 id="user-directory-title">Usuarios de la organización</h2>
                   </div>
                   <span id="user-directory-count" class="count-chip">—</span>
                 </header>
-                <label class="search-field user-search-field" for="user-search">
-                  <span class="visually-hidden">Filtrar usuarios</span>
-                  <span aria-hidden="true">⌕</span>
-                  <input id="user-search" type="search" placeholder="Nombre, correo o usuario" autocomplete="off" />
-                </label>
-                <div class="user-filter-row" role="group" aria-label="Filtrar por estado">
-                  <button type="button" data-user-filter="all" aria-pressed="true">Todos</button>
-                  <button type="button" data-user-filter="active" aria-pressed="false">Activos</button>
-                  <button type="button" data-user-filter="disabled" aria-pressed="false">Desactivados</button>
+                <div class="user-directory-toolbar">
+                  <label class="search-field user-search-field" for="user-search">
+                    <span class="visually-hidden">Filtrar usuarios</span>
+                    <span aria-hidden="true">⌕</span>
+                    <input id="user-search" type="search" placeholder="Buscar por nombre, correo o usuario" autocomplete="off" />
+                  </label>
+                  <div class="user-filter-row" role="group" aria-label="Filtrar por estado">
+                    <button type="button" data-user-filter="all" aria-pressed="true">Todos</button>
+                    <button type="button" data-user-filter="active" aria-pressed="false">Activos</button>
+                    <button type="button" data-user-filter="disabled" aria-pressed="false">Desactivados</button>
+                  </div>
                 </div>
-                <div id="user-directory-list" class="user-directory-list"></div>
+                <div class="user-directory-table-wrap">
+                  <table class="user-directory-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Persona</th>
+                        <th scope="col">Usuario</th>
+                        <th scope="col">Rol</th>
+                        <th scope="col">Alcance</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Último acceso</th>
+                        <th scope="col"><span class="visually-hidden">Acciones</span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="user-directory-list" class="user-directory-list"></tbody>
+                  </table>
+                </div>
                 <div id="user-directory-empty" class="panel-empty" hidden>
                   <strong>No hay usuarios para este filtro.</strong>
                   <p>Prueba otra búsqueda o invita a una persona.</p>
                 </div>
               </section>
 
-              <section class="panel user-detail-panel" aria-labelledby="user-detail-title">
+              <section id="user-detail-panel" class="panel user-detail-panel" aria-labelledby="user-detail-title">
                 <div id="user-detail-empty" class="user-detail-empty">
                   <span aria-hidden="true">◎</span>
                   <h2 id="user-detail-title">Selecciona un usuario</h2>
@@ -254,7 +310,13 @@
                     <span id="user-detail-status" class="user-status-chip">—</span>
                   </header>
 
-                  <form id="user-profile-form" class="user-profile-form" novalidate>
+                  <nav id="user-detail-tabs" class="user-detail-tabs" role="tablist" aria-label="Configuración del usuario">
+                    <button id="user-detail-tab-profile" type="button" role="tab" aria-selected="true" aria-controls="user-profile-form" data-user-detail-tab="profile">Perfil</button>
+                    <button id="user-detail-tab-permissions" type="button" role="tab" aria-selected="false" aria-controls="user-detail-panel-permissions" data-user-detail-tab="permissions">Permisos</button>
+                    <button id="user-detail-tab-security" type="button" role="tab" aria-selected="false" aria-controls="user-detail-panel-security" data-user-detail-tab="security">Seguridad</button>
+                  </nav>
+
+                  <form id="user-profile-form" class="user-profile-form user-detail-tab-panel" role="tabpanel" aria-labelledby="user-detail-tab-profile" data-user-detail-panel="profile" novalidate>
                     <div class="user-detail-section-heading">
                       <div><p class="section-kicker">IDENTIDAD</p><h3>Perfil y rol organizacional</h3></div>
                       <button id="save-user-profile" class="secondary-button" type="submit">Guardar cambios</button>
@@ -274,7 +336,7 @@
                     <p id="user-profile-hint" class="field-hint"></p>
                   </form>
 
-                  <section class="user-project-permissions" aria-labelledby="user-project-permissions-title">
+                  <section id="user-detail-panel-permissions" class="user-project-permissions user-detail-tab-panel" role="tabpanel" aria-labelledby="user-detail-tab-permissions" data-user-detail-panel="permissions" hidden>
                     <div class="user-detail-section-heading">
                       <div>
                         <p class="section-kicker">ALCANCE</p>
@@ -288,7 +350,7 @@
                     </div>
                   </section>
 
-                  <section class="user-security-section" aria-labelledby="user-security-title">
+                  <section id="user-detail-panel-security" class="user-security-section user-detail-tab-panel" role="tabpanel" aria-labelledby="user-detail-tab-security" data-user-detail-panel="security" hidden>
                     <div class="user-detail-section-heading">
                       <div><p class="section-kicker">SEGURIDAD</p><h3 id="user-security-title">Sesiones y dispositivos</h3></div>
                     </div>
@@ -316,6 +378,9 @@
               </section>
             </div>
 
+            </section>
+
+            <section id="user-admin-panel-invitations" class="user-admin-panel" role="tabpanel" aria-labelledby="user-admin-tab-invitations" data-user-admin-panel="invitations" hidden>
             <div class="user-admin-secondary-grid">
               <section class="panel pending-invitations-panel" aria-labelledby="pending-invitations-title">
                 <header class="user-directory-header">
@@ -325,7 +390,11 @@
                 <div id="pending-invitation-list" class="pending-invitation-list"></div>
                 <div id="pending-invitation-empty" class="panel-empty" hidden><strong>No hay invitaciones pendientes.</strong></div>
               </section>
+            </div>
+            </section>
 
+            <section id="user-admin-panel-activity" class="user-admin-panel" role="tabpanel" aria-labelledby="user-admin-tab-activity" data-user-admin-panel="activity" hidden>
+            <div class="user-admin-secondary-grid">
               <section class="panel user-audit-panel" aria-labelledby="user-audit-title">
                 <header class="user-directory-header">
                   <div><p class="section-kicker">AUDITORÍA</p><h2 id="user-audit-title">Actividad de acceso</h2></div>
@@ -334,6 +403,7 @@
                 <div id="user-audit-empty" class="panel-empty" hidden><strong>Aún no hay acciones administrativas.</strong></div>
               </section>
             </div>
+            </section>
           </section>
 
           <div id="workspace-overview" class="workspace-overview" hidden>

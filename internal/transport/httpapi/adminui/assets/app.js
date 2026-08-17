@@ -19,7 +19,10 @@
     userDirectory: null,
     selectedUserID: null,
     userFilter: "all",
+    userAdminTab: "users",
+    userDetailTab: "profile",
     usersLoading: false,
+    accountMenuOpen: false,
     workspaceSection: "overview",
     workspaceRoomDirectories: new Map(),
     workspaceRoomDirectoryLoading: new Set(),
@@ -75,6 +78,15 @@
     connectButton: document.querySelector("#connect-button"),
     authError: document.querySelector("#auth-error"),
     appShell: document.querySelector("#app-shell"),
+    accountMenuShell: document.querySelector("#account-menu-shell"),
+    accountMenuTrigger: document.querySelector("#account-menu-trigger"),
+    accountMenu: document.querySelector("#account-menu"),
+    accountTriggerAvatar: document.querySelector("#account-trigger-avatar"),
+    accountTriggerName: document.querySelector("#account-trigger-name"),
+    accountTriggerRole: document.querySelector("#account-trigger-role"),
+    accountMenuAvatar: document.querySelector("#account-menu-avatar"),
+    accountMenuName: document.querySelector("#account-menu-name"),
+    accountMenuEmail: document.querySelector("#account-menu-email"),
     disconnectButton: document.querySelector("#disconnect-button"),
     deviceApprovalDialog: document.querySelector("#device-approval-dialog"),
     deviceApprovalCode: document.querySelector("#device-approval-code"),
@@ -224,6 +236,11 @@
     openUserAdmin: document.querySelector("#open-user-admin"),
     railUserCount: document.querySelector("#rail-user-count"),
     userAdminView: document.querySelector("#user-admin-view"),
+    userAdminTabs: [...document.querySelectorAll("[data-user-admin-tab]")],
+    userAdminPanels: [...document.querySelectorAll("[data-user-admin-panel]")],
+    userTabCount: document.querySelector("#user-tab-count"),
+    userInvitationTabCount: document.querySelector("#user-invitation-tab-count"),
+    userActivityTabCount: document.querySelector("#user-activity-tab-count"),
     refreshUsers: document.querySelector("#refresh-users"),
     openUserInvitation: document.querySelector("#open-user-invitation"),
     userTotalCount: document.querySelector("#user-total-count"),
@@ -238,7 +255,10 @@
     userDirectoryList: document.querySelector("#user-directory-list"),
     userDirectoryEmpty: document.querySelector("#user-directory-empty"),
     userDetailEmpty: document.querySelector("#user-detail-empty"),
+    userDetailPanel: document.querySelector("#user-detail-panel"),
     userDetailContent: document.querySelector("#user-detail-content"),
+    userDetailTabs: [...document.querySelectorAll("[data-user-detail-tab]")],
+    userDetailPanels: [...document.querySelectorAll("[data-user-detail-panel]")],
     userDetailAvatar: document.querySelector("#user-detail-avatar"),
     userDetailName: document.querySelector("#user-detail-name"),
     userDetailCurrent: document.querySelector("#user-detail-current"),
@@ -472,13 +492,34 @@
       elements.togglePassword.title = showing ? "Mostrar contraseña" : "Ocultar contraseña";
     });
 
-    elements.disconnectButton.addEventListener("click", disconnect);
+    elements.accountMenuTrigger.addEventListener("click", toggleAccountMenu);
+    elements.disconnectButton.addEventListener("click", () => {
+      closeAccountMenu();
+      void disconnect();
+    });
     elements.approveDevice.addEventListener("click", approvePendingDevice);
     elements.cancelDeviceApproval.addEventListener("click", closeDeviceApproval);
     elements.denyDeviceApproval.addEventListener("click", closeDeviceApproval);
     elements.globalRoomMentions.addEventListener("click", openGlobalRoomMentionsDialog);
     elements.refreshProjects.addEventListener("click", () => refreshProjects());
-    elements.openUserAdmin.addEventListener("click", openUserAdministration);
+    elements.openUserAdmin.addEventListener("click", () => {
+      closeAccountMenu();
+      state.selectedUserID = state.principal?.id || state.selectedUserID;
+      state.userDetailTab = "profile";
+      openUserAdministration();
+    });
+    for (const tab of elements.userAdminTabs) {
+      tab.addEventListener("click", () => setUserAdminTab(tab.dataset.userAdminTab));
+      tab.addEventListener("keydown", (event) =>
+        handleManagedTabKey(event, elements.userAdminTabs, setUserAdminTab),
+      );
+    }
+    for (const tab of elements.userDetailTabs) {
+      tab.addEventListener("click", () => setUserDetailTab(tab.dataset.userDetailTab));
+      tab.addEventListener("keydown", (event) =>
+        handleManagedTabKey(event, elements.userDetailTabs, setUserDetailTab),
+      );
+    }
     elements.refreshUsers.addEventListener("click", () => loadUserDirectory({ announce: true }));
     elements.retryUsers.addEventListener("click", () => loadUserDirectory({ announce: true }));
     elements.userSearch.addEventListener("input", renderUserDirectory);
@@ -543,6 +584,84 @@
         loadUserDirectory({ silent: true });
       }
     });
+    document.addEventListener("click", (event) => {
+      if (state.accountMenuOpen && !elements.accountMenuShell.contains(event.target)) closeAccountMenu();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && state.accountMenuOpen) {
+        closeAccountMenu();
+        elements.accountMenuTrigger.focus();
+      }
+    });
+  }
+
+  function toggleAccountMenu() {
+    if (state.accountMenuOpen) {
+      closeAccountMenu();
+      return;
+    }
+    state.accountMenuOpen = true;
+    elements.accountMenu.hidden = false;
+    elements.accountMenuTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  function closeAccountMenu() {
+    state.accountMenuOpen = false;
+    elements.accountMenu.hidden = true;
+    elements.accountMenuTrigger.setAttribute("aria-expanded", "false");
+  }
+
+  function renderAccountMenu() {
+    const account = (state.userDirectory?.users || []).find(
+      (user) => user.principal_id === state.principal?.id,
+    );
+    const displayName = account?.display_name || state.principal?.display_name || "Cuenta";
+    const role = organizationRoleCopy[state.principal?.organization_role] || valueOrDash(state.principal?.organization_role);
+    const avatar = initials(displayName);
+    elements.accountTriggerAvatar.textContent = avatar;
+    elements.accountTriggerName.textContent = displayName;
+    elements.accountTriggerRole.textContent = role;
+    elements.accountMenuAvatar.textContent = avatar;
+    elements.accountMenuName.textContent = displayName;
+    elements.accountMenuEmail.textContent = account?.email || account?.username || "Sesión activa";
+  }
+
+  function handleManagedTabKey(event, tabs, activate) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = tabs.indexOf(event.currentTarget);
+    let next = current;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabs.length - 1;
+    if (event.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+    if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+    const tab = tabs[next];
+    activate(tab.dataset.userAdminTab || tab.dataset.userDetailTab);
+    tab.focus();
+  }
+
+  function setUserAdminTab(tab) {
+    state.userAdminTab = ["users", "invitations", "activity"].includes(tab) ? tab : "users";
+    for (const button of elements.userAdminTabs) {
+      const selected = button.dataset.userAdminTab === state.userAdminTab;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of elements.userAdminPanels) {
+      panel.hidden = panel.dataset.userAdminPanel !== state.userAdminTab;
+    }
+  }
+
+  function setUserDetailTab(tab) {
+    state.userDetailTab = ["profile", "permissions", "security"].includes(tab) ? tab : "profile";
+    for (const button of elements.userDetailTabs) {
+      const selected = button.dataset.userDetailTab === state.userDetailTab;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of elements.userDetailPanels) {
+      panel.hidden = panel.dataset.userDetailPanel !== state.userDetailTab;
+    }
   }
 
   async function prepareAuthenticationForm() {
@@ -667,6 +786,7 @@
       state.principal = principalPayload?.data || principalPayload || null;
       const canManageUsers = ["owner", "admin"].includes(state.principal?.organization_role);
       elements.openUserAdmin.hidden = !canManageUsers;
+      renderAccountMenu();
       showApplication();
       renderProjectList();
       if (state.organizationView === "users") renderSelectedUser();
@@ -727,6 +847,8 @@
     state.userDirectory = null;
     state.selectedUserID = null;
     state.userFilter = "all";
+    state.userAdminTab = "users";
+    state.userDetailTab = "profile";
     state.workspaceSection = "overview";
     state.workspaceRoomDirectories.clear();
     state.workspaceRoomDirectoryLoading.clear();
@@ -749,6 +871,8 @@
   function showAuth() {
     elements.authView.hidden = false;
     elements.appShell.hidden = true;
+    elements.accountMenuShell.hidden = true;
+    closeAccountMenu();
     elements.disconnectButton.hidden = true;
     elements.globalRoomMentions.hidden = true;
     elements.openUserAdmin.hidden = true;
@@ -757,6 +881,7 @@
   function showApplication() {
     elements.authView.hidden = true;
     elements.appShell.hidden = false;
+    elements.accountMenuShell.hidden = false;
     elements.disconnectButton.hidden = false;
     elements.globalRoomMentions.hidden = false;
     elements.openUserAdmin.hidden = !["owner", "admin"].includes(state.principal?.organization_role);
@@ -844,6 +969,7 @@
     if (!["owner", "admin"].includes(state.principal?.organization_role)) return;
     stopLiveUpdates();
     state.organizationView = "users";
+    state.userAdminTab = "users";
     state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
     state.workspaceSection = "overview";
@@ -853,6 +979,8 @@
     elements.userAdminView.hidden = false;
     renderProjectList();
     renderUserAdministration();
+    setUserAdminTab(state.userAdminTab);
+    setUserDetailTab(state.userDetailTab);
     if (!state.userDirectory) void loadUserDirectory({ announce: true });
   }
 
@@ -888,7 +1016,12 @@
     const directory = state.userDirectory;
     const users = directory?.users || [];
     const invitations = directory?.invitations || [];
+    const events = directory?.events || [];
     elements.railUserCount.textContent = directory ? formatInteger(users.length) : "—";
+    elements.userTabCount.textContent = directory ? formatInteger(users.length) : "—";
+    elements.userInvitationTabCount.textContent = directory ? formatInteger(invitations.length) : "—";
+    elements.userActivityTabCount.textContent = directory ? formatInteger(events.length) : "—";
+    renderAccountMenu();
     elements.userTotalCount.textContent = directory ? formatInteger(users.length) : "—";
     elements.userActiveCount.textContent = directory
       ? formatInteger(users.filter((user) => user.status === "active").length)
@@ -901,6 +1034,8 @@
     renderSelectedUser();
     renderPendingInvitations();
     renderUserAudit();
+    setUserAdminTab(state.userAdminTab);
+    setUserDetailTab(state.userDetailTab);
   }
 
   function setUserFilter(filter) {
@@ -928,13 +1063,16 @@
     elements.userDirectoryEmpty.hidden = visible.length !== 0 || !state.userDirectory;
 
     for (const user of visible) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "user-directory-entry";
-      button.classList.toggle("is-selected", user.principal_id === state.selectedUserID);
-      button.classList.toggle("is-disabled", user.status !== "active");
-      button.setAttribute("aria-current", user.principal_id === state.selectedUserID ? "true" : "false");
+      const row = document.createElement("tr");
+      row.className = "user-directory-entry";
+      row.classList.toggle("is-selected", user.principal_id === state.selectedUserID);
+      row.classList.toggle("is-disabled", user.status !== "active");
+      row.setAttribute("aria-selected", String(user.principal_id === state.selectedUserID));
 
+      const personCell = document.createElement("td");
+      const personButton = document.createElement("button");
+      personButton.type = "button";
+      personButton.className = "user-table-person";
       const avatar = document.createElement("span");
       avatar.className = "actor-avatar";
       avatar.textContent = initials(user.display_name);
@@ -945,21 +1083,63 @@
       const email = document.createElement("span");
       email.textContent = valueOrDash(user.email);
       identity.append(name, email);
-      const meta = document.createElement("span");
-      meta.className = "user-directory-entry-meta";
+      personButton.append(avatar, identity);
+      personButton.addEventListener("click", () => selectDirectoryUser(user));
+      personCell.append(personButton);
+
+      const usernameCell = document.createElement("td");
+      usernameCell.className = "user-table-username";
+      usernameCell.textContent = user.username ? `@${user.username}` : "—";
+
+      const roleCell = document.createElement("td");
       const role = document.createElement("span");
       role.className = `user-role-chip role-${user.organization_role || "member"}`;
       role.textContent = organizationRoleCopy[user.organization_role] || valueOrDash(user.organization_role);
-      const status = document.createElement("small");
+      roleCell.append(role);
+
+      const scopeCell = document.createElement("td");
+      scopeCell.className = "user-table-scope";
+      scopeCell.textContent = ["owner", "admin"].includes(user.organization_role)
+        ? "Acceso global"
+        : `${formatInteger((user.project_roles || []).length)} proyecto${(user.project_roles || []).length === 1 ? "" : "s"}`;
+
+      const statusCell = document.createElement("td");
+      const status = document.createElement("span");
+      status.className = "user-status-chip";
+      status.classList.toggle("is-disabled", user.status !== "active");
       status.textContent = user.status === "active" ? "Activo" : "Desactivado";
-      meta.append(role, status);
-      button.append(avatar, identity, meta);
-      button.addEventListener("click", () => {
-        state.selectedUserID = user.principal_id;
-        renderUserDirectory();
-        renderSelectedUser();
-      });
-      elements.userDirectoryList.append(button);
+      statusCell.append(status);
+
+      const lastLoginCell = document.createElement("td");
+      lastLoginCell.className = "user-table-last-login";
+      lastLoginCell.textContent = user.last_login_at ? formatRelativeDate(user.last_login_at) : "Nunca";
+      lastLoginCell.title = user.last_login_at ? formatDateTime(user.last_login_at) : "";
+
+      const actionCell = document.createElement("td");
+      actionCell.className = "user-table-action";
+      const manage = document.createElement("button");
+      manage.type = "button";
+      manage.className = "secondary-button compact-button";
+      manage.textContent = user.principal_id === state.selectedUserID ? "Seleccionado" : "Gestionar";
+      manage.setAttribute("aria-label", `Gestionar a ${user.display_name}`);
+      manage.addEventListener("click", () => selectDirectoryUser(user, { scroll: true }));
+      actionCell.append(manage);
+
+      row.append(personCell, usernameCell, roleCell, scopeCell, statusCell, lastLoginCell, actionCell);
+      elements.userDirectoryList.append(row);
+    }
+  }
+
+  function selectDirectoryUser(user, { scroll = false } = {}) {
+    state.selectedUserID = user.principal_id;
+    state.userDetailTab = "profile";
+    renderUserDirectory();
+    renderSelectedUser();
+    setUserDetailTab(state.userDetailTab);
+    if (scroll) {
+      window.requestAnimationFrame(() =>
+        elements.userDetailPanel.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
     }
   }
 

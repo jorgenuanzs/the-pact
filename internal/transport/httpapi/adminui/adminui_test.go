@@ -29,8 +29,13 @@ func TestHandlerServesControlPlane(t *testing.T) {
 		`id="login-input"`,
 		`id="device-approval-dialog"`,
 		`id="global-room-mentions"`,
+		`id="account-menu-trigger"`,
+		`id="account-menu"`,
 		`id="open-user-admin"`,
 		`id="user-admin-view"`,
+		`id="user-admin-tabs"`,
+		`class="user-directory-table"`,
+		`data-user-detail-tab="permissions"`,
 		`id="user-profile-form"`,
 		`id="user-project-permission-list"`,
 		`id="user-invitation-dialog"`,
@@ -60,7 +65,7 @@ func TestHandlerServesFrontendAssets(t *testing.T) {
 		marker      string
 	}{
 		{path: "/admin/app.js", contentType: "text/javascript; charset=utf-8", marker: "function renderUserAdministration"},
-		{path: "/admin/styles.css", contentType: "text/css; charset=utf-8", marker: ".user-admin-layout"},
+		{path: "/admin/styles.css", contentType: "text/css; charset=utf-8", marker: ".account-menu"},
 	}
 
 	for _, tt := range tests {
