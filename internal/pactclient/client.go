@@ -21,6 +21,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
+	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -231,6 +232,125 @@ func (c *Client) AttachWorkspaceProject(
 	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/projects/" + url.PathEscape(projectID)
 	if err := c.do(ctx, http.MethodPut, path, "", nil, &response); err != nil {
 		return workspaces.Workspace{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) ListRooms(ctx context.Context, workspaceID string) ([]rooms.Room, error) {
+	var response struct {
+		Data struct {
+			Rooms []rooms.Room `json:"rooms"`
+		} `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/rooms"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Rooms == nil {
+		response.Data.Rooms = make([]rooms.Room, 0)
+	}
+	return response.Data.Rooms, nil
+}
+
+func (c *Client) ListRoomParticipants(ctx context.Context, workspaceID string) ([]rooms.Participant, error) {
+	var response struct {
+		Data struct {
+			Participants []rooms.Participant `json:"participants"`
+		} `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/participants"
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Participants == nil {
+		response.Data.Participants = make([]rooms.Participant, 0)
+	}
+	return response.Data.Participants, nil
+}
+
+func (c *Client) ListRoomMessages(ctx context.Context, workspaceID, roomID string, options rooms.MessageListOptions) ([]rooms.Message, error) {
+	var response struct {
+		Data struct {
+			Messages []rooms.Message `json:"messages"`
+		} `json:"data"`
+	}
+	values := make(url.Values)
+	if options.BeforeMessageID != "" {
+		values.Set("before", options.BeforeMessageID)
+	}
+	if options.ThreadRootMessageID != "" {
+		values.Set("thread_root", options.ThreadRootMessageID)
+	}
+	if options.Query != "" {
+		values.Set("q", options.Query)
+	}
+	if options.Limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", options.Limit))
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/rooms/" + url.PathEscape(roomID) + "/messages"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Messages == nil {
+		response.Data.Messages = make([]rooms.Message, 0)
+	}
+	return response.Data.Messages, nil
+}
+
+func (c *Client) CreateRoomMessage(ctx context.Context, workspaceID, roomID, idempotencyKey string, input rooms.CreateMessageInput) (rooms.Message, error) {
+	var response struct {
+		Data rooms.Message `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/rooms/" + url.PathEscape(roomID) + "/messages"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Headers: map[string]string{"Idempotency-Key": idempotencyKey}, Body: input,
+	}, &response); err != nil {
+		return rooms.Message{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) ListAgentRoomMentions(ctx context.Context, sessionID string, options rooms.InboxOptions) ([]rooms.Mention, error) {
+	var response struct {
+		Data struct {
+			Mentions []rooms.Mention `json:"mentions"`
+		} `json:"data"`
+	}
+	values := make(url.Values)
+	if options.WorkspaceID != "" {
+		values.Set("workspace_id", options.WorkspaceID)
+	}
+	if options.Status != "" {
+		values.Set("status", options.Status)
+	}
+	if options.Limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", options.Limit))
+	}
+	path := "/v1/agent-sessions/" + url.PathEscape(sessionID) + "/room-mentions"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Mentions == nil {
+		response.Data.Mentions = make([]rooms.Mention, 0)
+	}
+	return response.Data.Mentions, nil
+}
+
+func (c *Client) UpdateAgentRoomMention(ctx context.Context, sessionID, mentionID, status string) (rooms.Mention, error) {
+	var response struct {
+		Data rooms.Mention `json:"data"`
+	}
+	path := "/v1/agent-sessions/" + url.PathEscape(sessionID) + "/room-mentions/" + url.PathEscape(mentionID) + "/status"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{
+		Body: rooms.MentionStatusInput{Status: status},
+	}, &response); err != nil {
+		return rooms.Mention{}, err
 	}
 	return response.Data, nil
 }

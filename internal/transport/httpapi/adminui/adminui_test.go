@@ -26,6 +26,8 @@ func TestHandlerServesControlPlane(t *testing.T) {
 	body := response.Body.String()
 	for _, marker := range []string{
 		`id="workspace-overview"`,
+		`id="workspace-rooms-title"`,
+		`id="room-message-form"`,
 		`id="project-tabs"`,
 		`data-dashboard-view="live"`,
 		`id="attention-panel"`,
@@ -43,8 +45,8 @@ func TestHandlerServesFrontendAssets(t *testing.T) {
 		contentType string
 		marker      string
 	}{
-		{path: "/admin/app.js", contentType: "text/javascript; charset=utf-8", marker: "function setDashboardView"},
-		{path: "/admin/styles.css", contentType: "text/css; charset=utf-8", marker: ".attention-panel"},
+		{path: "/admin/app.js", contentType: "text/javascript; charset=utf-8", marker: "function renderRoomConversation"},
+		{path: "/admin/styles.css", contentType: "text/css; charset=utf-8", marker: ".workspace-rooms-panel"},
 	}
 
 	for _, tt := range tests {

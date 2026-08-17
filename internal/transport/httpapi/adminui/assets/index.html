@@ -182,6 +182,88 @@
               </article>
             </section>
 
+            <section class="panel workspace-rooms-panel" aria-labelledby="workspace-rooms-title">
+              <header class="panel-header rooms-panel-header">
+                <div>
+                  <p class="section-kicker">CONVERSACIÓN DEL WORKSPACE</p>
+                  <h2 id="workspace-rooms-title">Rooms de contexto</h2>
+                  <p>
+                    Espacios durables creados por personas. El chat solo entra al contexto de un
+                    agente cuando se le menciona o se le pide consultarlo.
+                  </p>
+                </div>
+                <div class="room-header-actions">
+                  <button id="open-room-mentions" class="secondary-button room-mentions-button" type="button">
+                    Menciones <span id="room-mention-count" class="count-chip">0</span>
+                  </button>
+                  <button id="open-create-room" class="primary-button compact-button" type="button">
+                    <span>Nueva room</span>
+                    <span aria-hidden="true">＋</span>
+                  </button>
+                </div>
+              </header>
+
+              <div class="rooms-layout">
+                <aside class="room-directory" aria-label="Rooms del workspace">
+                  <div class="room-directory-heading">
+                    <span>ROOMS</span>
+                    <span id="workspace-room-count">—</span>
+                  </div>
+                  <nav id="workspace-room-list" class="workspace-room-list"></nav>
+                  <p class="room-directory-note">
+                    Las rooms son manuales y estables: un mensaje no crea trabajo ni metadata adicional.
+                  </p>
+                </aside>
+
+                <div class="room-conversation">
+                  <header class="room-conversation-header">
+                    <div>
+                      <h3 id="selected-room-name">Selecciona una room</h3>
+                      <p id="selected-room-description">
+                        Elige un espacio para consultar o enriquecer el contexto compartido.
+                      </p>
+                    </div>
+                    <span id="room-live-status" class="live-label">
+                      <span aria-hidden="true"></span>
+                      En espera
+                    </span>
+                  </header>
+
+                  <div id="room-message-list" class="room-message-list" role="log" aria-live="polite"></div>
+                  <div id="room-message-empty" class="room-message-empty">
+                    <span aria-hidden="true">#</span>
+                    <h3>Esta room todavía está en silencio</h3>
+                    <p>Comparte una decisión, una reunión o menciona a alguien para pedirle contexto.</p>
+                  </div>
+
+                  <form id="room-message-form" class="room-message-form" novalidate>
+                    <div id="room-reply-preview" class="room-reply-preview" hidden>
+                      <span id="room-reply-copy"></span>
+                      <button id="cancel-room-reply" type="button" aria-label="Cancelar respuesta">×</button>
+                    </div>
+                    <div class="room-composer-wrap">
+                      <label class="visually-hidden" for="room-message-input">Mensaje para la room</label>
+                      <textarea
+                        id="room-message-input"
+                        rows="3"
+                        maxlength="50000"
+                        placeholder="Escribe contexto o usa @ para mencionar a una persona o agente…"
+                        disabled
+                      ></textarea>
+                      <div id="room-mention-menu" class="room-mention-menu" role="listbox" hidden></div>
+                    </div>
+                    <div class="room-composer-footer">
+                      <p>Solo se enviarán las menciones que elijas desde la lista.</p>
+                      <button id="send-room-message" class="primary-button compact-button" type="submit" disabled>
+                        <span>Enviar</span>
+                        <span aria-hidden="true">↗</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </section>
+
             <div class="workspace-overview-grid">
               <section class="panel workspace-projects-panel" aria-labelledby="workspace-projects-title">
                 <header class="panel-header">
@@ -595,6 +677,48 @@
         </section>
       </div>
     </main>
+
+    <dialog id="create-room-dialog" class="pact-dialog">
+      <form id="create-room-form" method="dialog" novalidate>
+        <header>
+          <div>
+            <p class="section-kicker">NUEVO ESPACIO HUMANO</p>
+            <h2>Crear una room</h2>
+          </div>
+          <button id="cancel-create-room" class="dialog-close" type="button" aria-label="Cerrar">×</button>
+        </header>
+        <p class="muted">
+          Úsala para un tema durable del workspace, no para convertir cada tarea pequeña en una sala.
+        </p>
+        <div class="field">
+          <label for="create-room-name">Nombre</label>
+          <input id="create-room-name" name="name" maxlength="120" placeholder="Diseño de producto" required />
+        </div>
+        <div class="field">
+          <label for="create-room-description">Propósito</label>
+          <textarea id="create-room-description" name="description" rows="4" maxlength="2000" placeholder="Qué conversación pertenece aquí y cuándo debería consultarse."></textarea>
+        </div>
+        <footer>
+          <button class="secondary-button" type="button" data-close-room-dialog>Cancelar</button>
+          <button id="create-room-submit" class="primary-button" type="submit">
+            <span>Crear room</span><span aria-hidden="true">→</span>
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="room-mentions-dialog" class="pact-dialog room-mentions-dialog">
+      <section>
+        <header>
+          <div>
+            <p class="section-kicker">PARA TI</p>
+            <h2>Menciones pendientes</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-mentions-dialog aria-label="Cerrar">×</button>
+        </header>
+        <div id="room-mention-list" class="room-mention-list"></div>
+      </section>
+    </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   </body>

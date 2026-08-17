@@ -27,6 +27,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
+	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 	"github.com/jorgenuanzs/the-pact/internal/worktree"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -293,6 +294,30 @@ type mcpWorkspaceContextOutput struct {
 	Context knowledge.WorkspaceContext `json:"context"`
 }
 
+type mcpRoomsInput struct {
+	Action              string   `json:"action" jsonschema:"list participants read post inbox or acknowledge"`
+	RoomID              string   `json:"room_id,omitempty" jsonschema:"room UUID required for read and post"`
+	Body                string   `json:"body,omitempty" jsonschema:"message body required for post"`
+	ReplyToMessageID    string   `json:"reply_to_message_id,omitempty" jsonschema:"optional message UUID to reply to"`
+	MentionActorIDs     []string `json:"mention_actor_ids,omitempty" jsonschema:"actor UUIDs to notify; obtain them with participants"`
+	BeforeMessageID     string   `json:"before_message_id,omitempty" jsonschema:"read messages older than this message UUID"`
+	ThreadRootMessageID string   `json:"thread_root_message_id,omitempty" jsonschema:"read only one thread rooted at this message UUID"`
+	Query               string   `json:"query,omitempty" jsonschema:"full-text search query for read"`
+	Limit               int      `json:"limit,omitempty" jsonschema:"maximum messages or mentions from 1 to 100"`
+	MentionID           string   `json:"mention_id,omitempty" jsonschema:"mention UUID to acknowledge, or mark responded after post"`
+	Status              string   `json:"status,omitempty" jsonschema:"inbox filter or acknowledgement status: pending read responded dismissed or all"`
+}
+
+type mcpRoomsOutput struct {
+	WorkspaceID  string              `json:"workspace_id"`
+	Rooms        []rooms.Room        `json:"rooms,omitempty"`
+	Participants []rooms.Participant `json:"participants,omitempty"`
+	Messages     []rooms.Message     `json:"messages,omitempty"`
+	Mentions     []rooms.Mention     `json:"mentions,omitempty"`
+	Message      *rooms.Message      `json:"message,omitempty"`
+	Mention      *rooms.Mention      `json:"mention,omitempty"`
+}
+
 type mcpOfferHandoffInput struct {
 	IntentID        string                           `json:"intent_id" jsonschema:"PACT intent identifier"`
 	Summary         string                           `json:"summary" jsonschema:"self-contained durable summary for the receiving collaborator"`
@@ -443,6 +468,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 			Instructions: "Use pact.project_context before beginning project work. " +
 				"Its workspace field identifies the durable shared context boundary for this project. " +
 				"Use pact.workspace_context when you need the current accepted decisions, requirements, constraints, questions, risks, and sources. " +
+				"Workspace rooms are human-organized soft context and are never injected automatically; use pact.rooms only when asked to read a room, check mentions, or participate. " +
 				"Register durable sources with pact.add_resource and propose reusable facts with pact.propose_record instead of copying private conversations. " +
 				"Use pact.list_repositories to learn the complete project repository set and its purposes. Use pact.get_repository_sync to distinguish a GitHub-verified commit from this checkout's local HEAD; maintainers may call pact.sync_repository when a fresh verification is necessary. " +
 				"Before modifying files, call pact.check_scopes and then pact.start_work; " +
@@ -490,6 +516,14 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
 		},
 	}, runtime.workspaceContext)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "pact.rooms",
+		Title:       "Participate in PACT Workspace rooms",
+		Description: "List human-created rooms and participants, read bounded message context, post or reply with explicit mentions, inspect this agent's mention inbox, or acknowledge a mention. Room history is returned only when this tool is called and never creates an intent.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &nonDestructive, OpenWorldHint: &closedWorld,
+		},
+	}, runtime.rooms)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.list_resources",
 		Title:       "List shared knowledge resources",
@@ -792,6 +826,75 @@ func (r *mcpRuntime) workspaceContext(
 		return nil, mcpWorkspaceContextOutput{}, err
 	}
 	return nil, mcpWorkspaceContextOutput{Context: value}, nil
+}
+
+func (r *mcpRuntime) rooms(
+	ctx context.Context, _ *mcp.CallToolRequest, input mcpRoomsInput,
+) (*mcp.CallToolResult, mcpRoomsOutput, error) {
+	workspace, err := r.connectedWorkspace(ctx)
+	if err != nil {
+		return nil, mcpRoomsOutput{}, err
+	}
+	output := mcpRoomsOutput{WorkspaceID: workspace.ID}
+	switch strings.ToLower(strings.TrimSpace(input.Action)) {
+	case "list":
+		output.Rooms, err = r.client.ListRooms(ctx, workspace.ID)
+	case "participants":
+		output.Participants, err = r.client.ListRoomParticipants(ctx, workspace.ID)
+	case "read":
+		if strings.TrimSpace(input.RoomID) == "" {
+			return nil, mcpRoomsOutput{}, errors.New("pact.rooms read requires room_id")
+		}
+		output.Messages, err = r.client.ListRoomMessages(ctx, workspace.ID, input.RoomID, rooms.MessageListOptions{
+			BeforeMessageID:     input.BeforeMessageID,
+			ThreadRootMessageID: input.ThreadRootMessageID,
+			Query:               input.Query,
+			Limit:               input.Limit,
+		})
+	case "post":
+		if strings.TrimSpace(input.RoomID) == "" || strings.TrimSpace(input.Body) == "" {
+			return nil, mcpRoomsOutput{}, errors.New("pact.rooms post requires room_id and body")
+		}
+		key, keyErr := newIdempotencyKey("pact-room-message")
+		if keyErr != nil {
+			return nil, mcpRoomsOutput{}, keyErr
+		}
+		message, postErr := r.client.CreateRoomMessage(ctx, workspace.ID, input.RoomID, key, rooms.CreateMessageInput{
+			Body: input.Body, ReplyToMessageID: input.ReplyToMessageID,
+			MentionActorIDs: input.MentionActorIDs, AuthorSessionID: r.session.ID,
+		})
+		if postErr != nil {
+			return nil, mcpRoomsOutput{}, postErr
+		}
+		output.Message = &message
+		if strings.TrimSpace(input.MentionID) != "" {
+			mention, updateErr := r.client.UpdateAgentRoomMention(ctx, r.session.ID, input.MentionID, "responded")
+			if updateErr != nil {
+				return nil, mcpRoomsOutput{}, updateErr
+			}
+			output.Mention = &mention
+		}
+	case "inbox":
+		output.Mentions, err = r.client.ListAgentRoomMentions(ctx, r.session.ID, rooms.InboxOptions{
+			WorkspaceID: workspace.ID, Status: input.Status, Limit: input.Limit,
+		})
+	case "acknowledge":
+		if strings.TrimSpace(input.MentionID) == "" {
+			return nil, mcpRoomsOutput{}, errors.New("pact.rooms acknowledge requires mention_id")
+		}
+		status := strings.ToLower(strings.TrimSpace(input.Status))
+		if status == "" {
+			status = "read"
+		}
+		mention, updateErr := r.client.UpdateAgentRoomMention(ctx, r.session.ID, input.MentionID, status)
+		if updateErr != nil {
+			return nil, mcpRoomsOutput{}, updateErr
+		}
+		output.Mention = &mention
+	default:
+		return nil, mcpRoomsOutput{}, errors.New("pact.rooms action must be list, participants, read, post, inbox, or acknowledge")
+	}
+	return nil, output, err
 }
 
 func (r *mcpRuntime) listResources(

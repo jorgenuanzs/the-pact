@@ -22,6 +22,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
+	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -154,6 +155,38 @@ type fakeWorkspaceService struct {
 	get    func(context.Context, string) (workspaces.Workspace, error)
 	list   func(context.Context) ([]workspaces.Workspace, error)
 	attach func(context.Context, string, string) (workspaces.Workspace, error)
+}
+
+type fakeRoomService struct {
+	createMessage func(context.Context, string, bool, string, string, string, rooms.CreateMessageInput) (rooms.CreateMessageResult, error)
+}
+
+func (fakeRoomService) CreateRoom(context.Context, string, string, string, rooms.CreateRoomInput) (rooms.CreateRoomResult, error) {
+	return rooms.CreateRoomResult{}, nil
+}
+
+func (fakeRoomService) ListRooms(context.Context, string) ([]rooms.Room, error) {
+	return nil, nil
+}
+
+func (fakeRoomService) ListParticipants(context.Context, string) ([]rooms.Participant, error) {
+	return nil, nil
+}
+
+func (f fakeRoomService) CreateMessage(ctx context.Context, principalID string, allowAll bool, workspaceID, roomID, key string, input rooms.CreateMessageInput) (rooms.CreateMessageResult, error) {
+	return f.createMessage(ctx, principalID, allowAll, workspaceID, roomID, key, input)
+}
+
+func (fakeRoomService) ListMessages(context.Context, string, string, rooms.MessageListOptions) ([]rooms.Message, error) {
+	return nil, nil
+}
+
+func (fakeRoomService) ListInbox(context.Context, string, bool, string, rooms.InboxOptions) ([]rooms.Mention, error) {
+	return nil, nil
+}
+
+func (fakeRoomService) UpdateMention(context.Context, string, bool, string, string, rooms.MentionStatusInput) (rooms.Mention, error) {
+	return rooms.Mention{}, nil
 }
 
 func (f fakeWorkspaceService) Create(ctx context.Context, key string, input workspaces.CreateInput) (workspaces.CreateResult, error) {
@@ -942,6 +975,56 @@ func TestProjectOverviewDoesNotReadAcrossProjectBoundary(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestCreateRoomMessageAttributesHumanAndForwardsExplicitMentions(t *testing.T) {
+	const (
+		workspaceID = "018f784a-68c1-7b0f-8f2a-cfc255f99e10"
+		roomID      = "018f784a-68c1-7b0f-8f2a-cfc255f99e11"
+		agentID     = "018f784a-68c1-7b0f-8f2a-cfc255f99e12"
+	)
+	roomService := fakeRoomService{createMessage: func(
+		_ context.Context, principalID string, allowAll bool,
+		receivedWorkspaceID, receivedRoomID, key string, input rooms.CreateMessageInput,
+	) (rooms.CreateMessageResult, error) {
+		if principalID != access.BootstrapPrincipalID || !allowAll {
+			t.Fatalf("principal=%q allowAll=%t", principalID, allowAll)
+		}
+		if receivedWorkspaceID != workspaceID || receivedRoomID != roomID || key != "room-message-key" {
+			t.Fatalf("workspace=%q room=%q key=%q", receivedWorkspaceID, receivedRoomID, key)
+		}
+		if input.Body != "@codex revisa esta decisión" || len(input.MentionActorIDs) != 1 || input.MentionActorIDs[0] != agentID || input.AuthorSessionID != "" {
+			t.Fatalf("input = %#v", input)
+		}
+		return rooms.CreateMessageResult{Message: rooms.Message{ID: roomID, WorkspaceID: workspaceID, RoomID: roomID, Body: input.Body}}, nil
+	}}
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		WorkspaceService: fakeWorkspaceService{get: func(context.Context, string) (workspaces.Workspace, error) {
+			return workspaces.Workspace{ID: workspaceID, Status: "active"}, nil
+		}},
+		RoomService:      roomService,
+		AccessService:    fakeAccessService{},
+		BackofficeReader: fakeBackofficeReader{},
+		EventReader:      fakeEventReader{},
+	})
+	request := authenticatedRequest(
+		http.MethodPost,
+		"/v1/workspaces/"+workspaceID+"/rooms/"+roomID+"/messages",
+		`{"body":"@codex revisa esta decisión","mention_actor_ids":["`+agentID+`"]}`,
+	)
+	request.Header.Set("Idempotency-Key", "room-message-key")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
