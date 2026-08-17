@@ -25,7 +25,15 @@ func TestHandlerServesControlPlane(t *testing.T) {
 
 	body := response.Body.String()
 	for _, marker := range []string{
+		`id="auth-form"`,
+		`id="login-input"`,
+		`id="device-approval-dialog"`,
 		`id="global-room-mentions"`,
+		`id="open-user-admin"`,
+		`id="user-admin-view"`,
+		`id="user-profile-form"`,
+		`id="user-project-permission-list"`,
+		`id="user-invitation-dialog"`,
 		`id="workspace-overview"`,
 		`id="workspace-conversations"`,
 		`id="workspace-rooms-title"`,
@@ -51,8 +59,8 @@ func TestHandlerServesFrontendAssets(t *testing.T) {
 		contentType string
 		marker      string
 	}{
-		{path: "/admin/app.js", contentType: "text/javascript; charset=utf-8", marker: "function createWorkspaceNavigationButton"},
-		{path: "/admin/styles.css", contentType: "text/css; charset=utf-8", marker: ".workspace-navigation-button"},
+		{path: "/admin/app.js", contentType: "text/javascript; charset=utf-8", marker: "function renderUserAdministration"},
+		{path: "/admin/styles.css", contentType: "text/css; charset=utf-8", marker: ".user-admin-layout"},
 	}
 
 	for _, tt := range tests {

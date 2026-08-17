@@ -10,15 +10,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
-	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentconfig"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
 	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
@@ -105,7 +107,7 @@ func runRepository(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -168,7 +170,7 @@ func runWorkspace(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -366,7 +368,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -500,7 +502,7 @@ func runNode(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -685,11 +687,12 @@ func maintainHeartbeat(
 	}
 }
 
-func runLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+func runLogin(args []string, _ io.Reader, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact login", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	serverURL := flags.String("server", "", "Pact Server URL")
-	tokenStdin := flags.Bool("token-stdin", false, "read the API token from standard input")
+	deviceName := flags.String("device-name", "", "name shown for this computer")
+	noBrowser := flags.Bool("no-browser", false, "print the verification URL without opening it")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -703,42 +706,120 @@ func runLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return errors.New("pact login requires --server")
 	}
 
-	token := strings.TrimSpace(os.Getenv("PACT_API_TOKEN"))
-	if *tokenStdin {
-		content, err := io.ReadAll(io.LimitReader(stdin, 4097))
-		if err != nil {
-			return fmt.Errorf("read API token: %w", err)
-		}
-		if len(content) > 4096 {
-			return errors.New("API token is too large")
-		}
-		token = strings.TrimSpace(string(content))
-	}
-	if token == "" {
-		return errors.New("set PACT_API_TOKEN or use --token-stdin")
-	}
 	normalizedServer, err := userconfig.NormalizeServerURL(*serverURL)
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(normalizedServer, token)
+	name := strings.TrimSpace(*deviceName)
+	if name == "" {
+		hostname, hostnameErr := os.Hostname()
+		if hostnameErr != nil || strings.TrimSpace(hostname) == "" {
+			hostname = "This computer"
+		}
+		name = hostname + " (Pact CLI)"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	authorization, err := pactclient.BeginDeviceAuthorization(ctx, normalizedServer, authn.BeginDeviceInput{DeviceName: name})
+	defer cancel()
+	if err != nil {
+		return fmt.Errorf("begin device login with %s: %w", normalizedServer, err)
+	}
+	verificationURL, err := resolveServerURL(normalizedServer, authorization.VerificationURI)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	principal, err := client.Me(ctx)
-	if err != nil {
-		return fmt.Errorf("authenticate with %s: %w", normalizedServer, err)
+	fmt.Fprintf(stdout, "Open this URL and approve the device:\n  %s\n", verificationURL)
+	fmt.Fprintf(stdout, "Confirm that Pact shows this code:\n  %s\n", authorization.UserCode)
+	if !*noBrowser {
+		if err := openBrowser(verificationURL); err != nil {
+			fmt.Fprintf(stderr, "Could not open the browser automatically: %v\n", err)
+		}
 	}
-	path, err := userconfig.Save(normalizedServer, token)
+
+	interval := time.Duration(authorization.IntervalSeconds) * time.Second
+	if interval < time.Second {
+		interval = 2 * time.Second
+	}
+	deadline := time.Until(authorization.ExpiresAt)
+	if deadline <= 0 {
+		return errors.New("device authorization expired before it could be approved")
+	}
+	pollContext, cancelPoll := context.WithTimeout(context.Background(), deadline+time.Second)
+	defer cancelPoll()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var exchange authn.DeviceExchange
+	for {
+		select {
+		case <-pollContext.Done():
+			return errors.New("device authorization expired; run pact login again")
+		case <-ticker.C:
+			exchange, err = pactclient.ExchangeDeviceAuthorization(pollContext, normalizedServer, authorization.DeviceCode)
+			if err != nil {
+				return fmt.Errorf("complete device login: %w", err)
+			}
+			if exchange.Status == "pending" {
+				continue
+			}
+			if exchange.Status != "authorized" || exchange.DeviceCredential == "" {
+				return fmt.Errorf("unexpected device authorization status %q", exchange.Status)
+			}
+			goto authorized
+		}
+	}
+
+authorized:
+	client, err := pactclient.New(normalizedServer, exchange.DeviceCredential)
+	if err != nil {
+		return err
+	}
+	verifyContext, cancelVerify := context.WithTimeout(context.Background(), 15*time.Second)
+	principal, err := client.Me(verifyContext)
+	cancelVerify()
+	if err != nil {
+		return fmt.Errorf("verify device login with %s: %w", normalizedServer, err)
+	}
+	path, err := userconfig.Save(normalizedServer, exchange.DeviceCredential)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Logged in to %s\n", normalizedServer)
 	fmt.Fprintf(stdout, "  identity            %s (%s)\n", principal.DisplayName, principal.OrganizationRole)
+	fmt.Fprintf(stdout, "  device              %s\n", name)
 	fmt.Fprintf(stdout, "  user configuration  %s\n", path)
-	fmt.Fprintln(stdout, "The token was stored outside project repositories in the user's private configuration.")
+	fmt.Fprintln(stdout, "This computer received its own revocable credential; no password was sent to the CLI.")
+	return nil
+}
+
+func resolveServerURL(serverURL, reference string) (string, error) {
+	base, err := url.Parse(serverURL)
+	if err != nil {
+		return "", fmt.Errorf("parse Pact Server URL: %w", err)
+	}
+	parsed, err := url.Parse(strings.TrimSpace(reference))
+	if err != nil {
+		return "", fmt.Errorf("parse device verification URL: %w", err)
+	}
+	resolved := base.ResolveReference(parsed)
+	if (resolved.Scheme != "http" && resolved.Scheme != "https") || resolved.Host == "" || resolved.User != nil {
+		return "", errors.New("Pact Server returned an invalid device verification URL")
+	}
+	return resolved.String(), nil
+}
+
+func openBrowser(address string) error {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		command = exec.Command("open", address)
+	case "windows":
+		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", address)
+	default:
+		command = exec.Command("xdg-open", address)
+	}
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("open %s: %w", address, err)
+	}
 	return nil
 }
 
@@ -772,7 +853,7 @@ func runInvite(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -785,8 +866,8 @@ func runInvite(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "Invitation created for %s as %s; expires %s\n", created.Invitation.Email, created.Invitation.Role, created.Invitation.ExpiresAt.Format(time.RFC3339))
-	fmt.Fprintln(stdout, "Send this secret through a private channel. It is shown only once:")
-	fmt.Fprintln(stdout, created.Secret)
+	fmt.Fprintln(stdout, "Send this private, one-time registration URL:")
+	fmt.Fprintf(stdout, "%s/admin/#invite=%s\n", strings.TrimRight(login.ServerURL, "/"), url.QueryEscape(created.Secret))
 	return nil
 }
 
@@ -794,16 +875,16 @@ func runJoin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact join", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	serverURL := flags.String("server", "", "Pact Server URL")
-	name := flags.String("name", "", "your display name")
 	inviteStdin := flags.Bool("invite-stdin", false, "read the one-time invitation secret from standard input")
+	noBrowser := flags.Bool("no-browser", false, "print the registration URL without opening it")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(*serverURL) == "" || strings.TrimSpace(*name) == "" || !*inviteStdin {
-		return errors.New("pact join requires --server, --name, and --invite-stdin")
+	if flags.NArg() != 0 || strings.TrimSpace(*serverURL) == "" || !*inviteStdin {
+		return errors.New("pact join requires --server and --invite-stdin")
 	}
 	secret, err := readSecret(stdin, "invitation secret")
 	if err != nil {
@@ -813,26 +894,14 @@ func runJoin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	hostname, err := os.Hostname()
-	if err != nil || strings.TrimSpace(hostname) == "" {
-		hostname = "Pact CLI"
+	registrationURL := normalizedServer + "/admin/#invite=" + url.QueryEscape(secret)
+	fmt.Fprintf(stdout, "Create your Pact account in the browser:\n  %s\n", registrationURL)
+	if !*noBrowser {
+		if err := openBrowser(registrationURL); err != nil {
+			fmt.Fprintf(stderr, "Could not open the browser automatically: %v\n", err)
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	accepted, err := pactclient.AcceptInvitation(ctx, normalizedServer, access.AcceptInvitationInput{
-		Secret: secret, DisplayName: strings.TrimSpace(*name), TokenName: hostname,
-	})
-	if err != nil {
-		return fmt.Errorf("accept invitation: %w", err)
-	}
-	path, err := userconfig.Save(normalizedServer, accepted.AccessToken)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Joined Pact as %s (%s)\n", accepted.Principal.DisplayName, accepted.ProjectRole)
-	fmt.Fprintf(stdout, "  Pact Server         %s\n", normalizedServer)
-	fmt.Fprintf(stdout, "  user configuration  %s\n", path)
-	fmt.Fprintf(stdout, "  token expires        %s\n", accepted.ExpiresAt.Format(time.RFC3339))
+	fmt.Fprintln(stdout, "After registration, run pact login --server "+normalizedServer+" to authorize this computer.")
 	return nil
 }
 
@@ -849,7 +918,7 @@ func runWhoAmI(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -862,7 +931,6 @@ func runWhoAmI(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "%s\n", principal.DisplayName)
 	fmt.Fprintf(stdout, "  principal ID       %s\n", principal.ID)
 	fmt.Fprintf(stdout, "  organization role  %s\n", principal.OrganizationRole)
-	fmt.Fprintf(stdout, "  bootstrap           %t\n", principal.Bootstrap)
 	fmt.Fprintf(stdout, "  Pact Server         %s\n", login.ServerURL)
 	return nil
 }
@@ -870,27 +938,27 @@ func runWhoAmI(args []string, stdout, stderr io.Writer) error {
 func runLogout(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact logout", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	revoke := flags.Bool("revoke", false, "revoke the current personal token before removing it locally")
+	localOnly := flags.Bool("local-only", false, "remove local login without revoking the device on the server")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("pact logout accepts no arguments")
 	}
-	if *revoke {
+	if !*localOnly {
 		login, err := userconfig.Load()
 		if err != nil {
 			return err
 		}
-		client, err := pactclient.New(login.ServerURL, login.APIToken)
+		client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 		if err != nil {
 			return err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		err = client.RevokeCurrentToken(ctx)
+		err = client.RevokeCurrentDevice(ctx)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("revoke current token: %w", err)
+			return fmt.Errorf("revoke current device: %w (use --local-only only if the server is unavailable)", err)
 		}
 	}
 	if err := userconfig.Delete(); err != nil {
@@ -950,7 +1018,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -1013,7 +1081,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}
@@ -1162,12 +1230,12 @@ func printProjectBinding(
 	fmt.Fprintf(stdout, "  local runtime    %s\n", localDirectory)
 	fmt.Fprintf(stdout, "  Pact Server      %s\n", serverURL)
 	fmt.Fprintf(stdout, "  remote project   %s (%s)\n", project.Slug, project.ID)
-	fmt.Fprintln(stdout, "No database credentials or API tokens were written to the project.")
+	fmt.Fprintln(stdout, "No database credentials, passwords, or device credentials were written to the project.")
 }
 
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "Usage:")
-	fmt.Fprintln(writer, "  pact login --server URL [--token-stdin]")
+	fmt.Fprintln(writer, "  pact login --server URL [--device-name NAME] [--no-browser]")
 	fmt.Fprintln(writer, "  pact init [--server URL] [--name NAME] [PATH]")
 	fmt.Fprintln(writer, "  pact connect [--server URL] [--project SLUG_OR_ID] [PATH]")
 	fmt.Fprintln(writer, "  pact workspace list")
@@ -1180,9 +1248,9 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact enable codex [--path PATH]")
 	fmt.Fprintln(writer, "  pact enable claude [--path PATH]")
 	fmt.Fprintln(writer, "  pact invite create --email EMAIL [--role ROLE] [--path PATH]")
-	fmt.Fprintln(writer, "  pact join --server URL --name NAME --invite-stdin")
+	fmt.Fprintln(writer, "  pact join --server URL --invite-stdin [--no-browser]")
 	fmt.Fprintln(writer, "  pact whoami")
-	fmt.Fprintln(writer, "  pact logout [--revoke]")
+	fmt.Fprintln(writer, "  pact logout [--local-only]")
 	fmt.Fprintln(writer, "  pact agent run --client TYPE [--name NAME] [--path PATH] [-- COMMAND ...]")
 	fmt.Fprintln(writer, "  pact node run [--path PATH] [--interval 2s] [--once]")
 	fmt.Fprintln(writer, "  pact mcp serve --client TYPE [--name NAME] [--path PATH]")

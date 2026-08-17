@@ -30,12 +30,11 @@ make cli
 ```
 
 El destino detecta macOS o Linux y las arquitecturas arm64 o amd64. Primero
-inicia sesión en Pact Server:
+inicia sesión en Pact Server. El CLI abre el navegador para confirmar este
+dispositivo con tu cuenta:
 
 ```sh
-printf '%s' "$PACT_LOCAL_API_TOKEN" | ./bin/pact login \
-  --server http://127.0.0.1:8080 \
-  --token-stdin
+./bin/pact login --server http://127.0.0.1:8080
 ```
 
 Después ejecuta:
@@ -52,8 +51,8 @@ pact.yaml          manifiesto compartido, debe versionarse con Git
 ```
 
 La configuración local contiene la URL de Pact Server y el UUID remoto del
-proyecto, pero no tokens ni credenciales de PostgreSQL. La credencial personal
-o bootstrap se guarda fuera de todos los repositorios en
+proyecto, pero no contraseñas ni credenciales de PostgreSQL. La credencial
+revocable del dispositivo se guarda fuera de todos los repositorios en
 `~/.config/pact/config.json` en macOS y Linux, o en
 `%APPDATA%\Pact\config.json` en Windows. Unix aplica permisos `0600`; Windows
 protege el archivo mediante las ACL heredadas del perfil privado del usuario.
@@ -85,41 +84,45 @@ la conversación ni la salida del proceso. Para una prueba sin un cliente de IA:
 ./bin/pact agent run --client test -- sleep 30
 ```
 
-## Acceso personal e invitaciones
+## Cuentas, dispositivos e invitaciones
 
-La credencial `PACT_LOCAL_API_TOKEN` es el bootstrap de recuperación. Para crear
-la primera identidad owner desde un proyecto conectado:
+`PACT_SETUP_TOKEN` sirve solamente para crear la primera cuenta propietaria en
+el backoffice y debe retirarse después del entorno del servidor. Una cuenta con
+permisos puede invitar a un colaborador desde un proyecto conectado:
 
 ```sh
 ./bin/pact invite create \
-  --email owner@example.com \
-  --role owner
+  --email collaborator@example.com \
+  --role contributor
 ```
 
-Solo el bootstrap puede emitir `owner`. Un owner o maintainer puede invitar
-colaboradores con `maintainer`, `contributor` o `viewer`, según sus permisos.
+Un owner de la organización puede emitir `owner`. Un owner o maintainer del
+proyecto puede invitar otros roles según sus permisos.
 La invitación dura 24 horas por defecto y admite `--expires` entre `1h` y
 `168h`.
 
-El colaborador consume el secreto mediante stdin:
+El comando devuelve una URL de registro privada. Si el colaborador recibe solo
+el secreto, puede abrir esa misma pantalla mediante:
 
 ```sh
 printf '%s' "$PACT_INVITATION" | ./bin/pact join \
   --server http://127.0.0.1:8080 \
-  --name "Local collaborator" \
   --invite-stdin
 ```
 
 Puede comprobar y retirar su identidad así:
 
 ```sh
+./bin/pact login --server http://127.0.0.1:8080
 ./bin/pact whoami
-./bin/pact logout --revoke
+./bin/pact logout
 ```
 
-PostgreSQL conserva solamente digests de invitaciones y tokens. El secreto no
-se envía en URLs y las respuestas que lo muestran declaran `Cache-Control:
-no-store`. Consulta [ADR-0006](adr/0006-personal-access-and-project-roles.md).
+PostgreSQL conserva solamente digests de invitaciones, sesiones y credenciales
+de dispositivo. El secreto de invitación viaja en el fragmento `#invite` de la
+URL de registro, que el navegador no envía al servidor; la aplicación lo
+intercambia en el cuerpo de una solicitud con `Cache-Control: no-store`.
+Consulta [ADR-0017](adr/0017-local-accounts-web-sessions-and-device-authorization.md).
 
 ## Preparación
 
@@ -217,16 +220,17 @@ Las respuestas exitosas utilizan un sobre `data`, por ejemplo:
 {"data":{"status":"ready"}}
 ```
 
-## Autenticación local
+## Autenticación para ejemplos de API
 
-Las operaciones de proyecto requieren el token Bearer configurado en `.env`.
-Exporta en tu terminal el mismo valor antes de ejecutar los ejemplos:
+Las operaciones de proyecto aceptan la credencial del dispositivo emitida por
+`pact login`. Para utilizar los ejemplos con `curl`, léela desde la
+configuración privada del usuario:
 
 ```sh
-export PACT_LOCAL_API_TOKEN='reemplaza-este-valor'
+export PACT_DEVICE_CREDENTIAL="$(jq -r .device_credential ~/.config/pact/config.json)"
 ```
 
-No copies el token en documentación, logs, commits ni historiales compartidos.
+No copies esta credencial en documentación, logs, commits ni historiales compartidos.
 
 ## Backoffice local
 
@@ -237,14 +241,10 @@ http://127.0.0.1:8080/admin/
 ```
 
 `/admin` redirige a la ruta canónica `/admin/`. La página y sus recursos
-estáticos no contienen el token ni datos del proyecto. Introduce un token
-personal; el bootstrap de `.env` debe reservarse para recuperación.
-
-El navegador conserva el token únicamente en `sessionStorage` y lo envía en el
-encabezado Bearer de cada consulta. No se almacena en `localStorage`, cookies,
-la URL ni Pact Server. Cerrar la pestaña o la sesión del navegador elimina ese
-estado. Este mecanismo pertenece al perfil local confiable; no sustituye un
-sistema de identidad para equipos.
+estáticos no contienen credenciales ni datos del proyecto. El usuario inicia
+sesión con usuario o correo y contraseña. Pact entrega una cookie HttpOnly,
+SameSite=Strict y, en HTTPS, Secure; las mutaciones requieren además el secreto
+CSRF ligado a la sesión.
 
 El backoffice utiliza:
 
@@ -256,6 +256,10 @@ GET /v1/workspaces/{workspace_id}/rooms
 GET /v1/workspaces/{workspace_id}/rooms/{room_id}/messages
 POST /v1/workspaces/{workspace_id}/rooms/{room_id}/messages
 GET /v1/me/room-mentions?workspace_id={workspace_id}
+GET /v1/admin/users
+PATCH /v1/admin/users/{principal_id}
+PUT /v1/admin/users/{principal_id}/projects/{project_id}
+POST /v1/admin/invitations
 ```
 
 La lista permite seleccionar un proyecto. El overview reúne sus contadores,
@@ -270,6 +274,14 @@ cliente consulta únicamente los últimos cincuenta mensajes de la room abierta
 y actualiza esa ventana cada cinco segundos. Las rooms no crean intents,
 scopes, ramas ni worktrees. Consulta
 [ADR-0016](adr/0016-workspace-context-rooms.md).
+
+Los propietarios y administradores ven además **Usuarios y permisos** en la
+navegación organizacional. Esa sección administra cuentas, invitaciones,
+sesiones y acceso por proyecto. Desactivar sustituye a eliminar: revoca los
+accesos inmediatamente y conserva la atribución histórica. Las protecciones
+del último propietario y de la cuenta actual se aplican también en PostgreSQL,
+no dependen de la interfaz. Consulta
+[ADR-0018](adr/0018-organization-user-administration.md).
 
 La actividad del código utiliza estos estados:
 
@@ -375,7 +387,7 @@ la misma clave devuelve el resultado original sin crear otro proyecto.
 ```sh
 curl --fail-with-body --silent --show-error \
   --request POST \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   --header 'Content-Type: application/json' \
   --header 'Idempotency-Key: local-create-the-pact-001' \
   --data '{
@@ -407,7 +419,7 @@ export PACT_PROJECT_ID='identificador-devuelto-por-la-api'
 
 ```sh
 curl --fail-with-body --silent --show-error \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   "http://127.0.0.1:8080/v1/projects/${PACT_PROJECT_ID}"
 ```
 
@@ -415,7 +427,7 @@ curl --fail-with-body --silent --show-error \
 
 ```sh
 curl --fail-with-body --silent --show-error \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   http://127.0.0.1:8080/v1/projects
 ```
 
@@ -423,7 +435,7 @@ curl --fail-with-body --silent --show-error \
 
 ```sh
 curl --fail-with-body --silent --show-error \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   "http://127.0.0.1:8080/v1/projects/${PACT_PROJECT_ID}/overview"
 ```
 
@@ -441,7 +453,7 @@ Para obtener los primeros cien eventos:
 
 ```sh
 curl --fail-with-body --silent --show-error \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   "http://127.0.0.1:8080/v1/projects/${PACT_PROJECT_ID}/events?limit=100"
 ```
 
@@ -449,7 +461,7 @@ Para continuar después de un cursor:
 
 ```sh
 curl --fail-with-body --silent --show-error \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   "http://127.0.0.1:8080/v1/projects/${PACT_PROJECT_ID}/events?after=1&limit=100"
 ```
 
@@ -459,7 +471,7 @@ curl --fail-with-body --silent --show-error \
 
 ```sh
 curl --no-buffer \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   "http://127.0.0.1:8080/v1/projects/${PACT_PROJECT_ID}/events/stream"
 ```
 
@@ -468,7 +480,7 @@ Después de una desconexión, reanuda el stream enviando como `Last-Event-ID` el
 
 ```sh
 curl --no-buffer \
-  --header "Authorization: Bearer ${PACT_LOCAL_API_TOKEN}" \
+  --header "Authorization: Bearer ${PACT_DEVICE_CREDENTIAL}" \
   --header 'Last-Event-ID: 1' \
   "http://127.0.0.1:8080/v1/projects/${PACT_PROJECT_ID}/events/stream"
 ```

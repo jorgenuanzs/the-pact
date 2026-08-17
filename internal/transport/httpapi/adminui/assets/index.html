@@ -55,7 +55,8 @@
           <h1 id="auth-title">Observa el proyecto mientras sucede.</h1>
           <p class="auth-copy">
             Pact reúne coordinación, trabajo activo y eventos en una sola superficie.
-            El token se conserva únicamente durante esta pestaña.
+            Tu cuenta abre una sesión segura en este servidor; las herramientas y agentes
+            se autorizan como dispositivos independientes.
           </p>
 
           <div class="signal-preview" aria-hidden="true">
@@ -71,45 +72,50 @@
         <form id="auth-form" class="auth-card" novalidate>
           <div>
             <p class="section-kicker">Acceso al servidor</p>
-            <h2>Conectar con Pact</h2>
-            <p class="muted">
-              Usa el <span lang="en">bearer token</span> configurado en tu instancia.
-            </p>
+            <h2 id="auth-mode-title">Inicia sesión</h2>
+            <p id="auth-mode-copy" class="muted">Usa tu usuario o correo y contraseña.</p>
+          </div>
+
+          <div id="setup-code-field" class="field" hidden>
+            <label for="setup-code-input">Código de configuración inicial</label>
+            <input id="setup-code-input" type="password" autocomplete="off" />
+          </div>
+
+          <div id="account-fields" class="auth-account-fields" hidden>
+            <div class="field">
+              <label for="display-name-input">Nombre visible</label>
+              <input id="display-name-input" autocomplete="name" maxlength="200" />
+            </div>
+            <div class="field">
+              <label for="email-input">Correo</label>
+              <input id="email-input" type="email" autocomplete="email" maxlength="320" />
+            </div>
+            <div class="field">
+              <label for="username-input">Usuario</label>
+              <input id="username-input" autocomplete="username" maxlength="32" autocapitalize="none" spellcheck="false" />
+            </div>
+          </div>
+
+          <div id="login-field" class="field">
+            <label for="login-input">Usuario o correo</label>
+            <input id="login-input" autocomplete="username" autocapitalize="none" spellcheck="false" required />
           </div>
 
           <div class="field">
-            <label for="token-input">Token de acceso</label>
+            <label for="password-input">Contraseña</label>
             <div class="secret-field">
-              <input
-                id="token-input"
-                type="password"
-                inputmode="text"
-                autocomplete="off"
-                autocapitalize="none"
-                spellcheck="false"
-                required
-                aria-describedby="token-hint auth-error"
-              />
-              <button
-                id="toggle-token"
-                class="icon-button"
-                type="button"
-                aria-label="Mostrar token"
-                aria-pressed="false"
-                title="Mostrar token"
-              >
+              <input id="password-input" type="password" autocomplete="current-password" required aria-describedby="password-hint auth-error" />
+              <button id="toggle-password" class="icon-button" type="button" aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
                 <span aria-hidden="true">◉</span>
               </button>
             </div>
-            <p id="token-hint" class="field-hint">
-              No se guarda en archivos, cookies ni almacenamiento permanente.
-            </p>
+            <p id="password-hint" class="field-hint">Las contraseñas nuevas deben tener al menos 15 caracteres.</p>
           </div>
 
           <p id="auth-error" class="form-error" role="alert" hidden></p>
 
           <button id="connect-button" class="primary-button" type="submit">
-            <span>Entrar al centro de control</span>
+            <span>Iniciar sesión</span>
             <span aria-hidden="true">→</span>
           </button>
         </form>
@@ -144,6 +150,17 @@
             />
           </label>
 
+          <div class="organization-navigation">
+            <button id="open-user-admin" class="organization-navigation-button" type="button" hidden>
+              <span class="organization-navigation-icon" aria-hidden="true">◎</span>
+              <span>
+                <strong>Usuarios y permisos</strong>
+                <small>Organización</small>
+              </span>
+              <em id="rail-user-count">—</em>
+            </button>
+          </div>
+
           <div id="project-list-status" class="rail-status" role="status"></div>
           <nav
             id="project-list"
@@ -160,6 +177,165 @@
         </aside>
 
         <section class="workspace">
+          <section id="user-admin-view" class="user-admin-view" aria-labelledby="user-admin-title" hidden>
+            <header class="user-admin-header">
+              <div>
+                <p class="context-type">ORGANIZACIÓN</p>
+                <p class="breadcrumb">Administración <span aria-hidden="true">/</span> Identidad y acceso</p>
+                <h1 id="user-admin-title">Usuarios y permisos</h1>
+                <p>Gestiona cuentas humanas, invitaciones, roles globales, acceso por proyecto y sesiones activas.</p>
+              </div>
+              <div class="user-admin-header-actions">
+                <button id="refresh-users" class="secondary-button" type="button">Actualizar</button>
+                <button id="open-user-invitation" class="primary-button" type="button">
+                  <span>Invitar usuario</span><span aria-hidden="true">→</span>
+                </button>
+              </div>
+            </header>
+
+            <section class="user-admin-summary" aria-label="Resumen de usuarios">
+              <article><span>Usuarios</span><strong id="user-total-count">—</strong><p>Cuentas registradas</p></article>
+              <article><span>Activos</span><strong id="user-active-count">—</strong><p>Con acceso vigente</p></article>
+              <article><span>Administradores</span><strong id="user-admin-count">—</strong><p>Propietarios y administradores</p></article>
+              <article><span>Invitaciones</span><strong id="user-invitation-count">—</strong><p>Pendientes de aceptar</p></article>
+            </section>
+
+            <div id="user-admin-error" class="inline-error" role="alert" hidden>
+              <strong>No se pudo cargar la administración de usuarios.</strong>
+              <span id="user-admin-error-message"></span>
+              <button id="retry-users" class="text-button" type="button">Reintentar</button>
+            </div>
+
+            <div class="user-admin-layout">
+              <section class="panel user-directory-panel" aria-labelledby="user-directory-title">
+                <header class="user-directory-header">
+                  <div>
+                    <p class="section-kicker">DIRECTORIO</p>
+                    <h2 id="user-directory-title">Personas</h2>
+                  </div>
+                  <span id="user-directory-count" class="count-chip">—</span>
+                </header>
+                <label class="search-field user-search-field" for="user-search">
+                  <span class="visually-hidden">Filtrar usuarios</span>
+                  <span aria-hidden="true">⌕</span>
+                  <input id="user-search" type="search" placeholder="Nombre, correo o usuario" autocomplete="off" />
+                </label>
+                <div class="user-filter-row" role="group" aria-label="Filtrar por estado">
+                  <button type="button" data-user-filter="all" aria-pressed="true">Todos</button>
+                  <button type="button" data-user-filter="active" aria-pressed="false">Activos</button>
+                  <button type="button" data-user-filter="disabled" aria-pressed="false">Desactivados</button>
+                </div>
+                <div id="user-directory-list" class="user-directory-list"></div>
+                <div id="user-directory-empty" class="panel-empty" hidden>
+                  <strong>No hay usuarios para este filtro.</strong>
+                  <p>Prueba otra búsqueda o invita a una persona.</p>
+                </div>
+              </section>
+
+              <section class="panel user-detail-panel" aria-labelledby="user-detail-title">
+                <div id="user-detail-empty" class="user-detail-empty">
+                  <span aria-hidden="true">◎</span>
+                  <h2 id="user-detail-title">Selecciona un usuario</h2>
+                  <p>Podrás editar su identidad, rol, proyectos y sesiones.</p>
+                </div>
+
+                <div id="user-detail-content" hidden>
+                  <header class="user-detail-header">
+                    <div class="user-detail-identity">
+                      <span id="user-detail-avatar" class="actor-avatar" aria-hidden="true">—</span>
+                      <div>
+                        <div class="access-name-line">
+                          <h2 id="user-detail-name">—</h2>
+                          <span id="user-detail-current" class="current-user-chip" hidden>Tú</span>
+                        </div>
+                        <p id="user-detail-email">—</p>
+                      </div>
+                    </div>
+                    <span id="user-detail-status" class="user-status-chip">—</span>
+                  </header>
+
+                  <form id="user-profile-form" class="user-profile-form" novalidate>
+                    <div class="user-detail-section-heading">
+                      <div><p class="section-kicker">IDENTIDAD</p><h3>Perfil y rol organizacional</h3></div>
+                      <button id="save-user-profile" class="secondary-button" type="submit">Guardar cambios</button>
+                    </div>
+                    <div class="user-profile-grid">
+                      <div class="field"><label for="user-display-name">Nombre visible</label><input id="user-display-name" maxlength="200" required /></div>
+                      <div class="field"><label for="user-email">Correo</label><input id="user-email" type="email" maxlength="320" required /></div>
+                      <div class="field"><label for="user-username">Usuario</label><input id="user-username" maxlength="32" autocapitalize="none" spellcheck="false" required /></div>
+                      <div class="field"><label for="user-organization-role">Rol de organización</label>
+                        <select id="user-organization-role">
+                          <option value="member">Miembro</option>
+                          <option value="admin">Administrador</option>
+                          <option value="owner">Propietario</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p id="user-profile-hint" class="field-hint"></p>
+                  </form>
+
+                  <section class="user-project-permissions" aria-labelledby="user-project-permissions-title">
+                    <div class="user-detail-section-heading">
+                      <div>
+                        <p class="section-kicker">ALCANCE</p>
+                        <h3 id="user-project-permissions-title">Permisos por proyecto</h3>
+                      </div>
+                    </div>
+                    <p id="user-project-permissions-hint" class="muted"></p>
+                    <div id="user-project-permission-list" class="user-project-permission-list"></div>
+                    <div id="user-project-permission-empty" class="panel-empty" hidden>
+                      <strong>No hay proyectos disponibles.</strong>
+                    </div>
+                  </section>
+
+                  <section class="user-security-section" aria-labelledby="user-security-title">
+                    <div class="user-detail-section-heading">
+                      <div><p class="section-kicker">SEGURIDAD</p><h3 id="user-security-title">Sesiones y dispositivos</h3></div>
+                    </div>
+                    <dl class="user-security-facts">
+                      <div><dt>Sesiones web activas</dt><dd id="user-active-sessions">—</dd></div>
+                      <div><dt>Dispositivos activos</dt><dd id="user-active-devices">—</dd></div>
+                      <div><dt>Último acceso</dt><dd id="user-last-login">—</dd></div>
+                      <div><dt>Creado</dt><dd id="user-created-at">—</dd></div>
+                    </dl>
+                    <div class="user-security-actions">
+                      <button id="revoke-user-sessions" class="secondary-button danger-button" type="button">Revocar sesiones y dispositivos</button>
+                      <button id="toggle-user-status" class="secondary-button danger-button" type="button">Desactivar usuario</button>
+                    </div>
+
+                    <form id="change-password-form" class="change-password-form" novalidate hidden>
+                      <div><p class="section-kicker">TU CUENTA</p><h4>Cambiar mi contraseña</h4></div>
+                      <div class="user-profile-grid">
+                        <div class="field"><label for="current-password">Contraseña actual</label><input id="current-password" type="password" autocomplete="current-password" /></div>
+                        <div class="field"><label for="new-password">Contraseña nueva</label><input id="new-password" type="password" autocomplete="new-password" minlength="15" /></div>
+                      </div>
+                      <button id="change-password" class="secondary-button" type="submit">Cambiar contraseña</button>
+                    </form>
+                  </section>
+                </div>
+              </section>
+            </div>
+
+            <div class="user-admin-secondary-grid">
+              <section class="panel pending-invitations-panel" aria-labelledby="pending-invitations-title">
+                <header class="user-directory-header">
+                  <div><p class="section-kicker">INCORPORACIÓN</p><h2 id="pending-invitations-title">Invitaciones pendientes</h2></div>
+                  <span id="pending-invitation-list-count" class="count-chip">—</span>
+                </header>
+                <div id="pending-invitation-list" class="pending-invitation-list"></div>
+                <div id="pending-invitation-empty" class="panel-empty" hidden><strong>No hay invitaciones pendientes.</strong></div>
+              </section>
+
+              <section class="panel user-audit-panel" aria-labelledby="user-audit-title">
+                <header class="user-directory-header">
+                  <div><p class="section-kicker">AUDITORÍA</p><h2 id="user-audit-title">Actividad de acceso</h2></div>
+                </header>
+                <div id="user-audit-list" class="user-audit-list"></div>
+                <div id="user-audit-empty" class="panel-empty" hidden><strong>Aún no hay acciones administrativas.</strong></div>
+              </section>
+            </div>
+          </section>
+
           <div id="workspace-overview" class="workspace-overview" hidden>
             <header class="workspace-overview-header">
               <div>
@@ -818,6 +994,66 @@
         </header>
         <div id="room-mention-list" class="room-mention-list"></div>
       </section>
+    </dialog>
+
+    <dialog id="device-approval-dialog" class="pact-dialog">
+      <section>
+        <header>
+          <div>
+            <p class="section-kicker">NUEVO DISPOSITIVO</p>
+            <h2>Autorizar esta herramienta</h2>
+          </div>
+          <button id="cancel-device-approval" class="dialog-close" type="button" aria-label="Cerrar">×</button>
+        </header>
+        <p class="muted">Comprueba que el código coincide con el mostrado por la CLI. La herramienta recibirá su propia credencial revocable.</p>
+        <p id="device-approval-code" class="device-approval-code">—</p>
+        <footer>
+          <button id="deny-device-approval" class="secondary-button" type="button">Cancelar</button>
+          <button id="approve-device" class="primary-button" type="button"><span>Autorizar dispositivo</span><span aria-hidden="true">→</span></button>
+        </footer>
+      </section>
+    </dialog>
+
+    <dialog id="user-invitation-dialog" class="pact-dialog user-invitation-dialog">
+      <form id="user-invitation-form" novalidate>
+        <header>
+          <div><p class="section-kicker">NUEVA PERSONA</p><h2>Invitar usuario</h2></div>
+          <button id="close-user-invitation" class="dialog-close" type="button" aria-label="Cerrar">×</button>
+        </header>
+        <div id="user-invitation-fields">
+          <p class="muted">PACT genera un enlace de un solo uso. La persona define su propia contraseña al aceptar.</p>
+          <div class="field"><label for="invitation-email">Correo</label><input id="invitation-email" type="email" maxlength="320" required /></div>
+          <div class="field"><label for="invitation-organization-role">Rol de organización</label>
+            <select id="invitation-organization-role">
+              <option value="member">Miembro</option>
+              <option value="admin">Administrador</option>
+              <option value="owner">Propietario</option>
+            </select>
+          </div>
+          <div id="invitation-project-fields" class="user-profile-grid">
+            <div class="field"><label for="invitation-project">Proyecto inicial <span class="muted">(opcional)</span></label><select id="invitation-project"><option value="">Sin proyecto inicial</option></select></div>
+            <div class="field"><label for="invitation-project-role">Rol del proyecto</label>
+              <select id="invitation-project-role">
+                <option value="viewer">Observador</option>
+                <option value="contributor">Colaborador</option>
+                <option value="maintainer">Responsable</option>
+                <option value="owner">Propietario</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label for="invitation-expiry">Validez</label><select id="invitation-expiry"><option value="24">24 horas</option><option value="72">3 días</option><option value="168">7 días</option></select></div>
+        </div>
+        <div id="user-invitation-result" class="user-invitation-result" hidden>
+          <span class="success-mark" aria-hidden="true">✓</span>
+          <h3>Invitación creada</h3>
+          <p>Comparte este enlace de forma segura. PACT no volverá a mostrar el secreto.</p>
+          <div class="copy-field"><input id="user-invitation-link" readonly /><button id="copy-user-invitation" class="secondary-button" type="button">Copiar</button></div>
+        </div>
+        <footer>
+          <button id="cancel-user-invitation" class="secondary-button" type="button">Cancelar</button>
+          <button id="create-user-invitation" class="primary-button" type="submit"><span>Crear invitación</span><span aria-hidden="true">→</span></button>
+        </footer>
+      </form>
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>

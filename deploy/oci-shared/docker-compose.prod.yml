@@ -107,7 +107,7 @@ services:
     environment:
       <<: *pact-environment
       PACT_HTTP_ADDRESS: 0.0.0.0:8080
-      PACT_LOCAL_API_TOKEN: ${PACT_LOCAL_API_TOKEN}
+      PACT_SETUP_TOKEN: ${PACT_SETUP_TOKEN:-}
       PACT_RUN_MIGRATIONS: "false"
     depends_on:
       postgres:

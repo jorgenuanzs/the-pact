@@ -397,7 +397,7 @@ func runMCP(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := pactclient.New(login.ServerURL, login.APIToken)
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
 	if err != nil {
 		return err
 	}

@@ -1,18 +1,25 @@
 (() => {
   "use strict";
 
-  const SESSION_TOKEN_KEY = "pact.admin.api-token.v1";
   const OVERVIEW_POLL_MS = 5_000;
   const ROOM_POLL_MS = 5_000;
   const MAX_VISIBLE_EVENTS = 50;
   const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
 
   const state = {
-    token: "",
+    authenticated: false,
+    authMode: "login",
+    invitationSecret: "",
+    deviceCode: "",
     workspaces: [],
     projects: [],
     selectedWorkspaceID: null,
     selectedProjectID: null,
+    organizationView: null,
+    userDirectory: null,
+    selectedUserID: null,
+    userFilter: "all",
+    usersLoading: false,
     workspaceSection: "overview",
     workspaceRoomDirectories: new Map(),
     workspaceRoomDirectoryLoading: new Set(),
@@ -53,12 +60,27 @@
   const elements = {
     authView: document.querySelector("#auth-view"),
     authForm: document.querySelector("#auth-form"),
-    tokenInput: document.querySelector("#token-input"),
-    toggleToken: document.querySelector("#toggle-token"),
+    authModeTitle: document.querySelector("#auth-mode-title"),
+    authModeCopy: document.querySelector("#auth-mode-copy"),
+    setupCodeField: document.querySelector("#setup-code-field"),
+    setupCodeInput: document.querySelector("#setup-code-input"),
+    accountFields: document.querySelector("#account-fields"),
+    displayNameInput: document.querySelector("#display-name-input"),
+    emailInput: document.querySelector("#email-input"),
+    usernameInput: document.querySelector("#username-input"),
+    loginField: document.querySelector("#login-field"),
+    loginInput: document.querySelector("#login-input"),
+    passwordInput: document.querySelector("#password-input"),
+    togglePassword: document.querySelector("#toggle-password"),
     connectButton: document.querySelector("#connect-button"),
     authError: document.querySelector("#auth-error"),
     appShell: document.querySelector("#app-shell"),
     disconnectButton: document.querySelector("#disconnect-button"),
+    deviceApprovalDialog: document.querySelector("#device-approval-dialog"),
+    deviceApprovalCode: document.querySelector("#device-approval-code"),
+    approveDevice: document.querySelector("#approve-device"),
+    cancelDeviceApproval: document.querySelector("#cancel-device-approval"),
+    denyDeviceApproval: document.querySelector("#deny-device-approval"),
     globalConnection: document.querySelector("#global-connection"),
     globalRoomMentions: document.querySelector("#global-room-mentions"),
     globalRoomMentionCount: document.querySelector("#global-room-mention-count"),
@@ -199,6 +221,69 @@
     settingsRole: document.querySelector("#settings-role"),
     settingsProjectID: document.querySelector("#settings-project-id"),
     generatedAt: document.querySelector("#generated-at"),
+    openUserAdmin: document.querySelector("#open-user-admin"),
+    railUserCount: document.querySelector("#rail-user-count"),
+    userAdminView: document.querySelector("#user-admin-view"),
+    refreshUsers: document.querySelector("#refresh-users"),
+    openUserInvitation: document.querySelector("#open-user-invitation"),
+    userTotalCount: document.querySelector("#user-total-count"),
+    userActiveCount: document.querySelector("#user-active-count"),
+    userAdminCount: document.querySelector("#user-admin-count"),
+    userInvitationCount: document.querySelector("#user-invitation-count"),
+    userAdminError: document.querySelector("#user-admin-error"),
+    userAdminErrorMessage: document.querySelector("#user-admin-error-message"),
+    retryUsers: document.querySelector("#retry-users"),
+    userSearch: document.querySelector("#user-search"),
+    userDirectoryCount: document.querySelector("#user-directory-count"),
+    userDirectoryList: document.querySelector("#user-directory-list"),
+    userDirectoryEmpty: document.querySelector("#user-directory-empty"),
+    userDetailEmpty: document.querySelector("#user-detail-empty"),
+    userDetailContent: document.querySelector("#user-detail-content"),
+    userDetailAvatar: document.querySelector("#user-detail-avatar"),
+    userDetailName: document.querySelector("#user-detail-name"),
+    userDetailCurrent: document.querySelector("#user-detail-current"),
+    userDetailEmail: document.querySelector("#user-detail-email"),
+    userDetailStatus: document.querySelector("#user-detail-status"),
+    userProfileForm: document.querySelector("#user-profile-form"),
+    saveUserProfile: document.querySelector("#save-user-profile"),
+    userDisplayName: document.querySelector("#user-display-name"),
+    userEmail: document.querySelector("#user-email"),
+    userUsername: document.querySelector("#user-username"),
+    userOrganizationRole: document.querySelector("#user-organization-role"),
+    userProfileHint: document.querySelector("#user-profile-hint"),
+    userProjectPermissionsHint: document.querySelector("#user-project-permissions-hint"),
+    userProjectPermissionList: document.querySelector("#user-project-permission-list"),
+    userProjectPermissionEmpty: document.querySelector("#user-project-permission-empty"),
+    userActiveSessions: document.querySelector("#user-active-sessions"),
+    userActiveDevices: document.querySelector("#user-active-devices"),
+    userLastLogin: document.querySelector("#user-last-login"),
+    userCreatedAt: document.querySelector("#user-created-at"),
+    revokeUserSessions: document.querySelector("#revoke-user-sessions"),
+    toggleUserStatus: document.querySelector("#toggle-user-status"),
+    changePasswordForm: document.querySelector("#change-password-form"),
+    currentPassword: document.querySelector("#current-password"),
+    newPassword: document.querySelector("#new-password"),
+    changePassword: document.querySelector("#change-password"),
+    pendingInvitationListCount: document.querySelector("#pending-invitation-list-count"),
+    pendingInvitationList: document.querySelector("#pending-invitation-list"),
+    pendingInvitationEmpty: document.querySelector("#pending-invitation-empty"),
+    userAuditList: document.querySelector("#user-audit-list"),
+    userAuditEmpty: document.querySelector("#user-audit-empty"),
+    userInvitationDialog: document.querySelector("#user-invitation-dialog"),
+    userInvitationForm: document.querySelector("#user-invitation-form"),
+    closeUserInvitation: document.querySelector("#close-user-invitation"),
+    cancelUserInvitation: document.querySelector("#cancel-user-invitation"),
+    createUserInvitation: document.querySelector("#create-user-invitation"),
+    userInvitationFields: document.querySelector("#user-invitation-fields"),
+    userInvitationResult: document.querySelector("#user-invitation-result"),
+    invitationEmail: document.querySelector("#invitation-email"),
+    invitationOrganizationRole: document.querySelector("#invitation-organization-role"),
+    invitationProjectFields: document.querySelector("#invitation-project-fields"),
+    invitationProject: document.querySelector("#invitation-project"),
+    invitationProjectRole: document.querySelector("#invitation-project-role"),
+    invitationExpiry: document.querySelector("#invitation-expiry"),
+    userInvitationLink: document.querySelector("#user-invitation-link"),
+    copyUserInvitation: document.querySelector("#copy-user-invitation"),
     toastRegion: document.querySelector("#toast-region"),
   };
 
@@ -354,42 +439,63 @@
     }
   }
 
-  function init() {
+  async function init() {
     bindEvents();
-    const token = readSessionToken();
-    if (token) {
-      connect(token, { automatic: true });
-      return;
+    readAuthenticationIntent();
+    setGlobalConnection("connecting", "Comprobando sesión");
+    try {
+      await requestJSON("/v1/auth/session");
+      state.authenticated = true;
+      await connect({ automatic: true });
+    } catch (error) {
+      if (!(error instanceof APIError) || error.status !== 401) {
+        showAuthError(requestErrorMessage(error));
+      }
+      await prepareAuthenticationForm();
     }
-    showAuth();
   }
 
   function bindEvents() {
-    elements.authForm.addEventListener("submit", (event) => {
+    elements.authForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const token = elements.tokenInput.value.trim();
-      if (!token) {
-        showAuthError("Introduce un token de acceso.");
-        elements.tokenInput.focus();
-        return;
-      }
-      connect(token);
+      await submitAuthentication();
     });
 
-    elements.toggleToken.addEventListener("click", () => {
-      const showing = elements.tokenInput.type === "text";
-      elements.tokenInput.type = showing ? "password" : "text";
-      elements.toggleToken.setAttribute("aria-pressed", String(!showing));
-      elements.toggleToken.setAttribute(
+    elements.togglePassword.addEventListener("click", () => {
+      const showing = elements.passwordInput.type === "text";
+      elements.passwordInput.type = showing ? "password" : "text";
+      elements.togglePassword.setAttribute("aria-pressed", String(!showing));
+      elements.togglePassword.setAttribute(
         "aria-label",
-        showing ? "Mostrar token" : "Ocultar token",
+        showing ? "Mostrar contraseña" : "Ocultar contraseña",
       );
-      elements.toggleToken.title = showing ? "Mostrar token" : "Ocultar token";
+      elements.togglePassword.title = showing ? "Mostrar contraseña" : "Ocultar contraseña";
     });
 
     elements.disconnectButton.addEventListener("click", disconnect);
+    elements.approveDevice.addEventListener("click", approvePendingDevice);
+    elements.cancelDeviceApproval.addEventListener("click", closeDeviceApproval);
+    elements.denyDeviceApproval.addEventListener("click", closeDeviceApproval);
     elements.globalRoomMentions.addEventListener("click", openGlobalRoomMentionsDialog);
     elements.refreshProjects.addEventListener("click", () => refreshProjects());
+    elements.openUserAdmin.addEventListener("click", openUserAdministration);
+    elements.refreshUsers.addEventListener("click", () => loadUserDirectory({ announce: true }));
+    elements.retryUsers.addEventListener("click", () => loadUserDirectory({ announce: true }));
+    elements.userSearch.addEventListener("input", renderUserDirectory);
+    for (const button of document.querySelectorAll("[data-user-filter]")) {
+      button.addEventListener("click", () => setUserFilter(button.dataset.userFilter));
+    }
+    elements.userProfileForm.addEventListener("submit", saveUserProfile);
+    elements.revokeUserSessions.addEventListener("click", revokeSelectedUserSessions);
+    elements.toggleUserStatus.addEventListener("click", toggleSelectedUserStatus);
+    elements.changePasswordForm.addEventListener("submit", changeCurrentPassword);
+    elements.openUserInvitation.addEventListener("click", openUserInvitationDialog);
+    elements.closeUserInvitation.addEventListener("click", closeUserInvitationDialog);
+    elements.cancelUserInvitation.addEventListener("click", closeUserInvitationDialog);
+    elements.userInvitationForm.addEventListener("submit", createUserInvitation);
+    elements.invitationOrganizationRole.addEventListener("change", renderInvitationScope);
+    elements.invitationProject.addEventListener("change", renderInvitationScope);
+    elements.copyUserInvitation.addEventListener("click", copyUserInvitationLink);
     elements.refreshOverview.addEventListener("click", () =>
       loadOverview({ announce: true }),
     );
@@ -432,37 +538,144 @@
         loadRoomMessages({ silent: true });
         loadRoomMentions({ silent: true });
       }
-      if (!document.hidden && state.token) loadGlobalRoomMentions({ silent: true });
+      if (!document.hidden && state.authenticated) loadGlobalRoomMentions({ silent: true });
+      if (!document.hidden && state.organizationView === "users") {
+        loadUserDirectory({ silent: true });
+      }
     });
   }
 
-  async function connect(token, { automatic = false } = {}) {
+  async function prepareAuthenticationForm() {
+    if (state.invitationSecret) {
+      try {
+        const payload = await requestJSON("/v1/auth/invitations/preview", {
+          method: "POST",
+          body: { secret: state.invitationSecret },
+        });
+        const invitation = payload?.data || payload;
+        elements.emailInput.value = invitation.email || "";
+        elements.emailInput.readOnly = true;
+        setAuthenticationMode("invitation");
+        showAuth();
+        return;
+      } catch (error) {
+        showAuthError(requestErrorMessage(error));
+      }
+    }
+    try {
+      const payload = await requestJSON("/v1/auth/setup");
+      const setup = payload?.data || payload;
+      if (setup.required) {
+        setAuthenticationMode("setup", setup.configured);
+      } else {
+        setAuthenticationMode("login");
+      }
+    } catch (error) {
+      setAuthenticationMode("login");
+      showAuthError(requestErrorMessage(error));
+    }
+    showAuth();
+  }
+
+  function setAuthenticationMode(mode, setupConfigured = true) {
+    state.authMode = mode;
+    const createsAccount = mode === "setup" || mode === "invitation";
+    elements.setupCodeField.hidden = mode !== "setup";
+    elements.accountFields.hidden = !createsAccount;
+    elements.loginField.hidden = createsAccount;
+    elements.passwordInput.autocomplete = createsAccount ? "new-password" : "current-password";
+    elements.passwordInput.value = "";
+    elements.connectButton.disabled = mode === "setup" && !setupConfigured;
+    const label = elements.connectButton.querySelector("span");
+    if (mode === "setup") {
+      elements.authModeTitle.textContent = "Crea la primera cuenta";
+      elements.authModeCopy.textContent = setupConfigured
+        ? "El código de configuración solo puede utilizarse una vez."
+        : "El servidor requiere PACT_SETUP_TOKEN para completar la configuración inicial.";
+      if (label) label.textContent = "Crear cuenta propietaria";
+      elements.setupCodeInput.focus();
+    } else if (mode === "invitation") {
+      elements.authModeTitle.textContent = "Únete a Pact";
+      elements.authModeCopy.textContent = "Crea tu cuenta para aceptar esta invitación.";
+      if (label) label.textContent = "Crear cuenta y entrar";
+      elements.displayNameInput.focus();
+    } else {
+      elements.authModeTitle.textContent = "Inicia sesión";
+      elements.authModeCopy.textContent = state.deviceCode
+        ? "Inicia sesión para revisar la autorización solicitada por tu herramienta."
+        : "Usa tu usuario o correo y contraseña.";
+      if (label) label.textContent = "Iniciar sesión";
+      elements.loginInput.focus();
+    }
+  }
+
+  async function submitAuthentication() {
+    setConnectLoading(true);
+    hideAuthError();
+    try {
+      let path = "/v1/auth/login";
+      let body = {
+        login: elements.loginInput.value.trim(),
+        password: elements.passwordInput.value,
+      };
+      if (state.authMode === "setup" || state.authMode === "invitation") {
+        body = {
+          display_name: elements.displayNameInput.value.trim(),
+          email: elements.emailInput.value.trim(),
+          username: elements.usernameInput.value.trim(),
+          password: elements.passwordInput.value,
+        };
+        if (state.authMode === "setup") {
+          path = "/v1/auth/setup";
+          body.setup_code = elements.setupCodeInput.value.trim();
+        } else {
+          path = "/v1/auth/invitations/register";
+          body.secret = state.invitationSecret;
+        }
+      }
+      await requestJSON(path, { method: "POST", body });
+      state.authenticated = true;
+      elements.passwordInput.value = "";
+      elements.setupCodeInput.value = "";
+      if (state.authMode === "invitation") clearAuthenticationIntent("invite");
+      await connect();
+    } catch (error) {
+      showAuthError(authErrorMessage(error));
+      elements.passwordInput.focus();
+    } finally {
+      setConnectLoading(false);
+    }
+  }
+
+  async function connect({ automatic = false } = {}) {
     setConnectLoading(true);
     hideAuthError();
     setGlobalConnection("connecting", "Conectando");
 
     try {
       const [projectPayload, workspacePayload, githubPayload, principalPayload] = await Promise.all([
-        requestJSON("/v1/projects", { token }),
-        requestJSON("/v1/workspaces", { token }),
-        requestJSON("/v1/integrations/github", { token }),
-        requestJSON("/v1/me", { token }),
+        requestJSON("/v1/projects"),
+        requestJSON("/v1/workspaces"),
+        requestJSON("/v1/integrations/github"),
+        requestJSON("/v1/me"),
       ]);
       const projects = normalizeProjects(projectPayload);
-      state.token = token;
+      state.authenticated = true;
       state.projects = projects;
       state.workspaces = normalizeWorkspaces(workspacePayload);
       state.githubStatus = githubPayload?.data || githubPayload || null;
       state.principal = principalPayload?.data || principalPayload || null;
-      writeSessionToken(token);
-      elements.tokenInput.value = "";
+      const canManageUsers = ["owner", "admin"].includes(state.principal?.organization_role);
+      elements.openUserAdmin.hidden = !canManageUsers;
       showApplication();
       renderProjectList();
+      if (state.organizationView === "users") renderSelectedUser();
       setGlobalConnection("connected", "Conectado");
       renderGitHubStatus();
+      if (canManageUsers) loadUserDirectory({ silent: true });
       announceGitHubCallback();
       await loadGlobalRoomMentions({ silent: true });
-      if (!state.token) return;
+      if (!state.authenticated) return;
 
       const retained = projects.find(
         (project) => project.id === state.selectedProjectID,
@@ -476,28 +689,44 @@
       } else {
         clearSelection();
       }
+      await handlePendingAuthenticationIntent();
     } catch (error) {
-      state.token = "";
-      removeSessionToken();
+      state.authenticated = false;
       showAuth();
       setGlobalConnection("error", "Sin conectar");
       showAuthError(authErrorMessage(error));
       if (!automatic) {
-        elements.tokenInput.focus();
+        elements.loginInput.focus();
       }
     } finally {
       setConnectLoading(false);
     }
   }
 
-  function disconnect() {
+  async function disconnect() {
+    try {
+      await requestJSON("/v1/auth/session", { method: "DELETE" });
+    } catch (error) {
+      if (!(error instanceof APIError) || error.status !== 401) {
+        showToast(requestErrorMessage(error), { error: true });
+      }
+    }
     stopLiveUpdates();
-    removeSessionToken();
-    state.token = "";
+    resetAuthenticatedState();
+    await prepareAuthenticationForm();
+    setGlobalConnection("disconnected", "Sin conectar");
+  }
+
+  function resetAuthenticatedState() {
+    state.authenticated = false;
     state.workspaces = [];
     state.projects = [];
     state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.organizationView = null;
+    state.userDirectory = null;
+    state.selectedUserID = null;
+    state.userFilter = "all";
     state.workspaceSection = "overview";
     state.workspaceRoomDirectories.clear();
     state.workspaceRoomDirectoryLoading.clear();
@@ -515,10 +744,6 @@
     state.availableRepositories = [];
     state.events = [];
     state.lastEventByProject.clear();
-    elements.tokenInput.value = "";
-    showAuth();
-    setGlobalConnection("disconnected", "Sin conectar");
-    elements.tokenInput.focus();
   }
 
   function showAuth() {
@@ -526,6 +751,7 @@
     elements.appShell.hidden = true;
     elements.disconnectButton.hidden = true;
     elements.globalRoomMentions.hidden = true;
+    elements.openUserAdmin.hidden = true;
   }
 
   function showApplication() {
@@ -533,10 +759,11 @@
     elements.appShell.hidden = false;
     elements.disconnectButton.hidden = false;
     elements.globalRoomMentions.hidden = false;
+    elements.openUserAdmin.hidden = !["owner", "admin"].includes(state.principal?.organization_role);
   }
 
   async function refreshProjects() {
-    if (!state.token) return;
+    if (!state.authenticated) return;
     setBusy(elements.refreshProjects, true);
     elements.projectListStatus.textContent = "Actualizando…";
 
@@ -557,7 +784,7 @@
       }
       renderGitHubStatus();
       await loadGlobalRoomMentions({ silent: true });
-      if (!state.token) return;
+      if (!state.authenticated) return;
 
       if (
         state.selectedProjectID &&
@@ -578,6 +805,7 @@
         if (workspace) renderWorkspaceOverview(workspace, state.workspaceContext);
       }
       renderProjectList();
+      if (state.organizationView === "users") renderSelectedUser();
       if (state.selectedWorkspaceID) {
         loadWorkspaceRoomDirectory(state.selectedWorkspaceID, { silent: true });
       }
@@ -612,7 +840,524 @@
     return [];
   }
 
+  function openUserAdministration() {
+    if (!["owner", "admin"].includes(state.principal?.organization_role)) return;
+    stopLiveUpdates();
+    state.organizationView = "users";
+    state.selectedWorkspaceID = null;
+    state.selectedProjectID = null;
+    state.workspaceSection = "overview";
+    elements.workspaceOverview.hidden = true;
+    elements.workspaceContent.hidden = true;
+    elements.workspaceEmpty.hidden = true;
+    elements.userAdminView.hidden = false;
+    renderProjectList();
+    renderUserAdministration();
+    if (!state.userDirectory) void loadUserDirectory({ announce: true });
+  }
+
+  async function loadUserDirectory({ silent = false, announce = false } = {}) {
+    if (!state.authenticated || state.usersLoading) return;
+    if (!["owner", "admin"].includes(state.principal?.organization_role)) return;
+    state.usersLoading = true;
+    elements.userAdminError.hidden = true;
+    setBusy(elements.refreshUsers, true);
+    try {
+      const payload = await requestJSON("/v1/admin/users");
+      state.userDirectory = payload?.data || { users: [], invitations: [], events: [] };
+      const users = state.userDirectory.users || [];
+      if (!users.some((user) => user.principal_id === state.selectedUserID)) {
+        state.selectedUserID = users.find(
+          (user) => user.principal_id === state.principal?.id,
+        )?.principal_id || users[0]?.principal_id || null;
+      }
+      renderUserAdministration();
+      if (announce) showToast("Directorio de usuarios actualizado.");
+    } catch (error) {
+      if (handleUnauthorized(error)) return;
+      elements.userAdminError.hidden = false;
+      elements.userAdminErrorMessage.textContent = requestErrorMessage(error);
+      if (!silent) showToast(requestErrorMessage(error), { error: true });
+    } finally {
+      state.usersLoading = false;
+      setBusy(elements.refreshUsers, false);
+    }
+  }
+
+  function renderUserAdministration() {
+    const directory = state.userDirectory;
+    const users = directory?.users || [];
+    const invitations = directory?.invitations || [];
+    elements.railUserCount.textContent = directory ? formatInteger(users.length) : "—";
+    elements.userTotalCount.textContent = directory ? formatInteger(users.length) : "—";
+    elements.userActiveCount.textContent = directory
+      ? formatInteger(users.filter((user) => user.status === "active").length)
+      : "—";
+    elements.userAdminCount.textContent = directory
+      ? formatInteger(users.filter((user) => ["owner", "admin"].includes(user.organization_role)).length)
+      : "—";
+    elements.userInvitationCount.textContent = directory ? formatInteger(invitations.length) : "—";
+    renderUserDirectory();
+    renderSelectedUser();
+    renderPendingInvitations();
+    renderUserAudit();
+  }
+
+  function setUserFilter(filter) {
+    state.userFilter = filter;
+    for (const button of document.querySelectorAll("[data-user-filter]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.userFilter === filter));
+    }
+    renderUserDirectory();
+  }
+
+  function renderUserDirectory() {
+    const users = state.userDirectory?.users || [];
+    const query = elements.userSearch.value.trim().toLocaleLowerCase("es");
+    const visible = users.filter((user) => {
+      if (state.userFilter !== "all" && user.status !== state.userFilter) return false;
+      if (!query) return true;
+      return [user.display_name, user.email, user.username, user.organization_role].some((value) =>
+        String(value || "").toLocaleLowerCase("es").includes(query),
+      );
+    });
+    elements.userDirectoryCount.textContent = state.userDirectory
+      ? `${formatInteger(visible.length)} / ${formatInteger(users.length)}`
+      : "—";
+    elements.userDirectoryList.replaceChildren();
+    elements.userDirectoryEmpty.hidden = visible.length !== 0 || !state.userDirectory;
+
+    for (const user of visible) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "user-directory-entry";
+      button.classList.toggle("is-selected", user.principal_id === state.selectedUserID);
+      button.classList.toggle("is-disabled", user.status !== "active");
+      button.setAttribute("aria-current", user.principal_id === state.selectedUserID ? "true" : "false");
+
+      const avatar = document.createElement("span");
+      avatar.className = "actor-avatar";
+      avatar.textContent = initials(user.display_name);
+      const identity = document.createElement("span");
+      identity.className = "user-directory-entry-copy";
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(user.display_name);
+      const email = document.createElement("span");
+      email.textContent = valueOrDash(user.email);
+      identity.append(name, email);
+      const meta = document.createElement("span");
+      meta.className = "user-directory-entry-meta";
+      const role = document.createElement("span");
+      role.className = `user-role-chip role-${user.organization_role || "member"}`;
+      role.textContent = organizationRoleCopy[user.organization_role] || valueOrDash(user.organization_role);
+      const status = document.createElement("small");
+      status.textContent = user.status === "active" ? "Activo" : "Desactivado";
+      meta.append(role, status);
+      button.append(avatar, identity, meta);
+      button.addEventListener("click", () => {
+        state.selectedUserID = user.principal_id;
+        renderUserDirectory();
+        renderSelectedUser();
+      });
+      elements.userDirectoryList.append(button);
+    }
+  }
+
+  function selectedUser() {
+    return (state.userDirectory?.users || []).find(
+      (user) => user.principal_id === state.selectedUserID,
+    ) || null;
+  }
+
+  function canManageUser(user) {
+    if (!user) return false;
+    if (state.principal?.organization_role === "owner") return true;
+    return state.principal?.organization_role === "admin" && user.organization_role === "member";
+  }
+
+  function renderSelectedUser() {
+    const user = selectedUser();
+    elements.userDetailEmpty.hidden = Boolean(user);
+    elements.userDetailContent.hidden = !user;
+    if (!user) return;
+
+    const isCurrent = user.principal_id === state.principal?.id;
+    const manageable = canManageUser(user);
+    const canEditProfile = manageable && !(isCurrent && state.principal?.organization_role === "admin");
+    elements.userDetailAvatar.textContent = initials(user.display_name);
+    elements.userDetailName.textContent = valueOrDash(user.display_name);
+    elements.userDetailEmail.textContent = valueOrDash(user.email);
+    elements.userDetailCurrent.hidden = !isCurrent;
+    elements.userDetailStatus.textContent = user.status === "active" ? "Activo" : "Desactivado";
+    elements.userDetailStatus.classList.toggle("is-disabled", user.status !== "active");
+    elements.userDisplayName.value = user.display_name || "";
+    elements.userEmail.value = user.email || "";
+    elements.userUsername.value = user.username || "";
+    elements.userOrganizationRole.value = user.organization_role || "member";
+
+    for (const input of [elements.userDisplayName, elements.userEmail, elements.userUsername]) {
+      input.disabled = !canEditProfile;
+    }
+    elements.userOrganizationRole.disabled = !manageable || isCurrent || state.principal?.organization_role !== "owner";
+    elements.saveUserProfile.disabled = !canEditProfile;
+    elements.userProfileHint.textContent = canEditProfile
+      ? isCurrent
+        ? "Puedes actualizar tu identidad. Tu rol no puede cambiarse desde tu propia sesión."
+        : "Los cambios de identidad y rol quedan registrados en la auditoría."
+      : "Tu rol no permite modificar esta cuenta.";
+
+    elements.userActiveSessions.textContent = formatInteger(user.active_sessions || 0);
+    elements.userActiveDevices.textContent = formatInteger(user.active_devices || 0);
+    elements.userLastLogin.textContent = user.last_login_at ? formatRelativeDate(user.last_login_at) : "Nunca";
+    elements.userLastLogin.title = user.last_login_at ? formatDateTime(user.last_login_at) : "";
+    elements.userCreatedAt.textContent = formatDateTime(user.created_at);
+    elements.revokeUserSessions.disabled = !manageable || isCurrent;
+    elements.toggleUserStatus.disabled = !manageable || isCurrent;
+    elements.toggleUserStatus.textContent = user.status === "active" ? "Desactivar usuario" : "Reactivar usuario";
+    elements.changePasswordForm.hidden = !isCurrent;
+    renderUserProjectPermissions(user, manageable);
+  }
+
+  function renderUserProjectPermissions(user, manageable) {
+    const globalAccess = ["owner", "admin"].includes(user.organization_role);
+    const projectRoles = new Map((user.project_roles || []).map((permission) => [permission.project_id, permission.role]));
+    elements.userProjectPermissionsHint.textContent = globalAccess
+      ? "Este rol tiene acceso global a todos los proyectos de la organización."
+      : user.status !== "active"
+        ? "Reactiva la cuenta para modificar sus proyectos."
+        : "Asigna únicamente los proyectos que esta persona necesita.";
+    elements.userProjectPermissionList.replaceChildren();
+    elements.userProjectPermissionEmpty.hidden = state.projects.length !== 0;
+
+    for (const project of state.projects) {
+      const row = document.createElement("div");
+      row.className = "user-project-permission-row";
+      const copy = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(project.name);
+      const slug = document.createElement("span");
+      slug.textContent = valueOrDash(project.slug);
+      copy.append(name, slug);
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", `Permiso en ${project.name}`);
+      const options = globalAccess
+        ? [["global", `Acceso global: ${organizationRoleCopy[user.organization_role]}`]]
+        : [
+            ["", "Sin acceso"],
+            ["viewer", "Observador"],
+            ["contributor", "Colaborador"],
+            ["maintainer", "Responsable"],
+            ["owner", "Propietario del proyecto"],
+          ];
+      for (const [value, label] of options) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        select.append(option);
+      }
+      select.value = globalAccess ? "global" : projectRoles.get(project.id) || "";
+      select.disabled = !manageable || globalAccess || user.status !== "active";
+      select.addEventListener("change", () => updateUserProjectPermission(user, project, select));
+      row.append(copy, select);
+      elements.userProjectPermissionList.append(row);
+    }
+  }
+
+  async function updateUserProjectPermission(user, project, select) {
+    const previous = (user.project_roles || []).find((permission) => permission.project_id === project.id)?.role || "";
+    select.disabled = true;
+    try {
+      const path = `/v1/admin/users/${encodeURIComponent(user.principal_id)}/projects/${encodeURIComponent(project.id)}`;
+      const payload = select.value
+        ? await requestJSON(path, { method: "PUT", body: { role: select.value } })
+        : await requestJSON(path, { method: "DELETE" });
+      replaceDirectoryUser(payload?.data);
+      renderSelectedUser();
+      showToast(select.value ? "Permiso de proyecto actualizado." : "Acceso al proyecto retirado.");
+      void loadUserDirectory({ silent: true });
+    } catch (error) {
+      select.value = previous;
+      handleRequestFailure(error, "No se pudo actualizar el permiso del proyecto.");
+      select.disabled = false;
+    }
+  }
+
+  function replaceDirectoryUser(user) {
+    if (!user || !state.userDirectory) return;
+    const index = (state.userDirectory.users || []).findIndex(
+      (candidate) => candidate.principal_id === user.principal_id,
+    );
+    if (index >= 0) state.userDirectory.users[index] = user;
+  }
+
+  async function saveUserProfile(event) {
+    event.preventDefault();
+    const user = selectedUser();
+    if (!user || !canManageUser(user)) return;
+    setBusy(elements.saveUserProfile, true);
+    try {
+      const body = {
+        display_name: elements.userDisplayName.value.trim(),
+        email: elements.userEmail.value.trim(),
+        username: elements.userUsername.value.trim(),
+      };
+      if (!elements.userOrganizationRole.disabled) {
+        body.organization_role = elements.userOrganizationRole.value;
+      }
+      const payload = await requestJSON(`/v1/admin/users/${encodeURIComponent(user.principal_id)}`, {
+        method: "PATCH",
+        body,
+      });
+      replaceDirectoryUser(payload?.data);
+      renderUserAdministration();
+      showToast("Usuario actualizado.");
+      void loadUserDirectory({ silent: true });
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo actualizar el usuario.");
+    } finally {
+      setBusy(elements.saveUserProfile, false);
+    }
+  }
+
+  async function revokeSelectedUserSessions() {
+    const user = selectedUser();
+    if (!user || !canManageUser(user) || user.principal_id === state.principal?.id) return;
+    if (!window.confirm(`Se cerrarán todas las sesiones y dispositivos de ${user.display_name}. ¿Continuar?`)) return;
+    setBusy(elements.revokeUserSessions, true);
+    try {
+      const payload = await requestJSON(`/v1/admin/users/${encodeURIComponent(user.principal_id)}/sessions`, {
+        method: "DELETE",
+      });
+      replaceDirectoryUser(payload?.data);
+      renderUserAdministration();
+      showToast("Sesiones y dispositivos revocados.");
+      void loadUserDirectory({ silent: true });
+    } catch (error) {
+      handleRequestFailure(error, "No se pudieron revocar las sesiones.");
+    } finally {
+      setBusy(elements.revokeUserSessions, false);
+    }
+  }
+
+  async function toggleSelectedUserStatus() {
+    const user = selectedUser();
+    if (!user || !canManageUser(user) || user.principal_id === state.principal?.id) return;
+    const nextStatus = user.status === "active" ? "disabled" : "active";
+    if (nextStatus === "disabled" && !window.confirm(`Se desactivará a ${user.display_name} y se cerrarán todos sus accesos. ¿Continuar?`)) return;
+    setBusy(elements.toggleUserStatus, true);
+    try {
+      const payload = await requestJSON(`/v1/admin/users/${encodeURIComponent(user.principal_id)}`, {
+        method: "PATCH",
+        body: { status: nextStatus },
+      });
+      replaceDirectoryUser(payload?.data);
+      renderUserAdministration();
+      showToast(nextStatus === "active" ? "Usuario reactivado." : "Usuario desactivado.");
+      void loadUserDirectory({ silent: true });
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo cambiar el estado del usuario.");
+    } finally {
+      setBusy(elements.toggleUserStatus, false);
+    }
+  }
+
+  async function changeCurrentPassword(event) {
+    event.preventDefault();
+    const currentPassword = elements.currentPassword.value;
+    const newPassword = elements.newPassword.value;
+    if (!currentPassword || newPassword.length < 15) {
+      showToast("Escribe la contraseña actual y una nueva de al menos 15 caracteres.", { error: true });
+      return;
+    }
+    setBusy(elements.changePassword, true);
+    try {
+      await requestJSON("/v1/auth/password", {
+        method: "PUT",
+        body: { current_password: currentPassword, new_password: newPassword },
+      });
+      elements.currentPassword.value = "";
+      elements.newPassword.value = "";
+      showToast("Contraseña actualizada.");
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo cambiar la contraseña.");
+    } finally {
+      setBusy(elements.changePassword, false);
+    }
+  }
+
+  function openUserInvitationDialog() {
+    elements.userInvitationForm.reset();
+    elements.invitationExpiry.value = "24";
+    elements.userInvitationFields.hidden = false;
+    elements.userInvitationResult.hidden = true;
+    elements.createUserInvitation.hidden = false;
+    elements.userInvitationLink.value = "";
+    elements.invitationProject.replaceChildren();
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "Sin proyecto inicial";
+    elements.invitationProject.append(emptyOption);
+    for (const project of state.projects) {
+      const option = document.createElement("option");
+      option.value = project.id;
+      option.textContent = project.name;
+      elements.invitationProject.append(option);
+    }
+    const owner = state.principal?.organization_role === "owner";
+    for (const option of elements.invitationOrganizationRole.options) {
+      option.disabled = !owner && option.value !== "member";
+    }
+    elements.invitationOrganizationRole.value = "member";
+    renderInvitationScope();
+    elements.userInvitationDialog.showModal();
+    elements.invitationEmail.focus();
+  }
+
+  function closeUserInvitationDialog() {
+    elements.userInvitationDialog.close();
+  }
+
+  function renderInvitationScope() {
+    const globalAccess = elements.invitationOrganizationRole.value !== "member";
+    elements.invitationProjectFields.hidden = globalAccess;
+    if (globalAccess) elements.invitationProject.value = "";
+    elements.invitationProjectRole.disabled = !elements.invitationProject.value;
+  }
+
+  async function createUserInvitation(event) {
+    event.preventDefault();
+    const projectID = elements.invitationProject.value;
+    setBusy(elements.createUserInvitation, true);
+    try {
+      const payload = await requestJSON("/v1/admin/invitations", {
+        method: "POST",
+        body: {
+          email: elements.invitationEmail.value.trim(),
+          organization_role: elements.invitationOrganizationRole.value,
+          project_id: projectID,
+          project_role: projectID ? elements.invitationProjectRole.value : "",
+          expires_in_hours: Number(elements.invitationExpiry.value),
+        },
+      });
+      const created = payload?.data;
+      elements.userInvitationLink.value = `${window.location.origin}/admin/#invite=${encodeURIComponent(created.secret)}`;
+      elements.userInvitationFields.hidden = true;
+      elements.userInvitationResult.hidden = false;
+      elements.createUserInvitation.hidden = true;
+      showToast("Invitación creada.");
+      void loadUserDirectory({ silent: true });
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo crear la invitación.");
+    } finally {
+      setBusy(elements.createUserInvitation, false);
+    }
+  }
+
+  async function copyUserInvitationLink() {
+    const link = elements.userInvitationLink.value;
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast("Enlace de invitación copiado.");
+    } catch {
+      elements.userInvitationLink.select();
+      showToast("Selecciona y copia el enlace.");
+    }
+  }
+
+  function renderPendingInvitations() {
+    const invitations = state.userDirectory?.invitations || [];
+    elements.pendingInvitationListCount.textContent = state.userDirectory ? formatInteger(invitations.length) : "—";
+    elements.pendingInvitationList.replaceChildren();
+    elements.pendingInvitationEmpty.hidden = invitations.length !== 0 || !state.userDirectory;
+    for (const invitation of invitations) {
+      const entry = document.createElement("article");
+      entry.className = "pending-invitation-entry";
+      const copy = document.createElement("div");
+      const email = document.createElement("strong");
+      email.textContent = invitation.email;
+      const scope = document.createElement("span");
+      const role = organizationRoleCopy[invitation.organization_role] || invitation.organization_role;
+      const project = invitation.project_name
+        ? ` · ${invitation.project_name}: ${projectRoleCopy[invitation.project_role] || invitation.project_role}`
+        : "";
+      scope.textContent = `${role}${project}`;
+      const expiry = document.createElement("span");
+      expiry.textContent = `Vence ${formatRelativeDate(invitation.expires_at)} · invitó ${invitation.created_by_display_name}`;
+      copy.append(email, scope, expiry);
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "secondary-button danger-button";
+      revoke.textContent = "Revocar";
+      revoke.disabled = state.principal?.organization_role !== "owner" && invitation.organization_role !== "member";
+      revoke.addEventListener("click", () => revokeInvitation(invitation, revoke));
+      entry.append(copy, revoke);
+      elements.pendingInvitationList.append(entry);
+    }
+  }
+
+  async function revokeInvitation(invitation, button) {
+    if (!window.confirm(`Se revocará la invitación para ${invitation.email}. ¿Continuar?`)) return;
+    setBusy(button, true);
+    try {
+      await requestJSON(`/v1/admin/invitations/${encodeURIComponent(invitation.id)}`, { method: "DELETE" });
+      showToast("Invitación revocada.");
+      await loadUserDirectory({ silent: true });
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo revocar la invitación.");
+      setBusy(button, false);
+    }
+  }
+
+  function renderUserAudit() {
+    const events = state.userDirectory?.events || [];
+    const copyByAction = {
+      "user.updated": "actualizó el perfil o rol de",
+      "user.disabled": "desactivó a",
+      "user.reactivated": "reactivó a",
+      "user.sessions_revoked": "revocó las sesiones de",
+      "project_permission.set": "actualizó un permiso de",
+      "project_permission.removed": "retiró un permiso de",
+      "invitation.created": "creó una invitación para",
+      "invitation.revoked": "revocó una invitación para",
+    };
+    elements.userAuditList.replaceChildren();
+    elements.userAuditEmpty.hidden = events.length !== 0 || !state.userDirectory;
+    for (const event of events) {
+      const entry = document.createElement("article");
+      entry.className = "user-audit-entry";
+      const title = document.createElement("strong");
+      const target = event.target_display_name || event.details?.email || "un acceso";
+      title.textContent = `${event.actor_display_name} ${copyByAction[event.action] || "registró una acción sobre"} ${target}`;
+      const details = document.createElement("span");
+      details.textContent = userAuditDetails(event);
+      const time = document.createElement("time");
+      time.dateTime = event.created_at;
+      time.textContent = `${formatRelativeDate(event.created_at)} · ${formatDateTime(event.created_at)}`;
+      entry.append(title);
+      if (details.textContent) entry.append(details);
+      entry.append(time);
+      elements.userAuditList.append(entry);
+    }
+  }
+
+  function userAuditDetails(event) {
+    const details = event.details || {};
+    if (event.action === "project_permission.set") {
+      return `${details.project_name || "Proyecto"}: ${projectRoleCopy[details.role] || details.role || "—"}`;
+    }
+    if (event.action === "project_permission.removed") return "Acceso de proyecto retirado";
+    if (event.action.startsWith("invitation.")) {
+      return [organizationRoleCopy[details.organization_role], details.project_role && projectRoleCopy[details.project_role]]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    return Object.keys(details).length ? "Cambio administrativo registrado" : "";
+  }
+
   function renderProjectList({ focusProjectID = null } = {}) {
+    elements.openUserAdmin.classList.toggle("is-selected", state.organizationView === "users");
+    elements.openUserAdmin.setAttribute("aria-current", state.organizationView === "users" ? "page" : "false");
     const query = elements.projectSearch.value.trim().toLocaleLowerCase("es");
     const projectByID = new Map(state.projects.map((project) => [project.id, project]));
     const groups = state.workspaces
@@ -874,6 +1619,7 @@
     const workspace = workspaceForProject(projectID);
 
     stopLiveUpdates();
+    state.organizationView = null;
     state.selectedWorkspaceID = workspace?.id || null;
     state.selectedProjectID = projectID;
     state.workspaceSection = "overview";
@@ -892,6 +1638,7 @@
     renderProjectHeader(project);
     resetOverview();
     elements.workspaceOverview.hidden = true;
+    elements.userAdminView.hidden = true;
     elements.workspaceEmpty.hidden = true;
     elements.workspaceContent.hidden = false;
     setDashboardView("live");
@@ -920,6 +1667,7 @@
     if (!workspace) return;
 
     stopLiveUpdates();
+    state.organizationView = null;
     state.selectedWorkspaceID = workspaceID;
     state.selectedProjectID = null;
     state.workspaceSection = section;
@@ -935,6 +1683,7 @@
     renderProjectList();
     elements.workspaceContent.hidden = true;
     elements.workspaceEmpty.hidden = true;
+    elements.userAdminView.hidden = true;
     elements.workspaceOverview.hidden = false;
     renderWorkspaceOverview(workspace, null, { loading: true });
 
@@ -1587,7 +2336,7 @@
   }
 
   async function loadGlobalRoomMentions({ silent = false } = {}) {
-    if (!state.token) return;
+    if (!state.authenticated) return;
     try {
       const payload = await requestJSON("/v1/me/room-mentions?status=pending&limit=100");
       const nextMentions = payload?.data?.mentions || [];
@@ -1750,6 +2499,7 @@
     stopLiveUpdates();
     state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.organizationView = null;
     state.workspaceSection = "overview";
     state.workspaceContext = null;
     resetWorkspaceRooms();
@@ -1763,6 +2513,7 @@
     elements.workspaceOverview.hidden = true;
     elements.workspaceContent.hidden = true;
     elements.workspaceEmpty.hidden = false;
+    elements.userAdminView.hidden = true;
     renderProjectList();
   }
 
@@ -1865,7 +2616,7 @@
 
   async function loadOverview({ silent = false, announce = false } = {}) {
     const projectID = state.selectedProjectID;
-    if (!projectID || !state.token) return;
+    if (!projectID || !state.authenticated) return;
     if (
       state.overviewLoading &&
       state.overviewLoadingProjectID === projectID
@@ -1874,7 +2625,7 @@
     }
 
     const requestSequence = ++state.overviewRequestSequence;
-    const requestToken = state.token;
+    const requestAuthenticated = state.authenticated;
     state.overviewLoading = true;
     state.overviewLoadingProjectID = projectID;
     if (!silent) setBusy(elements.refreshOverview, true);
@@ -1891,7 +2642,7 @@
       if (
         requestSequence !== state.overviewRequestSequence ||
         projectID !== state.selectedProjectID ||
-        requestToken !== state.token
+        requestAuthenticated !== state.authenticated
       ) {
         return;
       }
@@ -1923,7 +2674,7 @@
       if (
         requestSequence !== state.overviewRequestSequence ||
         projectID !== state.selectedProjectID ||
-        requestToken !== state.token
+        requestAuthenticated !== state.authenticated
       ) {
         return;
       }
@@ -2033,7 +2784,7 @@
   }
 
   async function connectGitHub() {
-    if (!state.token) return;
+    if (!state.authenticated) return;
     setBusy(elements.connectGitHub, true);
     try {
       const payload = await requestJSON("/v1/integrations/github/connect", {
@@ -2067,7 +2818,7 @@
 
   async function loadProjectRepositories({ silent = false } = {}) {
     const projectID = state.selectedProjectID;
-    if (!projectID || !state.token) return;
+    if (!projectID || !state.authenticated) return;
     try {
       const [projectPayload, availablePayload] = await Promise.all([
         requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/repositories`),
@@ -2231,7 +2982,7 @@
 
   async function syncCanonicalRepository() {
     const projectID = state.selectedProjectID;
-    if (!projectID || !state.token) return;
+    if (!projectID || !state.authenticated) return;
     setBusy(elements.syncRepository, true);
     try {
       const idempotencyKey = globalThis.crypto?.randomUUID
@@ -3078,7 +3829,7 @@
 
   async function runEventStream(projectID, generation) {
     while (
-      state.token &&
+      state.authenticated &&
       state.selectedProjectID === projectID &&
       state.streamGeneration === generation
     ) {
@@ -3091,10 +3842,7 @@
       );
 
       try {
-        const headers = {
-          Accept: "text/event-stream",
-          Authorization: `Bearer ${state.token}`,
-        };
+        const headers = { Accept: "text/event-stream" };
         const lastEventID = state.lastEventByProject.get(projectID);
         if (lastEventID) headers["Last-Event-ID"] = lastEventID;
 
@@ -3104,7 +3852,7 @@
             method: "GET",
             headers,
             cache: "no-store",
-            credentials: "omit",
+            credentials: "same-origin",
             signal: controller.signal,
           },
         );
@@ -3300,24 +4048,27 @@
     }
   }
 
-  async function requestJSON(
-    path,
-    { token = state.token, method = "GET", headers = {}, body } = {},
-  ) {
+  async function requestJSON(path, { method = "GET", headers = {}, body } = {}) {
     const requestHeaders = {
       Accept: "application/json",
-      Authorization: `Bearer ${token}`,
       ...headers,
     };
-    if (body !== undefined) requestHeaders["Content-Type"] = "application/json";
+    if (body !== undefined) {
+      requestHeaders["Content-Type"] = "application/json";
+    }
+    if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+      const csrf = readCookie("pact_csrf");
+      if (csrf) requestHeaders["X-Pact-CSRF"] = csrf;
+    }
     const response = await fetch(path, {
       method,
       headers: requestHeaders,
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
-      credentials: "omit",
+      credentials: "same-origin",
     });
     if (!response.ok) throw await responseError(response);
+    if (response.status === 204) return null;
     try {
       return await response.json();
     } catch {
@@ -3350,23 +4101,11 @@
   function handleUnauthorized(error) {
     if (!(error instanceof APIError) || error.status !== 401) return false;
     stopLiveUpdates();
-    removeSessionToken();
-    state.token = "";
-    state.workspaces = [];
-    state.projects = [];
-    state.selectedWorkspaceID = null;
-    state.selectedProjectID = null;
-    state.workspaceSection = "overview";
-    state.workspaceRoomDirectories.clear();
-    state.workspaceRoomDirectoryLoading.clear();
-    state.workspaceContext = null;
-    resetWorkspaceRooms();
-    state.globalRoomMentions = [];
-    renderGlobalRoomMentionCount();
+    resetAuthenticatedState();
     showAuth();
     setGlobalConnection("error", "Sesión vencida");
-    showAuthError("El token fue rechazado. Introduce uno válido para continuar.");
-    elements.tokenInput.focus();
+    showAuthError("La sesión venció. Inicia sesión para continuar.");
+    void prepareAuthenticationForm();
     return true;
   }
 
@@ -3440,9 +4179,10 @@
     elements.connectButton.disabled = loading;
     const label = elements.connectButton.querySelector("span");
     if (label) {
-      label.textContent = loading
-        ? "Verificando acceso…"
-        : "Entrar al centro de control";
+      if (loading) label.textContent = "Verificando acceso…";
+      else if (state.authMode === "setup") label.textContent = "Crear cuenta propietaria";
+      else if (state.authMode === "invitation") label.textContent = "Crear cuenta y entrar";
+      else label.textContent = "Iniciar sesión";
     }
   }
 
@@ -3451,36 +4191,76 @@
     button.setAttribute("aria-busy", String(busy));
   }
 
-  function readSessionToken() {
-    try {
-      return window.sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
-    } catch {
-      return "";
+  function readCookie(name) {
+    const prefix = `${encodeURIComponent(name)}=`;
+    const entry = document.cookie.split("; ").find((item) => item.startsWith(prefix));
+    return entry ? decodeURIComponent(entry.slice(prefix.length)) : "";
+  }
+
+  function readAuthenticationIntent() {
+    const parameters = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    state.invitationSecret = parameters.get("invite") || "";
+    state.deviceCode = (parameters.get("device") || "").toUpperCase();
+  }
+
+  function clearAuthenticationIntent(kind) {
+    const parameters = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    parameters.delete(kind);
+    const next = parameters.toString();
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}${next ? `#${next}` : ""}`);
+    if (kind === "invite") state.invitationSecret = "";
+    if (kind === "device") state.deviceCode = "";
+  }
+
+  async function handlePendingAuthenticationIntent() {
+    if (state.invitationSecret) {
+      const shouldAccept = window.confirm("Esta invitación se añadirá a tu cuenta actual. ¿Quieres aceptarla?");
+      if (shouldAccept) {
+        try {
+          await requestJSON("/v1/auth/invitations/accept", {
+            method: "POST",
+            body: { secret: state.invitationSecret },
+          });
+          clearAuthenticationIntent("invite");
+          showToast("Invitación aceptada.");
+          await refreshProjects();
+        } catch (error) {
+          showToast(requestErrorMessage(error), { error: true });
+        }
+      }
+    }
+    if (state.deviceCode) {
+      elements.deviceApprovalCode.textContent = state.deviceCode;
+      elements.deviceApprovalDialog.showModal();
     }
   }
 
-  function writeSessionToken(token) {
+  async function approvePendingDevice() {
+    if (!state.deviceCode) return;
+    setBusy(elements.approveDevice, true);
     try {
-      window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
-    } catch {
-      showToast(
-        "El navegador no permitió conservar la sesión; el token seguirá solo en memoria.",
-        { error: true },
-      );
+      await requestJSON("/v1/auth/devices/approve", {
+        method: "POST",
+        body: { user_code: state.deviceCode },
+      });
+      showToast("Dispositivo autorizado.");
+      clearAuthenticationIntent("device");
+      elements.deviceApprovalDialog.close();
+    } catch (error) {
+      showToast(requestErrorMessage(error), { error: true });
+    } finally {
+      setBusy(elements.approveDevice, false);
     }
   }
 
-  function removeSessionToken() {
-    try {
-      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
-    } catch {
-      // The in-memory token is cleared even when storage is unavailable.
-    }
+  function closeDeviceApproval() {
+    clearAuthenticationIntent("device");
+    elements.deviceApprovalDialog.close();
   }
 
   function authErrorMessage(error) {
     if (error instanceof APIError && error.status === 401) {
-      return "El token fue rechazado por Pact Server.";
+      return "El usuario, el correo o la contraseña no son válidos.";
     }
     return requestErrorMessage(error);
   }

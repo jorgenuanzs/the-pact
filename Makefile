@@ -25,7 +25,7 @@ init:
 	else \
 		cp .env.example .env; \
 		chmod 600 .env; \
-		echo "Created .env. Set PACT_DB_PASSWORD and PACT_LOCAL_API_TOKEN before make dev."; \
+		echo "Created .env. Set PACT_DB_PASSWORD and PACT_SETUP_TOKEN before the first make dev."; \
 	fi
 
 cli: docker-builder
@@ -48,13 +48,13 @@ dev: doctor docker-builder
 		echo "Pact is ready at http://$${address}"
 
 down:
-	@PACT_DB_PASSWORD=not-used PACT_LOCAL_API_TOKEN=not-used-by-down $(COMPOSE) down
+	@PACT_DB_PASSWORD=not-used $(COMPOSE) down
 
 logs:
-	@PACT_DB_PASSWORD=not-used PACT_LOCAL_API_TOKEN=not-used-by-logs $(COMPOSE) logs --follow
+	@PACT_DB_PASSWORD=not-used $(COMPOSE) logs --follow
 
 ps:
-	@PACT_DB_PASSWORD=not-used PACT_LOCAL_API_TOKEN=not-used-by-ps $(COMPOSE) ps
+	@PACT_DB_PASSWORD=not-used $(COMPOSE) ps
 
 migrate: doctor docker-builder
 	@$(COMPOSE) build --builder "$(PACT_BUILDER)" migrate
@@ -148,7 +148,7 @@ docker-clean-stale:
 	@echo "Removed stale PACT containers, images, and build cache; volumes were preserved."
 
 docker-clean:
-	@PACT_DB_PASSWORD=not-used PACT_LOCAL_API_TOKEN=not-used-by-clean \
+	@PACT_DB_PASSWORD=not-used \
 		$(COMPOSE) down --remove-orphans
 	@docker image rm $(PACT_IMAGES) >/dev/null 2>&1 || true
 	@docker image prune --force \
@@ -170,12 +170,11 @@ doctor:
 	@password="$$(sed -n 's/^PACT_DB_PASSWORD=//p' .env | tail -n 1)"; \
 		[ "$${#password}" -ge 16 ] || { echo "PACT_DB_PASSWORD in .env must contain at least 16 URL-safe characters."; exit 1; }; \
 		printf '%s' "$$password" | grep -Eq '^[A-Za-z0-9._~-]+$$' || { echo "PACT_DB_PASSWORD in .env must contain only URL-safe characters."; exit 1; }
-	@token="$$(sed -n 's/^PACT_LOCAL_API_TOKEN=//p' .env | tail -n 1)"; \
-		[ "$${#token}" -ge 24 ] || { echo "PACT_LOCAL_API_TOKEN in .env must contain at least 24 characters."; exit 1; }
+	@setup_token="$$(sed -n 's/^PACT_SETUP_TOKEN=//p' .env | tail -n 1)"; \
+		[ -z "$$setup_token" ] || [ "$${#setup_token}" -ge 24 ] || { echo "PACT_SETUP_TOKEN in .env must be blank or contain at least 24 characters."; exit 1; }
 	@$(COMPOSE) config --quiet
 	@echo "Development environment configuration is valid."
 
 _compose-config:
 	@PACT_DB_PASSWORD=compose-validation-only \
-		PACT_LOCAL_API_TOKEN=compose-validation-token-only \
 		$(COMPOSE) config --quiet

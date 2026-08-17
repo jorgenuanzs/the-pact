@@ -55,8 +55,9 @@ sudo docker compose --project-name the-pact \
   --file /opt/the-pact/current/docker-compose.prod.yml ps
 ```
 
-The API token can be read only by root from
-`/opt/the-pact/shared/runtime.env`. Backups are local protection against logical
+The one-time `PACT_SETUP_TOKEN` can be read only by root from
+`/opt/the-pact/shared/runtime.env`; remove it after the first owner account is
+created. It is not an API credential. Backups are local protection against logical
 errors; a later step must replicate them outside this VM for disaster recovery.
 
 ## Restore drill

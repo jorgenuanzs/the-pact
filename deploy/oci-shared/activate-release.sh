@@ -131,12 +131,12 @@ secrets_file="${shared_dir}/runtime.env"
 if [[ ! -f "${secrets_file}" ]]; then
   umask 077
   db_password="$(openssl rand -hex 32)"
-  api_token="$(openssl rand -hex 32)"
+  setup_token="$(openssl rand -hex 32)"
   cat >"${secrets_file}" <<EOF
 PACT_DB_NAME=pact
 PACT_DB_USER=pact
 PACT_DB_PASSWORD=${db_password}
-PACT_LOCAL_API_TOKEN=${api_token}
+PACT_SETUP_TOKEN=${setup_token}
 PACT_LOCAL_ORGANIZATION_ID=00000000-0000-4000-8000-000000000001
 PACT_LOG_LEVEL=info
 PACT_BACKUP_RETENTION_DAYS=30
@@ -178,6 +178,10 @@ ensure_runtime_default PACT_GITHUB_APP_PRIVATE_KEY_BASE64 ""
 ensure_runtime_default PACT_GITHUB_APP_WEBHOOK_SECRET ""
 ensure_runtime_default PACT_GITHUB_TIMEOUT 10s
 ensure_runtime_default PACT_GITHUB_SYNC_INTERVAL 0s
+ensure_runtime_default PACT_SETUP_TOKEN "$(openssl rand -hex 32)"
+# The retired alpha shared credential is intentionally not forwarded to Pact Server.
+# Remove the retired setting so operators do not mistake it for a live secret.
+sed -i '/^PACT_LOCAL_API_TOKEN=/d' "${secrets_file}"
 chmod 600 "${secrets_file}"
 
 image="the-pact-server:${PACT_RELEASE_ID}"

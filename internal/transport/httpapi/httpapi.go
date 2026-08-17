@@ -18,6 +18,7 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
@@ -30,6 +31,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
+	"github.com/jorgenuanzs/the-pact/internal/useradmin"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -117,16 +119,44 @@ type ContextPackService interface {
 }
 
 type AccessService interface {
-	Authenticate(context.Context, string) (access.Principal, error)
 	RequireProjectRole(context.Context, access.Principal, string, string) error
 	VisibleProjectIDs(context.Context, access.Principal) (map[string]struct{}, error)
 	CanCreateProject(access.Principal) bool
 	GetProjectAccess(context.Context, access.Principal, string) (access.ProjectAccess, error)
 	CreateInvitation(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
-	AcceptInvitation(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
 	RevokeInvitation(context.Context, access.Principal, string) error
-	RevokeCurrentToken(context.Context, access.Principal) error
 	GrantProjectOwner(context.Context, access.Principal, string) error
+}
+
+type AuthenticationService interface {
+	SetupStatus(context.Context) (authn.SetupStatus, error)
+	Setup(context.Context, authn.SetupInput, authn.SessionMetadata) (authn.CreatedWebSession, error)
+	Login(context.Context, authn.LoginInput, authn.SessionMetadata) (authn.CreatedWebSession, error)
+	AuthenticateWeb(context.Context, string) (authn.WebSession, error)
+	AuthenticateDevice(context.Context, string) (authn.DevicePrincipal, error)
+	ValidateCSRF(authn.WebSession, string) bool
+	LogoutWeb(context.Context, authn.WebSession) error
+	ChangePassword(context.Context, authn.WebSession, authn.ChangePasswordInput) error
+	PreviewInvitation(context.Context, string) (authn.InvitationPreview, error)
+	RegisterInvitation(context.Context, authn.InvitationRegistrationInput, authn.SessionMetadata) (authn.CreatedInvitationSession, error)
+	AcceptInvitation(context.Context, access.Principal, string) (authn.InvitationAcceptance, error)
+	BeginDevice(context.Context, authn.BeginDeviceInput) (authn.DeviceAuthorization, error)
+	ApproveDevice(context.Context, access.Principal, string) error
+	ExchangeDevice(context.Context, string) (authn.DeviceExchange, error)
+	RevokeCurrentDevice(context.Context, authn.DevicePrincipal) error
+	ListDevices(context.Context, access.Principal) ([]authn.Device, error)
+	RevokeDevice(context.Context, access.Principal, string) error
+}
+
+type UserAdminService interface {
+	Directory(context.Context, access.Principal) (useradmin.Directory, error)
+	GetUser(context.Context, access.Principal, string) (useradmin.User, error)
+	UpdateUser(context.Context, access.Principal, string, useradmin.UpdateUserInput) (useradmin.User, error)
+	SetProjectPermission(context.Context, access.Principal, string, string, string) (useradmin.User, error)
+	RemoveProjectPermission(context.Context, access.Principal, string, string) (useradmin.User, error)
+	RevokeUserSessions(context.Context, access.Principal, string) (useradmin.User, error)
+	CreateInvitation(context.Context, access.Principal, useradmin.CreateInvitationInput) (useradmin.CreatedInvitation, error)
+	RevokeInvitation(context.Context, access.Principal, string) error
 }
 
 type ReadinessCheck func(context.Context) error
@@ -147,7 +177,9 @@ type Config struct {
 	CoordinationService      CoordinationService
 	HandoffService           HandoffService
 	ContextPackService       ContextPackService
+	AuthenticationService    AuthenticationService
 	AccessService            AccessService
+	UserAdminService         UserAdminService
 	BackofficeReader         backoffice.Reader
 	EventReader              eventlog.Reader
 	StreamShutdown           <-chan struct{}
@@ -171,7 +203,9 @@ type API struct {
 	coordination         CoordinationService
 	handoffs             HandoffService
 	contextPacks         ContextPackService
+	authentication       AuthenticationService
 	access               AccessService
+	userAdmin            UserAdminService
 	backoffice           backoffice.Reader
 	events               eventlog.Reader
 	streamShutdown       <-chan struct{}
@@ -180,6 +214,9 @@ type API struct {
 }
 
 func New(cfg Config) http.Handler {
+	if cfg.AuthenticationService == nil {
+		cfg.AuthenticationService, _ = cfg.AccessService.(AuthenticationService)
+	}
 	if cfg.StreamPollInterval <= 0 {
 		cfg.StreamPollInterval = time.Second
 	}
@@ -203,7 +240,9 @@ func New(cfg Config) http.Handler {
 		coordination:         cfg.CoordinationService,
 		handoffs:             cfg.HandoffService,
 		contextPacks:         cfg.ContextPackService,
+		authentication:       cfg.AuthenticationService,
 		access:               cfg.AccessService,
+		userAdmin:            cfg.UserAdminService,
 		backoffice:           cfg.BackofficeReader,
 		events:               cfg.EventReader,
 		streamShutdown:       cfg.StreamShutdown,
@@ -218,6 +257,30 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("GET /version", api.handleVersion)
 	mux.HandleFunc("GET /admin", api.handleAdminRedirect)
 	mux.Handle("GET /admin/", adminui.Handler())
+	mux.HandleFunc("GET /v1/auth/setup", api.handleAuthSetupStatus)
+	mux.HandleFunc("POST /v1/auth/setup", api.handleAuthSetup)
+	mux.HandleFunc("POST /v1/auth/login", api.handleAuthLogin)
+	mux.HandleFunc("POST /v1/auth/invitations/preview", api.handleAuthInvitationPreview)
+	mux.HandleFunc("POST /v1/auth/invitations/register", api.handleAuthInvitationRegister)
+	mux.HandleFunc("POST /v1/auth/devices", api.handleAuthBeginDevice)
+	mux.HandleFunc("POST /v1/auth/devices/exchange", api.handleAuthExchangeDevice)
+	mux.Handle("GET /v1/auth/session", api.requireAuth(http.HandlerFunc(api.handleAuthSession)))
+	mux.Handle("DELETE /v1/auth/session", api.requireAuth(http.HandlerFunc(api.handleAuthLogout)))
+	mux.Handle("PUT /v1/auth/password", api.requireAuth(http.HandlerFunc(api.handleAuthChangePassword)))
+	mux.Handle("POST /v1/auth/invitations/accept", api.requireAuth(http.HandlerFunc(api.handleAuthInvitationAccept)))
+	mux.Handle("POST /v1/auth/devices/approve", api.requireAuth(http.HandlerFunc(api.handleAuthApproveDevice)))
+	mux.Handle("GET /v1/auth/devices", api.requireAuth(http.HandlerFunc(api.handleAuthListDevices)))
+	mux.Handle("DELETE /v1/auth/devices/{deviceID}", api.requireAuth(http.HandlerFunc(api.handleAuthRevokeDevice)))
+	mux.Handle("DELETE /v1/auth/device/current", api.requireAuth(http.HandlerFunc(api.handleAuthRevokeCurrentDevice)))
+	mux.Handle("GET /v1/admin/users", api.requireAuth(http.HandlerFunc(api.handleAdminListUsers)))
+	mux.Handle("GET /v1/admin/users/{principalID}", api.requireAuth(http.HandlerFunc(api.handleAdminGetUser)))
+	mux.Handle("PATCH /v1/admin/users/{principalID}", api.requireAuth(http.HandlerFunc(api.handleAdminUpdateUser)))
+	mux.Handle("DELETE /v1/admin/users/{principalID}", api.requireAuth(http.HandlerFunc(api.handleAdminDisableUser)))
+	mux.Handle("DELETE /v1/admin/users/{principalID}/sessions", api.requireAuth(http.HandlerFunc(api.handleAdminRevokeUserSessions)))
+	mux.Handle("PUT /v1/admin/users/{principalID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAdminSetProjectPermission)))
+	mux.Handle("DELETE /v1/admin/users/{principalID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAdminRemoveProjectPermission)))
+	mux.Handle("POST /v1/admin/invitations", api.requireAuth(http.HandlerFunc(api.handleAdminCreateInvitation)))
+	mux.Handle("DELETE /v1/admin/invitations/{invitationID}", api.requireAuth(http.HandlerFunc(api.handleAdminRevokeInvitation)))
 	mux.Handle("GET /v1/projects", api.requireAuth(http.HandlerFunc(api.handleListProjects)))
 	mux.Handle("POST /v1/projects", api.requireAuth(http.HandlerFunc(api.handleCreateProject)))
 	mux.Handle("GET /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleListWorkspaces)))
@@ -269,13 +332,11 @@ func New(cfg Config) http.Handler {
 	mux.Handle("DELETE /v1/agent-sessions/{sessionID}", api.requireAuth(http.HandlerFunc(api.handleCloseAgentSession)))
 	mux.Handle("POST /v1/projects/{projectID}/invitations", api.requireAuth(http.HandlerFunc(api.handleCreateInvitation)))
 	mux.Handle("DELETE /v1/invitations/{invitationID}", api.requireAuth(http.HandlerFunc(api.handleRevokeInvitation)))
-	mux.HandleFunc("POST /v1/invitation-acceptances", api.handleAcceptInvitation)
 	mux.Handle("GET /v1/me", api.requireAuth(http.HandlerFunc(api.handleMe)))
 	mux.Handle("GET /v1/me/room-mentions", api.requireAuth(http.HandlerFunc(api.handleMyRoomMentions)))
 	mux.Handle("POST /v1/me/room-mentions/{mentionID}/status", api.requireAuth(http.HandlerFunc(api.handleMyRoomMentionStatus)))
 	mux.Handle("GET /v1/agent-sessions/{sessionID}/room-mentions", api.requireAuth(http.HandlerFunc(api.handleAgentRoomMentions)))
 	mux.Handle("POST /v1/agent-sessions/{sessionID}/room-mentions/{mentionID}/status", api.requireAuth(http.HandlerFunc(api.handleAgentRoomMentionStatus)))
-	mux.Handle("DELETE /v1/me/tokens/current", api.requireAuth(http.HandlerFunc(api.handleRevokeCurrentToken)))
 	mux.Handle("/{$}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/livez", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/readyz", api.methodNotAllowed(http.MethodGet))
@@ -286,6 +347,12 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/workspaces", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut))
+	mux.Handle("/v1/admin/users", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/admin/users/{principalID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete))
+	mux.Handle("/v1/admin/users/{principalID}/sessions", api.methodNotAllowed(http.MethodDelete))
+	mux.Handle("/v1/admin/users/{principalID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut+", "+http.MethodDelete))
+	mux.Handle("/v1/admin/invitations", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/admin/invitations/{invitationID}", api.methodNotAllowed(http.MethodDelete))
 	mux.Handle("/v1/workspaces/{workspaceID}/resources", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces/{workspaceID}/records", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces/{workspaceID}/records/{recordID}", api.methodNotAllowed(http.MethodGet))
@@ -323,13 +390,11 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/agent-sessions/{sessionID}", api.methodNotAllowed(http.MethodDelete))
 	mux.Handle("/v1/projects/{projectID}/invitations", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/invitations/{invitationID}", api.methodNotAllowed(http.MethodDelete))
-	mux.Handle("/v1/invitation-acceptances", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/me", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/me/room-mentions", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/me/room-mentions/{mentionID}/status", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/agent-sessions/{sessionID}/room-mentions", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/agent-sessions/{sessionID}/room-mentions/{mentionID}/status", api.methodNotAllowed(http.MethodPost))
-	mux.Handle("/v1/me/tokens/current", api.methodNotAllowed(http.MethodDelete))
 	mux.HandleFunc("/", api.handleNotFound)
 
 	return api.requestContext(api.accessLog(api.recoverPanic(mux)))
@@ -761,7 +826,7 @@ func (a *API) handleCreateRoomMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	principal, _ := principalFromContext(r.Context())
 	result, err := a.rooms.CreateMessage(
-		r.Context(), principal.ID, principal.Bootstrap,
+		r.Context(), principal.ID, principalCanManageAll(principal),
 		r.PathValue("workspaceID"), r.PathValue("roomID"),
 		r.Header.Get("Idempotency-Key"), input,
 	)
@@ -795,7 +860,7 @@ func (a *API) handleRoomMentions(w http.ResponseWriter, r *http.Request, session
 	}
 	principal, _ := principalFromContext(r.Context())
 	mentions, err := a.rooms.ListInbox(
-		r.Context(), principal.ID, principal.Bootstrap, sessionID,
+		r.Context(), principal.ID, principalCanManageAll(principal), sessionID,
 		rooms.InboxOptions{
 			WorkspaceID: r.URL.Query().Get("workspace_id"),
 			Status:      r.URL.Query().Get("status"), Limit: limit,
@@ -832,7 +897,7 @@ func (a *API) handleRoomMentionStatus(w http.ResponseWriter, r *http.Request, se
 	}
 	principal, _ := principalFromContext(r.Context())
 	mention, err := a.rooms.UpdateMention(
-		r.Context(), principal.ID, principal.Bootstrap, sessionID,
+		r.Context(), principal.ID, principalCanManageAll(principal), sessionID,
 		r.PathValue("mentionID"), input,
 	)
 	if err != nil {
@@ -1279,25 +1344,6 @@ func (a *API) handleCreateInvitation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"data": created})
 }
 
-func (a *API) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) {
-	if !hasJSONContentType(r.Header.Get("Content-Type")) {
-		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
-		return
-	}
-	var input access.AcceptInvitationInput
-	if err := decodeJSON(w, r, &input); err != nil {
-		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
-		return
-	}
-	accepted, err := a.access.AcceptInvitation(r.Context(), input)
-	if err != nil {
-		a.writeDomainError(w, r, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, map[string]any{"data": accepted})
-}
-
 func (a *API) handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	if err := a.access.RevokeInvitation(r.Context(), principal, r.PathValue("invitationID")); err != nil {
@@ -1322,15 +1368,6 @@ func (a *API) handleProjectAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"data": roster})
-}
-
-func (a *API) handleRevokeCurrentToken(w http.ResponseWriter, r *http.Request) {
-	principal, _ := principalFromContext(r.Context())
-	if err := a.access.RevokeCurrentToken(r.Context(), principal); err != nil {
-		a.writeDomainError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) handleGetRepositorySync(w http.ResponseWriter, r *http.Request) {
@@ -1857,6 +1894,7 @@ func sseEventName(value string) string {
 
 func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
 	var validationErr *projects.ValidationError
+	var authenticationValidationErr *authn.ValidationError
 	var agentValidationErr *agentsession.ValidationError
 	var accessValidationErr *access.ValidationError
 	var coordinationValidationErr *coordination.ValidationError
@@ -1868,10 +1906,13 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var providerErr *repositorysync.ProviderError
 	var projectRepositoryValidationErr *projectrepo.ValidationError
 	var githubProviderErr *githubapp.ProviderError
+	var userAdminValidationErr *useradmin.ValidationError
 	var scopeConflictErr *coordination.ScopeConflictError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", validationErr.Error())
+	case errors.As(err, &authenticationValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", authenticationValidationErr.Error())
 	case errors.As(err, &agentValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", agentValidationErr.Error())
 	case errors.As(err, &accessValidationErr):
@@ -1890,6 +1931,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", repositorySyncValidationErr.Error())
 	case errors.As(err, &projectRepositoryValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", projectRepositoryValidationErr.Error())
+	case errors.As(err, &userAdminValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", userAdminValidationErr.Error())
 	case errors.As(err, &githubProviderErr):
 		writeProblem(w, r, http.StatusBadGateway, githubProviderErr.Code, "GitHub integration failed", "Pact could not complete the operation with GitHub.")
 	case errors.As(err, &providerErr):
@@ -1899,9 +1942,27 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusFailedDependency, providerErr.Code, "GitHub synchronization failed", "Pact could not read the canonical repository state from GitHub.")
 	case errors.As(err, &scopeConflictErr):
 		writeScopeConflict(w, r, scopeConflictErr)
+	case errors.Is(err, authn.ErrUnauthorized), errors.Is(err, authn.ErrInvalidCredentials):
+		writeProblem(w, r, http.StatusUnauthorized, "invalid_credentials", "Authentication failed", "The username, email, password, or session is invalid.")
+	case errors.Is(err, authn.ErrSetupUnavailable):
+		writeProblem(w, r, http.StatusForbidden, "setup_unavailable", "Initial setup unavailable", err.Error())
+	case errors.Is(err, authn.ErrAlreadyConfigured):
+		writeProblem(w, r, http.StatusConflict, "setup_complete", "Initial setup complete", err.Error())
+	case errors.Is(err, authn.ErrAccountExists):
+		writeProblem(w, r, http.StatusConflict, "account_exists", "Account already exists", err.Error())
+	case errors.Is(err, authn.ErrInvitationInvalid):
+		writeProblem(w, r, http.StatusUnauthorized, "invitation_invalid", "Invalid invitation", err.Error())
+	case errors.Is(err, authn.ErrInvitationMismatch):
+		writeProblem(w, r, http.StatusForbidden, "invitation_mismatch", "Invitation mismatch", err.Error())
+	case errors.Is(err, authn.ErrDeviceCodeInvalid):
+		writeProblem(w, r, http.StatusBadRequest, "device_authorization_invalid", "Invalid device authorization", err.Error())
+	case errors.Is(err, authn.ErrAuthorizationDenied):
+		writeProblem(w, r, http.StatusForbidden, "device_authorization_denied", "Device authorization denied", err.Error())
+	case errors.Is(err, authn.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "authentication_resource_not_found", "Authentication resource not found", err.Error())
 	case errors.Is(err, access.ErrUnauthorized):
 		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "A valid Pact access token is required.")
+		writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "Authentication is required.")
 	case errors.Is(err, access.ErrForbidden):
 		writeProblem(w, r, http.StatusForbidden, "forbidden", "Forbidden", "The current identity does not have permission for this operation.")
 	case errors.Is(err, coordination.ErrForbidden):
@@ -1932,6 +1993,22 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusConflict, "invitation_exists", "Invitation already exists", err.Error())
 	case errors.Is(err, access.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "access_resource_not_found", "Access resource not found", err.Error())
+	case errors.Is(err, useradmin.ErrForbidden):
+		writeProblem(w, r, http.StatusForbidden, "user_administration_forbidden", "Forbidden", "The current account cannot administer this user or role.")
+	case errors.Is(err, useradmin.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "user_administration_resource_not_found", "User administration resource not found", err.Error())
+	case errors.Is(err, useradmin.ErrAccountExists):
+		writeProblem(w, r, http.StatusConflict, "user_account_exists", "User account already exists", err.Error())
+	case errors.Is(err, useradmin.ErrInvitationExists):
+		writeProblem(w, r, http.StatusConflict, "user_invitation_exists", "Pending invitation already exists", err.Error())
+	case errors.Is(err, useradmin.ErrLastOwner):
+		writeProblem(w, r, http.StatusConflict, "last_owner_required", "An active owner is required", err.Error())
+	case errors.Is(err, useradmin.ErrSelfManagement):
+		writeProblem(w, r, http.StatusConflict, "self_administration_restricted", "Operation not allowed on the current account", err.Error())
+	case errors.Is(err, useradmin.ErrGlobalProjectRole):
+		writeProblem(w, r, http.StatusConflict, "global_project_access", "Global project access already applies", err.Error())
+	case errors.Is(err, useradmin.ErrInactiveUser):
+		writeProblem(w, r, http.StatusConflict, "inactive_user", "User is disabled", err.Error())
 	case errors.Is(err, agentsession.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "agent_session_not_found", "Agent session not found", err.Error())
 	case errors.Is(err, agentsession.ErrIdempotencyConflict):

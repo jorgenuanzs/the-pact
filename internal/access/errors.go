@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	ErrUnauthorized      = errors.New("invalid or expired access token")
+	ErrUnauthorized      = errors.New("authentication required")
 	ErrForbidden         = errors.New("the principal does not have permission for this operation")
 	ErrInvitationInvalid = errors.New("invitation is invalid, expired, accepted, or revoked")
 	ErrInvitationExists  = errors.New("a pending invitation already exists for this email and project")

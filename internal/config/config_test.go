@@ -8,7 +8,7 @@ import (
 
 func TestLoadUsesSafeDefaults(t *testing.T) {
 	t.Setenv("PACT_DATABASE_URL", "postgres://example")
-	t.Setenv("PACT_LOCAL_API_TOKEN", strings.Repeat("x", 24))
+	t.Setenv("PACT_SETUP_TOKEN", strings.Repeat("x", 24))
 	t.Setenv("PACT_HTTP_ADDRESS", "")
 	t.Setenv("PACT_LOCAL_ORGANIZATION_ID", "")
 	t.Setenv("PACT_LOG_LEVEL", "")
@@ -48,7 +48,7 @@ func TestValidateServerRejectsShortToken(t *testing.T) {
 	cfg := Config{
 		HTTPAddress:       "127.0.0.1:8080",
 		DatabaseURL:       "postgres://example",
-		LocalAPIToken:     "too-short",
+		SetupToken:        "too-short",
 		LocalOrganization: DefaultLocalOrganizationID,
 		LogLevel:          "info",
 		ShutdownTimeout:   time.Second,
@@ -58,7 +58,7 @@ func TestValidateServerRejectsShortToken(t *testing.T) {
 	}
 
 	err := cfg.ValidateServer()
-	if err == nil || !strings.Contains(err.Error(), "PACT_LOCAL_API_TOKEN") {
+	if err == nil || !strings.Contains(err.Error(), "PACT_SETUP_TOKEN") {
 		t.Fatalf("ValidateServer() error = %v", err)
 	}
 }

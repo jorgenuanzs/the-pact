@@ -1,6 +1,6 @@
 # ADR-0006 — Acceso personal, invitaciones y roles de proyecto
 
-**Estado:** aceptado
+**Estado:** reemplazado por [ADR-0017](0017-local-accounts-web-sessions-and-device-authorization.md)
 **Fecha:** 13 de agosto de 2026
 
 ## Contexto

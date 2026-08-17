@@ -34,7 +34,7 @@ The reproducible path uses Docker:
 
 ```sh
 make init
-# Set PACT_DB_PASSWORD and PACT_LOCAL_API_TOKEN in .env.
+# Set PACT_DB_PASSWORD and PACT_SETUP_TOKEN in .env for first-time setup.
 make doctor
 make dev
 ```

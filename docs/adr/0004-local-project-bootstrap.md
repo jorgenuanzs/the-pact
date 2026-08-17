@@ -108,9 +108,9 @@ autentica actores y nodos, coordina el estado común, registra eventos y publica
 actualizaciones. PostgreSQL no se expone a las máquinas del equipo.
 
 Una instalación compartida requiere TLS, identidad y autorización por
-organización/proyecto. ADR-0006 añadió tokens personales y roles de proyecto;
-OIDC, credenciales de nodo rotatorias, roles PostgreSQL separados y políticas
-de red continúan pendientes.
+organización/proyecto. ADR-0017 reemplazó los tokens personales por cuentas,
+sesiones web y credenciales por dispositivo; OIDC, credenciales de nodo
+rotatorias, roles PostgreSQL separados y políticas de red continúan pendientes.
 
 ## Autoridades
 

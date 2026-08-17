@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/config"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
@@ -41,6 +41,24 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 	}
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	const setupCode = "rooms-integration-setup-code"
+	ownerSession, err := authn.NewService(authn.Config{
+		OrganizationID: config.DefaultLocalOrganizationID,
+		SetupToken:     setupCode,
+		PublicURL:      "https://pact.example.com",
+	}, authn.NewPostgresRepository(pool)).Setup(ctx, authn.SetupInput{
+		SetupCode: setupCode,
+		AccountInput: authn.AccountInput{
+			DisplayName: "Rooms integration owner",
+			Email:       "rooms-" + suffix + "@example.com",
+			Username:    "rooms." + suffix[len(suffix)-8:],
+			Password:    "a sufficiently long rooms owner password",
+		},
+	}, authn.SessionMetadata{UserAgent: "integration-test"})
+	if err != nil {
+		t.Fatalf("create rooms owner: %v", err)
+	}
+	principalID := ownerSession.Session.Principal.ID
 	projectResult, err := projects.NewService(
 		config.DefaultLocalOrganizationID,
 		projects.NewPostgresRepository(pool),
@@ -68,13 +86,13 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 		t.Fatalf("default rooms = %#v", roomList)
 	}
 
-	createdRoom, err := service.CreateRoom(ctx, access.BootstrapPrincipalID, workspace.ID, "room-create-"+suffix, rooms.CreateRoomInput{
+	createdRoom, err := service.CreateRoom(ctx, principalID, workspace.ID, "room-create-"+suffix, rooms.CreateRoomInput{
 		Name: "Product decisions", Description: "Soft product context shared by people and agents.",
 	})
 	if err != nil {
 		t.Fatalf("create room: %v", err)
 	}
-	replayedRoom, err := service.CreateRoom(ctx, access.BootstrapPrincipalID, workspace.ID, "room-create-"+suffix, rooms.CreateRoomInput{
+	replayedRoom, err := service.CreateRoom(ctx, principalID, workspace.ID, "room-create-"+suffix, rooms.CreateRoomInput{
 		Name: "Product decisions", Description: "Soft product context shared by people and agents.",
 	})
 	if err != nil || !replayedRoom.Replayed || replayedRoom.Room.ID != createdRoom.Room.ID {
@@ -84,7 +102,7 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 	session, err := agentsession.NewService(
 		config.DefaultLocalOrganizationID,
 		agentsession.NewPostgresRepository(pool),
-	).Start(ctx, access.BootstrapPrincipalID, projectResult.Project.ID, agentsession.StartInput{
+	).Start(ctx, principalID, projectResult.Project.ID, agentsession.StartInput{
 		NodeKey: "rooms-node-" + suffix, NodeName: "Rooms integration node",
 		AgentName: "Codex Rooms " + suffix, AgentType: "codex", ClientType: "codex-mcp",
 	})
@@ -95,7 +113,7 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list participants: %v", err)
 	}
-	if !containsParticipant(participants, access.BootstrapPrincipalID) || !containsParticipant(participants, session.ActorID) {
+	if !containsParticipant(participants, principalID) || !containsParticipant(participants, session.ActorID) {
 		t.Fatalf("participants = %#v", participants)
 	}
 
@@ -104,21 +122,21 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 		MentionActorIDs: []string{session.ActorID},
 	}
 	createdMessage, err := service.CreateMessage(
-		ctx, access.BootstrapPrincipalID, true, workspace.ID, createdRoom.Room.ID,
+		ctx, principalID, true, workspace.ID, createdRoom.Room.ID,
 		"room-message-"+suffix, messageInput,
 	)
 	if err != nil {
 		t.Fatalf("create room message: %v", err)
 	}
 	replayedMessage, err := service.CreateMessage(
-		ctx, access.BootstrapPrincipalID, true, workspace.ID, createdRoom.Room.ID,
+		ctx, principalID, true, workspace.ID, createdRoom.Room.ID,
 		"room-message-"+suffix, messageInput,
 	)
 	if err != nil || !replayedMessage.Replayed || replayedMessage.Message.ID != createdMessage.Message.ID {
 		t.Fatalf("replayed message = %#v, error = %v", replayedMessage, err)
 	}
 
-	inbox, err := service.ListInbox(ctx, access.BootstrapPrincipalID, true, session.ID, rooms.InboxOptions{
+	inbox, err := service.ListInbox(ctx, principalID, true, session.ID, rooms.InboxOptions{
 		WorkspaceID: workspace.ID, Status: "pending",
 	})
 	if err != nil {
@@ -128,7 +146,7 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 		t.Fatalf("agent inbox = %#v", inbox)
 	}
 	agentReply, err := service.CreateMessage(
-		ctx, access.BootstrapPrincipalID, true, workspace.ID, createdRoom.Room.ID,
+		ctx, principalID, true, workspace.ID, createdRoom.Room.ID,
 		"room-reply-"+suffix, rooms.CreateMessageInput{
 			Body:             "Reviewed. The decision is consistent with the current product direction.",
 			ReplyToMessageID: createdMessage.Message.ID, AuthorSessionID: session.ID,
@@ -140,7 +158,7 @@ func TestWorkspaceRoomConversationAndExplicitAgentMention(t *testing.T) {
 	if agentReply.Message.AuthorActorID != session.ActorID || agentReply.Message.ThreadRootMessageID == nil || *agentReply.Message.ThreadRootMessageID != createdMessage.Message.ID {
 		t.Fatalf("agent reply = %#v", agentReply.Message)
 	}
-	acknowledged, err := service.UpdateMention(ctx, access.BootstrapPrincipalID, true, session.ID, inbox[0].ID, rooms.MentionStatusInput{Status: "responded"})
+	acknowledged, err := service.UpdateMention(ctx, principalID, true, session.ID, inbox[0].ID, rooms.MentionStatusInput{Status: "responded"})
 	if err != nil || acknowledged.Status != "responded" || acknowledged.ReadAt == nil || acknowledged.RespondedAt == nil {
 		t.Fatalf("acknowledged mention = %#v, error = %v", acknowledged, err)
 	}
