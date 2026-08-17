@@ -121,6 +121,7 @@ type AccessService interface {
 	RequireProjectRole(context.Context, access.Principal, string, string) error
 	VisibleProjectIDs(context.Context, access.Principal) (map[string]struct{}, error)
 	CanCreateProject(access.Principal) bool
+	GetProjectAccess(context.Context, access.Principal, string) (access.ProjectAccess, error)
 	CreateInvitation(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
 	AcceptInvitation(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
 	RevokeInvitation(context.Context, access.Principal, string) error
@@ -248,6 +249,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("GET /v1/integrations/github/callback", api.handleGitHubCallback)
 	mux.HandleFunc("POST /v1/integrations/github/webhook", api.handleGitHubWebhook)
 	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleProjectOverview))))
+	mux.Handle("GET /v1/projects/{projectID}/access", api.requireAuth(http.HandlerFunc(api.handleProjectAccess)))
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
 	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartAgentSession))))
@@ -302,6 +304,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/integrations/github/callback", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/integrations/github/webhook", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/overview", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects/{projectID}/access", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
@@ -1308,6 +1311,17 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"data": principal})
+}
+
+func (a *API) handleProjectAccess(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	roster, err := a.access.GetProjectAccess(r.Context(), principal, r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": roster})
 }
 
 func (a *API) handleRevokeCurrentToken(w http.ResponseWriter, r *http.Request) {

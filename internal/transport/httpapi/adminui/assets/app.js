@@ -30,6 +30,7 @@
     roomPollTimer: null,
     roomRequestSequence: 0,
     overview: null,
+    projectAccess: null,
     knowledge: null,
     githubStatus: null,
     principal: null,
@@ -126,6 +127,7 @@
     tabLiveCount: document.querySelector("#tab-live-count"),
     tabWorkCount: document.querySelector("#tab-work-count"),
     tabKnowledgeCount: document.querySelector("#tab-knowledge-count"),
+    tabAccessCount: document.querySelector("#tab-access-count"),
     tabRepositoryCount: document.querySelector("#tab-repository-count"),
     tabActivityCount: document.querySelector("#tab-activity-count"),
     streamStatus: document.querySelector("#stream-status"),
@@ -183,6 +185,16 @@
     handoffCount: document.querySelector("#handoff-count"),
     eventList: document.querySelector("#event-list"),
     eventEmpty: document.querySelector("#event-empty"),
+    accessLiveStatus: document.querySelector("#access-live-status"),
+    accessMemberCount: document.querySelector("#access-member-count"),
+    accessAgentCount: document.querySelector("#access-agent-count"),
+    accessConnectedCount: document.querySelector("#access-connected-count"),
+    accessMemberListCount: document.querySelector("#access-member-list-count"),
+    accessAgentListCount: document.querySelector("#access-agent-list-count"),
+    accessMemberList: document.querySelector("#access-member-list"),
+    accessAgentList: document.querySelector("#access-agent-list"),
+    accessMemberEmpty: document.querySelector("#access-member-empty"),
+    accessAgentEmpty: document.querySelector("#access-agent-empty"),
     settingsWorkspace: document.querySelector("#settings-workspace"),
     settingsRole: document.querySelector("#settings-role"),
     settingsProjectID: document.querySelector("#settings-project-id"),
@@ -238,6 +250,18 @@
     admin: "Administrador",
     member: "Miembro",
     viewer: "Observador",
+  };
+
+  const projectRoleCopy = {
+    owner: "Propietario",
+    maintainer: "Responsable",
+    contributor: "Colaborador",
+    viewer: "Observador",
+  };
+
+  const accessSourceCopy = {
+    organization: "Acceso global de la organización",
+    project: "Membresía directa del proyecto",
   };
 
   const intentStatusCopy = {
@@ -298,6 +322,11 @@
       kicker: "MEMORIA COMPARTIDA",
       title: "Conocimiento del workspace",
       description: "Decisiones, requisitos, restricciones, riesgos y fuentes durables.",
+    },
+    access: {
+      kicker: "IDENTIDAD Y AUTORIZACIÓN",
+      title: "Quién puede entrar",
+      description: "Personas autorizadas, agentes patrocinados y conexiones vigentes del proyecto.",
     },
     repositories: {
       kicker: "CÓDIGO Y PROVEEDORES",
@@ -477,6 +506,7 @@
     state.globalRoomMentions = [];
     renderGlobalRoomMentionCount();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.githubStatus = null;
     state.principal = null;
@@ -850,6 +880,7 @@
     state.workspaceContext = null;
     resetWorkspaceRooms();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
@@ -895,6 +926,7 @@
     state.workspaceContext = null;
     resetWorkspaceRooms();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
@@ -1722,6 +1754,7 @@
     state.workspaceContext = null;
     resetWorkspaceRooms();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
@@ -1817,11 +1850,13 @@
     renderActiveWork([]);
     renderWorkItems([]);
     renderKnowledge(null);
+    renderProjectAccess(null);
     renderHandoffs([]);
     renderEvents([]);
     elements.tabLiveCount.textContent = "—";
     elements.tabWorkCount.textContent = "—";
     elements.tabKnowledgeCount.textContent = "—";
+    elements.tabAccessCount.textContent = "—";
     elements.tabRepositoryCount.textContent = "—";
     elements.tabActivityCount.textContent = "—";
     elements.generatedAt.textContent = "Actualizando estado…";
@@ -1846,11 +1881,12 @@
 
     try {
       const workspace = workspaceForProject(projectID);
-      const [payload, knowledgePayload] = await Promise.all([
+      const [payload, knowledgePayload, accessPayload] = await Promise.all([
         requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/overview`),
         workspace
           ? requestJSON(`/v1/workspaces/${encodeURIComponent(workspace.id)}/context`)
           : Promise.resolve(null),
+        requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/access`),
       ]);
       if (
         requestSequence !== state.overviewRequestSequence ||
@@ -1864,6 +1900,9 @@
       state.overview = overview || {};
       state.knowledge = knowledgePayload
         ? (knowledgePayload.data || knowledgePayload)
+        : null;
+      state.projectAccess = accessPayload
+        ? (accessPayload.data || accessPayload)
         : null;
       const project = state.overview.project;
       if (project && project.id === projectID) {
@@ -1912,6 +1951,7 @@
       Array.isArray(overview.work_items) ? overview.work_items : [],
     );
     renderKnowledge(state.knowledge);
+    renderProjectAccess(state.projectAccess);
     renderHandoffs(
       Array.isArray(overview.handoffs) ? overview.handoffs : [],
     );
@@ -2560,6 +2600,129 @@
       "[data-count]",
     )) {
       target.textContent = formatCount(safeCounts[target.dataset.count]);
+    }
+  }
+
+  function renderProjectAccess(access) {
+    const value = access && typeof access === "object" ? access : {};
+    const members = Array.isArray(value.members) ? value.members : [];
+    const agents = Array.isArray(value.agents) ? value.agents : [];
+    const connectedAgents = agents.filter((agent) => agent.connected);
+
+    elements.accessMemberCount.textContent = formatInteger(members.length);
+    elements.accessAgentCount.textContent = formatInteger(agents.length);
+    elements.accessConnectedCount.textContent = formatInteger(connectedAgents.length);
+    elements.accessMemberListCount.textContent = formatInteger(members.length);
+    elements.accessAgentListCount.textContent = formatInteger(agents.length);
+    elements.tabAccessCount.textContent = formatInteger(members.length);
+    elements.accessMemberEmpty.hidden = members.length !== 0;
+    elements.accessAgentEmpty.hidden = agents.length !== 0;
+    elements.accessLiveStatus.classList.toggle("is-live", connectedAgents.length > 0);
+    elements.accessLiveStatus.lastChild.textContent =
+      ` ${formatInteger(connectedAgents.length)} conectados`;
+
+    elements.accessMemberList.replaceChildren();
+    for (const member of members) {
+      const row = document.createElement("article");
+      row.className = "access-entry access-member-entry";
+      if (member.status !== "active") row.classList.add("is-disabled");
+
+      const identity = document.createElement("div");
+      identity.className = "access-identity";
+      const avatar = document.createElement("span");
+      avatar.className = "actor-avatar";
+      avatar.textContent = initials(member.display_name || member.principal_id);
+      avatar.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("div");
+      copy.className = "access-identity-copy";
+      const nameLine = document.createElement("div");
+      nameLine.className = "access-name-line";
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(member.display_name || member.principal_id);
+      nameLine.append(name);
+      if (member.principal_id === state.principal?.id) {
+        const current = document.createElement("span");
+        current.className = "current-user-chip";
+        current.textContent = "Tú";
+        nameLine.append(current);
+      }
+      const kind = document.createElement("span");
+      kind.textContent = member.bootstrap
+        ? "Administrador local de PACT"
+        : member.principal_type === "service" ? "Cuenta de servicio" : "Persona";
+      copy.append(nameLine, kind);
+      identity.append(avatar, copy);
+
+      const permission = document.createElement("div");
+      permission.className = "access-permission";
+      const role = document.createElement("span");
+      role.className = `access-role role-${member.effective_role || "viewer"}`;
+      role.textContent = projectRoleCopy[member.effective_role] || valueOrDash(member.effective_role);
+      const source = document.createElement("span");
+      source.textContent = accessSourceCopy[member.access_source] || valueOrDash(member.access_source);
+      permission.append(role, source);
+
+      row.append(identity, permission);
+      elements.accessMemberList.append(row);
+    }
+
+    elements.accessAgentList.replaceChildren();
+    for (const agent of agents) {
+      const row = document.createElement("article");
+      row.className = "access-entry access-agent-entry";
+      row.classList.toggle("is-connected", Boolean(agent.connected));
+      row.classList.toggle("is-disabled", !agent.access_active);
+
+      const identity = document.createElement("div");
+      identity.className = "access-identity";
+      const presence = document.createElement("span");
+      presence.className = "agent-presence";
+      presence.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("div");
+      copy.className = "access-identity-copy";
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(agent.display_name || agent.agent_id);
+      const kind = document.createElement("span");
+      kind.textContent = [agent.agent_type, agent.last_client_type]
+        .filter((item, index, list) => item && list.indexOf(item) === index)
+        .join(" · ") || "Agente";
+      copy.append(name, kind);
+      identity.append(presence, copy);
+
+      const ownership = document.createElement("div");
+      ownership.className = "agent-ownership";
+      const ownerLabel = document.createElement("span");
+      ownerLabel.textContent = "Responsable";
+      const owner = document.createElement("strong");
+      owner.textContent = valueOrDash(agent.sponsor_display_name);
+      const ownerRole = document.createElement("span");
+      ownerRole.textContent = agent.access_active
+        ? projectRoleCopy[agent.sponsor_effective_role] || valueOrDash(agent.sponsor_effective_role)
+        : "Sin acceso vigente";
+      ownership.append(ownerLabel, owner, ownerRole);
+
+      const session = document.createElement("div");
+      session.className = "agent-session-state";
+      const connection = document.createElement("strong");
+      connection.textContent = agent.connected
+        ? `${formatInteger(agent.active_sessions)} ${Number(agent.active_sessions) === 1 ? "sesión activa" : "sesiones activas"}`
+        : "Desconectado";
+      const lastSeen = document.createElement("time");
+      lastSeen.textContent = agent.last_seen_at
+        ? `Última señal ${formatRelativeDate(agent.last_seen_at)}`
+        : "Sin señales registradas";
+      if (agent.last_seen_at) {
+        lastSeen.dateTime = agent.last_seen_at;
+        lastSeen.title = formatDateTime(agent.last_seen_at);
+      }
+      const node = document.createElement("span");
+      node.textContent = agent.last_node_name
+        ? `Nodo: ${agent.last_node_name}`
+        : `${formatInteger(agent.session_count)} sesiones históricas`;
+      session.append(connection, lastSeen, node);
+
+      row.append(identity, ownership, session);
+      elements.accessAgentList.append(row);
     }
   }
 

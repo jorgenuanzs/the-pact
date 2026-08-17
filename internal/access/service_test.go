@@ -24,6 +24,9 @@ func (f fakeRepository) ProjectRole(context.Context, string, string, string) (st
 func (f fakeRepository) VisibleProjectIDs(context.Context, string, string) (map[string]struct{}, error) {
 	return map[string]struct{}{"project": {}}, nil
 }
+func (f fakeRepository) GetProjectAccess(context.Context, string, string, time.Time, time.Time) (ProjectAccess, error) {
+	return ProjectAccess{ProjectID: "project"}, nil
+}
 func (f fakeRepository) CreateInvitation(context.Context, string, Principal, string, CreateInvitationInput, [sha256.Size]byte) (Invitation, error) {
 	return Invitation{ID: "invitation", Email: "person@example.com", Role: "contributor"}, nil
 }
@@ -70,5 +73,16 @@ func TestInvitationValidation(t *testing.T) {
 	var validationErr *ValidationError
 	if !errors.As(err, &validationErr) {
 		t.Fatalf("CreateInvitation() error = %v", err)
+	}
+}
+
+func TestProjectAccessRequiresViewerRole(t *testing.T) {
+	service := NewService("00000000-0000-4000-8000-000000000001", "bootstrap-secret", fakeRepository{})
+	_, err := service.GetProjectAccess(context.Background(), Principal{
+		ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d", OrganizationID: "00000000-0000-4000-8000-000000000001",
+		OrganizationRole: "member",
+	}, "project")
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("GetProjectAccess() error = %v", err)
 	}
 }

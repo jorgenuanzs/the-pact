@@ -23,6 +23,7 @@ type Repository interface {
 	Authenticate(context.Context, string, [sha256.Size]byte) (Principal, error)
 	ProjectRole(context.Context, string, string, string) (string, error)
 	VisibleProjectIDs(context.Context, string, string) (map[string]struct{}, error)
+	GetProjectAccess(context.Context, string, string, time.Time, time.Time) (ProjectAccess, error)
 	CreateInvitation(context.Context, string, Principal, string, CreateInvitationInput, [sha256.Size]byte) (Invitation, error)
 	AcceptInvitation(context.Context, string, AcceptInvitationInput, [sha256.Size]byte, [sha256.Size]byte, time.Time) (AcceptedInvitation, error)
 	RevokeInvitation(context.Context, string, Principal, string) error
@@ -93,6 +94,18 @@ func (s *Service) VisibleProjectIDs(ctx context.Context, principal Principal) (m
 func (s *Service) CanCreateProject(principal Principal) bool {
 	return principal.OrganizationID == s.organizationID &&
 		(principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin")
+}
+
+func (s *Service) GetProjectAccess(
+	ctx context.Context,
+	principal Principal,
+	projectID string,
+) (ProjectAccess, error) {
+	if err := s.RequireProjectRole(ctx, principal, projectID, "viewer"); err != nil {
+		return ProjectAccess{}, err
+	}
+	now := s.now().UTC()
+	return s.repository.GetProjectAccess(ctx, s.organizationID, projectID, now, now.Add(-30*time.Second))
 }
 
 func (s *Service) CreateInvitation(

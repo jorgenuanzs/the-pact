@@ -367,6 +367,9 @@
               <button type="button" role="tab" data-dashboard-view="knowledge" aria-selected="false">
                 Contexto <span id="tab-knowledge-count" class="tab-count">—</span>
               </button>
+              <button type="button" role="tab" data-dashboard-view="access" aria-selected="false">
+                Acceso <span id="tab-access-count" class="tab-count">—</span>
+              </button>
               <button type="button" role="tab" data-dashboard-view="repositories" aria-selected="false">
                 Código <span id="tab-repository-count" class="tab-count">—</span>
               </button>
@@ -648,6 +651,82 @@
                   <h3>No hay eventos recientes</h3>
                   <p>El registro se actualizará cuando Pact reciba actividad.</p>
                 </div>
+            </section>
+
+            <section class="panel access-panel" data-dashboard-sections="access" aria-labelledby="project-access-title">
+              <header class="panel-header access-header">
+                <div>
+                  <p class="section-kicker">IDENTIDAD Y AUTORIZACIÓN</p>
+                  <h2 id="project-access-title">Personas y agentes</h2>
+                  <p>Acceso efectivo al proyecto, agentes vinculados a cada persona y presencia reciente.</p>
+                </div>
+                <span id="access-live-status" class="live-label">
+                  <span aria-hidden="true"></span>
+                  0 conectados
+                </span>
+              </header>
+
+              <div class="access-summary-grid" aria-label="Resumen de acceso">
+                <article>
+                  <span>Personas con acceso</span>
+                  <strong id="access-member-count">—</strong>
+                </article>
+                <article>
+                  <span>Agentes conocidos</span>
+                  <strong id="access-agent-count">—</strong>
+                </article>
+                <article>
+                  <span>Agentes conectados</span>
+                  <strong id="access-connected-count">—</strong>
+                </article>
+              </div>
+
+              <div class="access-directories">
+                <section class="access-directory" aria-labelledby="access-members-title">
+                  <header>
+                    <div>
+                      <p class="section-kicker">PERMISOS EFECTIVOS</p>
+                      <h3 id="access-members-title">Personas</h3>
+                    </div>
+                    <span id="access-member-list-count" class="count-chip">—</span>
+                  </header>
+                  <div id="access-member-list" class="access-list"></div>
+                  <div id="access-member-empty" class="panel-empty" hidden>
+                    <span class="empty-line" aria-hidden="true"></span>
+                    <h3>No hay personas visibles</h3>
+                    <p>No se encontraron membresías efectivas para este proyecto.</p>
+                  </div>
+                </section>
+
+                <section class="access-directory" aria-labelledby="access-agents-title">
+                  <header>
+                    <div>
+                      <p class="section-kicker">IDENTIDADES PATROCINADAS</p>
+                      <h3 id="access-agents-title">Agentes</h3>
+                    </div>
+                    <span id="access-agent-list-count" class="count-chip">—</span>
+                  </header>
+                  <div id="access-agent-list" class="access-list"></div>
+                  <div id="access-agent-empty" class="panel-empty" hidden>
+                    <span class="empty-line" aria-hidden="true"></span>
+                    <h3>Aún no hay agentes conocidos</h3>
+                    <p>Un agente aparecerá cuando abra su primera sesión en este proyecto.</p>
+                  </div>
+                </section>
+              </div>
+
+              <section class="role-guide" aria-labelledby="role-guide-title">
+                <div>
+                  <p class="section-kicker">QUÉ PERMITE CADA ROL</p>
+                  <h3 id="role-guide-title">Alcance de permisos</h3>
+                </div>
+                <dl>
+                  <div><dt>Propietario</dt><dd>Administración completa del proyecto y sus invitaciones.</dd></div>
+                  <div><dt>Responsable</dt><dd>Gestiona repositorios, contexto, salas e invitaciones limitadas.</dd></div>
+                  <div><dt>Colaborador</dt><dd>Conecta agentes, coordina trabajo y participa en conversaciones.</dd></div>
+                  <div><dt>Observador</dt><dd>Consulta el proyecto sin modificar su estado.</dd></div>
+                </dl>
+              </section>
             </section>
 
             <section class="panel settings-panel" data-dashboard-sections="settings" aria-labelledby="settings-title">

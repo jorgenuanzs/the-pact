@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
+	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/config"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
@@ -87,6 +88,27 @@ func TestInvitationPersonalTokenAndRevocationLifecycle(t *testing.T) {
 	if err := service.RequireProjectRole(ctx, principal, projectResult.Project.ID, "contributor"); err != nil {
 		t.Fatalf("contributor authorization: %v", err)
 	}
+	agentSession, err := agentsession.NewService(
+		config.DefaultLocalOrganizationID,
+		agentsession.NewPostgresRepository(pool),
+	).Start(ctx, principal.ID, projectResult.Project.ID, agentsession.StartInput{
+		NodeKey: "access-node-" + suffix, NodeName: "Access node",
+		AgentName: "Access Codex", AgentType: "codex", ClientType: "codex", ObserveGit: true,
+	})
+	if err != nil {
+		t.Fatalf("start access agent session: %v", err)
+	}
+	roster, err := service.GetProjectAccess(ctx, principal, projectResult.Project.ID)
+	if err != nil {
+		t.Fatalf("get project access: %v", err)
+	}
+	if !containsMember(roster.Members, access.BootstrapPrincipalID) || !containsMember(roster.Members, principal.ID) {
+		t.Fatalf("project members = %#v", roster.Members)
+	}
+	if len(roster.Agents) != 1 || roster.Agents[0].AgentID != agentSession.ActorID ||
+		roster.Agents[0].SponsorPrincipalID != principal.ID || !roster.Agents[0].Connected {
+		t.Fatalf("project agents = %#v", roster.Agents)
+	}
 	if _, err := service.CreateInvitation(ctx, principal, projectResult.Project.ID, access.CreateInvitationInput{
 		Email: "forbidden@example.com", Role: "viewer",
 	}); !errors.Is(err, access.ErrForbidden) {
@@ -98,4 +120,13 @@ func TestInvitationPersonalTokenAndRevocationLifecycle(t *testing.T) {
 	if _, err := service.Authenticate(ctx, accepted.AccessToken); !errors.Is(err, access.ErrUnauthorized) {
 		t.Fatalf("authentication after revocation error = %v", err)
 	}
+}
+
+func containsMember(members []access.ProjectMember, principalID string) bool {
+	for _, member := range members {
+		if member.PrincipalID == principalID {
+			return true
+		}
+	}
+	return false
 }

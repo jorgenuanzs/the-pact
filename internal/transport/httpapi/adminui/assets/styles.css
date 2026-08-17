@@ -3012,8 +3012,288 @@ button:disabled {
 .active-work-panel,
 .inventory-panel,
 .event-panel,
+.access-panel,
 .settings-panel {
   width: 100%;
+}
+
+.access-header {
+  align-items: center;
+}
+
+.access-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--paper-300);
+  border-bottom: 1px solid var(--paper-300);
+}
+
+.access-summary-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 18px 21px;
+  background: var(--paper-50);
+}
+
+.access-summary-grid span {
+  color: var(--ink-500);
+  font-size: 0.62rem;
+  font-weight: 720;
+}
+
+.access-summary-grid strong {
+  color: var(--ink-950);
+  font-size: 1.55rem;
+  font-weight: 620;
+  letter-spacing: -0.04em;
+}
+
+.access-directories {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 1px;
+  background: var(--paper-300);
+  border-bottom: 1px solid var(--paper-300);
+}
+
+.access-directory {
+  min-width: 0;
+  background: var(--paper-50);
+}
+
+.access-directory > header {
+  display: flex;
+  min-height: 74px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 19px;
+  border-bottom: 1px solid var(--paper-200);
+}
+
+.access-directory h3,
+.role-guide h3 {
+  margin: 0;
+  color: var(--ink-900);
+  font-size: 0.88rem;
+}
+
+.access-list {
+  display: grid;
+}
+
+.access-entry {
+  min-width: 0;
+  padding: 15px 19px;
+  border-bottom: 1px solid var(--paper-200);
+}
+
+.access-entry:last-child {
+  border-bottom: 0;
+}
+
+.access-entry.is-disabled {
+  background: var(--paper-100);
+  opacity: 0.68;
+}
+
+.access-member-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.access-identity {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.access-identity-copy {
+  min-width: 0;
+}
+
+.access-identity-copy > strong,
+.access-identity-copy > span,
+.access-name-line strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-identity-copy > strong,
+.access-name-line strong {
+  color: var(--ink-800);
+  font-size: 0.73rem;
+}
+
+.access-identity-copy > span {
+  margin-top: 4px;
+  color: var(--ink-500);
+  font-size: 0.6rem;
+}
+
+.access-name-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.current-user-chip {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  color: var(--green);
+  background: var(--green-soft);
+  border-radius: 2px;
+  font-size: 0.52rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.access-permission {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  text-align: right;
+}
+
+.access-permission > span:last-child {
+  max-width: 190px;
+  color: var(--ink-500);
+  font-size: 0.56rem;
+  line-height: 1.35;
+}
+
+.access-role {
+  display: inline-flex;
+  padding: 4px 7px;
+  color: var(--ink-700);
+  background: var(--paper-200);
+  border: 1px solid var(--paper-300);
+  font-size: 0.55rem;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.access-role.role-owner {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #bcdfcc;
+}
+
+.access-role.role-maintainer {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: #c4d5ed;
+}
+
+.access-role.role-contributor {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: #e7cea8;
+}
+
+.access-agent-entry {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.85fr) minmax(120px, 0.75fr) minmax(145px, 0.9fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.agent-presence {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin-left: 9px;
+  background: var(--paper-300);
+  border: 3px solid var(--paper-50);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--paper-300);
+}
+
+.access-agent-entry.is-connected .agent-presence {
+  background: var(--signal-dark);
+  box-shadow: 0 0 0 1px var(--signal-dark), 0 0 0 6px rgb(191 243 77 / 16%);
+}
+
+.agent-ownership,
+.agent-session-state {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.agent-ownership > span:first-child {
+  color: var(--ink-500);
+  font-size: 0.55rem;
+  font-weight: 720;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.agent-ownership strong,
+.agent-session-state strong {
+  overflow: hidden;
+  color: var(--ink-800);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-ownership > span:last-child,
+.agent-session-state time,
+.agent-session-state > span {
+  overflow: hidden;
+  color: var(--ink-500);
+  font-size: 0.57rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-agent-entry.is-connected .agent-session-state strong {
+  color: var(--green);
+}
+
+.role-guide {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+  gap: 24px;
+  padding: 20px;
+  background: var(--paper-100);
+}
+
+.role-guide dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--paper-300);
+  border: 1px solid var(--paper-300);
+}
+
+.role-guide dl > div {
+  padding: 12px 14px;
+  background: var(--paper-50);
+}
+
+.role-guide dt {
+  color: var(--ink-800);
+  font-size: 0.63rem;
+  font-weight: 780;
+}
+
+.role-guide dd {
+  margin: 5px 0 0;
+  color: var(--ink-500);
+  font-size: 0.58rem;
+  line-height: 1.45;
 }
 
 .settings-grid {
@@ -3497,6 +3777,10 @@ button:disabled {
   .repository-attach-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .access-directories {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -3615,6 +3899,10 @@ button:disabled {
   .workboard-location {
     grid-column: 2;
     text-align: left;
+  }
+
+  .role-guide {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3887,6 +4175,39 @@ button:disabled {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .access-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .access-summary-grid article {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .access-member-entry,
+  .access-agent-entry {
+    grid-template-columns: 1fr;
+    gap: 11px;
+  }
+
+  .access-permission {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .access-permission > span:last-child {
+    max-width: none;
+  }
+
+  .agent-ownership,
+  .agent-session-state {
+    padding-left: 42px;
+  }
+
+  .role-guide dl {
     grid-template-columns: 1fr;
   }
 }

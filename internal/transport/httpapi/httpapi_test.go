@@ -29,11 +29,12 @@ import (
 const testToken = "this-is-a-long-local-test-token"
 
 type fakeAccessService struct {
-	require      func(context.Context, access.Principal, string, string) error
-	visible      func(context.Context, access.Principal) (map[string]struct{}, error)
-	accept       func(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
-	createInvite func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
-	principal    *access.Principal
+	require       func(context.Context, access.Principal, string, string) error
+	visible       func(context.Context, access.Principal) (map[string]struct{}, error)
+	projectAccess func(context.Context, access.Principal, string) (access.ProjectAccess, error)
+	accept        func(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
+	createInvite  func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
+	principal     *access.Principal
 }
 
 func (f fakeAccessService) Authenticate(_ context.Context, token string) (access.Principal, error) {
@@ -61,6 +62,13 @@ func (f fakeAccessService) VisibleProjectIDs(ctx context.Context, principal acce
 		return f.visible(ctx, principal)
 	}
 	return nil, nil
+}
+
+func (f fakeAccessService) GetProjectAccess(ctx context.Context, principal access.Principal, projectID string) (access.ProjectAccess, error) {
+	if f.projectAccess != nil {
+		return f.projectAccess(ctx, principal, projectID)
+	}
+	return access.ProjectAccess{ProjectID: projectID, Members: []access.ProjectMember{}, Agents: []access.ProjectAgent{}}, nil
 }
 
 func (fakeAccessService) CanCreateProject(access.Principal) bool { return true }
@@ -895,6 +903,39 @@ func TestAcceptInvitationDoesNotRequireAuthenticationAndDisablesCaching(t *testi
 	}
 	if !strings.Contains(response.Body.String(), "pact_pat_secret") {
 		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestProjectAccessReturnsMembersAndOwnedAgents(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	called := false
+	handler := testHandlerWithAccess(t, fakeProjectService{}, fakeAccessService{
+		projectAccess: func(_ context.Context, principal access.Principal, receivedProjectID string) (access.ProjectAccess, error) {
+			called = true
+			if principal.ID != access.BootstrapPrincipalID || receivedProjectID != projectID {
+				t.Fatalf("GetProjectAccess(principal=%q, project=%q)", principal.ID, receivedProjectID)
+			}
+			return access.ProjectAccess{
+				ProjectID: projectID,
+				Members: []access.ProjectMember{{
+					PrincipalID: access.BootstrapPrincipalID, DisplayName: "Jorge", EffectiveRole: "owner",
+				}},
+				Agents: []access.ProjectAgent{{
+					AgentID: "018f784a-68c1-7b0f-8f2a-cfc255f99e2f", DisplayName: "Codex",
+					SponsorPrincipalID: access.BootstrapPrincipalID, SponsorDisplayName: "Jorge", Connected: true,
+				}},
+			}, nil
+		},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, "/v1/projects/"+projectID+"/access", ""))
+
+	if response.Code != http.StatusOK || !called {
+		t.Fatalf("status = %d, called = %v, body = %s", response.Code, called, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(response.Body.String(), `"sponsor_display_name":"Jorge"`) {
+		t.Fatalf("headers/body = %#v / %s", response.Header(), response.Body.String())
 	}
 }
 

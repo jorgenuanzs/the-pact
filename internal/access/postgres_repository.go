@@ -117,6 +117,229 @@ func (r *PostgresRepository) VisibleProjectIDs(
 	return visible, nil
 }
 
+func (r *PostgresRepository) GetProjectAccess(
+	ctx context.Context,
+	organizationID string,
+	projectID string,
+	now time.Time,
+	freshAfter time.Time,
+) (ProjectAccess, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+	if err != nil {
+		return ProjectAccess{}, fmt.Errorf("begin project access snapshot: %w", err)
+	}
+	defer rollback(tx)
+
+	var projectExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM identity.projects
+			WHERE organization_id = $1 AND id = $2 AND status <> 'archived'
+		)
+	`, organizationID, projectID).Scan(&projectExists); err != nil {
+		return ProjectAccess{}, fmt.Errorf("verify access project: %w", err)
+	}
+	if !projectExists {
+		return ProjectAccess{}, ErrNotFound
+	}
+
+	result := ProjectAccess{
+		ProjectID:   projectID,
+		Members:     make([]ProjectMember, 0),
+		Agents:      make([]ProjectAgent, 0),
+		GeneratedAt: now,
+	}
+
+	members, err := tx.Query(ctx, `
+		SELECT principal.id,
+		       actor.display_name,
+		       principal.principal_type,
+		       actor.status,
+		       organization_membership.role,
+		       COALESCE(project_membership.role, ''),
+		       CASE
+		           WHEN organization_membership.role IN ('owner', 'admin') THEN 'owner'
+		           ELSE project_membership.role
+		       END AS effective_role,
+		       CASE
+		           WHEN organization_membership.role IN ('owner', 'admin') THEN 'organization'
+		           ELSE 'project'
+		       END AS access_source,
+		       COALESCE((actor.attributes->>'bootstrap')::boolean, false)
+		FROM identity.organization_memberships AS organization_membership
+		JOIN identity.principals AS principal
+		  ON principal.organization_id = organization_membership.organization_id
+		 AND principal.id = organization_membership.principal_id
+		JOIN identity.actors AS actor
+		  ON actor.organization_id = principal.organization_id
+		 AND actor.id = principal.id
+		LEFT JOIN identity.project_memberships AS project_membership
+		  ON project_membership.organization_id = principal.organization_id
+		 AND project_membership.principal_id = principal.id
+		 AND project_membership.project_id = $2
+		WHERE organization_membership.organization_id = $1
+		  AND actor.status <> 'retired'
+		  AND (
+		      organization_membership.role IN ('owner', 'admin')
+		      OR project_membership.project_id IS NOT NULL
+		  )
+		ORDER BY
+		  CASE
+		      WHEN organization_membership.role = 'owner' THEN 1
+		      WHEN organization_membership.role = 'admin' THEN 2
+		      WHEN project_membership.role = 'owner' THEN 3
+		      WHEN project_membership.role = 'maintainer' THEN 4
+		      WHEN project_membership.role = 'contributor' THEN 5
+		      ELSE 6
+		  END,
+		  lower(actor.display_name),
+		  principal.id
+	`, organizationID, projectID)
+	if err != nil {
+		return ProjectAccess{}, fmt.Errorf("list project members: %w", err)
+	}
+	for members.Next() {
+		var member ProjectMember
+		if err := members.Scan(
+			&member.PrincipalID,
+			&member.DisplayName,
+			&member.PrincipalType,
+			&member.Status,
+			&member.OrganizationRole,
+			&member.ProjectRole,
+			&member.EffectiveRole,
+			&member.AccessSource,
+			&member.Bootstrap,
+		); err != nil {
+			members.Close()
+			return ProjectAccess{}, fmt.Errorf("read project member: %w", err)
+		}
+		result.Members = append(result.Members, member)
+	}
+	if err := members.Err(); err != nil {
+		members.Close()
+		return ProjectAccess{}, fmt.Errorf("iterate project members: %w", err)
+	}
+	members.Close()
+
+	agents, err := tx.Query(ctx, `
+		SELECT agent.id,
+		       agent_actor.display_name,
+		       agent.agent_type,
+		       agent_actor.status,
+		       agent.sponsor_principal_id,
+		       sponsor_actor.display_name,
+		       COALESCE(
+		           CASE
+		               WHEN sponsor_organization.role IN ('owner', 'admin') THEN 'owner'
+		               ELSE sponsor_project.role
+		           END,
+		           ''
+		       ) AS sponsor_effective_role,
+		       (
+		           agent_actor.status = 'active'
+		           AND sponsor_actor.status = 'active'
+		           AND (
+		               sponsor_organization.role IN ('owner', 'admin')
+		               OR sponsor_project.project_id IS NOT NULL
+		           )
+		       ) AS access_active,
+		       session_stats.active_sessions,
+		       session_stats.session_count,
+		       latest_session.client_type,
+		       COALESCE(latest_session.node_name, ''),
+		       latest_session.last_seen_at
+		FROM identity.agents AS agent
+		JOIN identity.actors AS agent_actor
+		  ON agent_actor.organization_id = agent.organization_id
+		 AND agent_actor.id = agent.id
+		JOIN identity.principals AS sponsor
+		  ON sponsor.organization_id = agent.organization_id
+		 AND sponsor.id = agent.sponsor_principal_id
+		JOIN identity.actors AS sponsor_actor
+		  ON sponsor_actor.organization_id = sponsor.organization_id
+		 AND sponsor_actor.id = sponsor.id
+		LEFT JOIN identity.organization_memberships AS sponsor_organization
+		  ON sponsor_organization.organization_id = sponsor.organization_id
+		 AND sponsor_organization.principal_id = sponsor.id
+		LEFT JOIN identity.project_memberships AS sponsor_project
+		  ON sponsor_project.organization_id = sponsor.organization_id
+		 AND sponsor_project.principal_id = sponsor.id
+		 AND sponsor_project.project_id = $2
+		JOIN LATERAL (
+			SELECT count(*) AS session_count,
+			       count(*) FILTER (
+			           WHERE session.status = 'active'
+			             AND session.expires_at > $3
+			             AND session.last_seen_at >= $4
+			       ) AS active_sessions
+			FROM identity.sessions AS session
+			WHERE session.organization_id = agent.organization_id
+			  AND session.project_id = $2
+			  AND session.actor_id = agent.id
+		) AS session_stats ON session_stats.session_count > 0
+		JOIN LATERAL (
+			SELECT session.client_type,
+			       session.last_seen_at,
+			       node.name AS node_name
+			FROM identity.sessions AS session
+			LEFT JOIN identity.nodes AS node
+			  ON node.organization_id = session.organization_id
+			 AND node.id = session.node_id
+			WHERE session.organization_id = agent.organization_id
+			  AND session.project_id = $2
+			  AND session.actor_id = agent.id
+			ORDER BY session.last_seen_at DESC, session.started_at DESC
+			LIMIT 1
+		) AS latest_session ON true
+		WHERE agent.organization_id = $1
+		ORDER BY (session_stats.active_sessions > 0) DESC,
+		         latest_session.last_seen_at DESC,
+		         lower(agent_actor.display_name),
+		         agent.id
+	`, organizationID, projectID, now, freshAfter)
+	if err != nil {
+		return ProjectAccess{}, fmt.Errorf("list project agents: %w", err)
+	}
+	for agents.Next() {
+		var agent ProjectAgent
+		if err := agents.Scan(
+			&agent.AgentID,
+			&agent.DisplayName,
+			&agent.AgentType,
+			&agent.Status,
+			&agent.SponsorPrincipalID,
+			&agent.SponsorDisplayName,
+			&agent.SponsorEffectiveRole,
+			&agent.AccessActive,
+			&agent.ActiveSessions,
+			&agent.SessionCount,
+			&agent.LastClientType,
+			&agent.LastNodeName,
+			&agent.LastSeenAt,
+		); err != nil {
+			agents.Close()
+			return ProjectAccess{}, fmt.Errorf("read project agent: %w", err)
+		}
+		agent.Connected = agent.ActiveSessions > 0
+		result.Agents = append(result.Agents, agent)
+	}
+	if err := agents.Err(); err != nil {
+		agents.Close()
+		return ProjectAccess{}, fmt.Errorf("iterate project agents: %w", err)
+	}
+	agents.Close()
+
+	if err := tx.Commit(ctx); err != nil {
+		return ProjectAccess{}, fmt.Errorf("commit project access snapshot: %w", err)
+	}
+	return result, nil
+}
+
 func (r *PostgresRepository) CreateInvitation(
 	ctx context.Context,
 	organizationID string,

@@ -33,7 +33,10 @@ func TestHandlerServesControlPlane(t *testing.T) {
 		`id="workspace-name" class="breadcrumb-link"`,
 		`id="project-tabs"`,
 		`data-dashboard-view="live"`,
+		`data-dashboard-view="access"`,
 		`id="attention-panel"`,
+		`id="access-member-list"`,
+		`id="access-agent-list"`,
 		`id="settings-title"`,
 	} {
 		if !strings.Contains(body, marker) {

@@ -1117,6 +1117,37 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/access:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Access
+        - Projects
+      operationId: getProjectAccess
+      summary: Lista el acceso efectivo y los agentes conocidos de un proyecto
+      description: |
+        Incluye membresías directas y acceso heredado de propietarios o
+        administradores de la organización. Los agentes se atribuyen a la
+        persona que los patrocina y solo aparecen si tienen historial de sesión
+        en este proyecto. `connected` representa una sesión activa y reciente.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Personas con acceso y agentes asociados al proyecto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectAccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/projects/{project_id}/events:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -4656,6 +4687,122 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/ProjectOverview"
+    ProjectAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectAccess"
+    ProjectAccess:
+      type: object
+      additionalProperties: false
+      required: [project_id, members, agents, generated_at]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectMember"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectAgent"
+        generated_at:
+          type: string
+          format: date-time
+    ProjectMember:
+      type: object
+      additionalProperties: false
+      required:
+        - principal_id
+        - display_name
+        - principal_type
+        - status
+        - organization_role
+        - effective_role
+        - access_source
+        - bootstrap
+      properties:
+        principal_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        principal_type:
+          type: string
+          enum: [human, service]
+        status:
+          type: string
+          enum: [active, disabled]
+        organization_role:
+          type: string
+          enum: [owner, admin, member]
+        project_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        effective_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        access_source:
+          type: string
+          enum: [organization, project]
+        bootstrap:
+          type: boolean
+    ProjectAgent:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_id
+        - display_name
+        - agent_type
+        - status
+        - sponsor_principal_id
+        - sponsor_display_name
+        - access_active
+        - connected
+        - active_sessions
+        - session_count
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        agent_type:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled, retired]
+        sponsor_principal_id:
+          type: string
+          format: uuid
+        sponsor_display_name:
+          type: string
+        sponsor_effective_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        access_active:
+          type: boolean
+        connected:
+          type: boolean
+        active_sessions:
+          type: integer
+          format: int64
+          minimum: 0
+        session_count:
+          type: integer
+          format: int64
+          minimum: 1
+        last_client_type:
+          type: string
+        last_node_name:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
     ProjectOverview:
       type: object
       additionalProperties: false
