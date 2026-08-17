@@ -3,6 +3,7 @@
 
   const SESSION_TOKEN_KEY = "pact.admin.api-token.v1";
   const OVERVIEW_POLL_MS = 5_000;
+  const ROOM_POLL_MS = 5_000;
   const MAX_VISIBLE_EVENTS = 50;
   const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
 
@@ -12,9 +13,24 @@
     projects: [],
     selectedWorkspaceID: null,
     selectedProjectID: null,
+    workspaceSection: "overview",
+    workspaceRoomDirectories: new Map(),
+    workspaceRoomDirectoryLoading: new Set(),
     activeView: "live",
     workspaceContext: null,
+    rooms: [],
+    roomParticipants: [],
+    selectedRoomID: null,
+    roomMessages: [],
+    roomMentions: [],
+    globalRoomMentions: [],
+    mentionDialogScope: "workspace",
+    roomMentionActorIDs: new Set(),
+    replyToMessageID: null,
+    roomPollTimer: null,
+    roomRequestSequence: 0,
     overview: null,
+    projectAccess: null,
     knowledge: null,
     githubStatus: null,
     principal: null,
@@ -44,6 +60,8 @@
     appShell: document.querySelector("#app-shell"),
     disconnectButton: document.querySelector("#disconnect-button"),
     globalConnection: document.querySelector("#global-connection"),
+    globalRoomMentions: document.querySelector("#global-room-mentions"),
+    globalRoomMentionCount: document.querySelector("#global-room-mention-count"),
     projectSearch: document.querySelector("#project-search"),
     projectList: document.querySelector("#project-list"),
     projectListStatus: document.querySelector("#project-list-status"),
@@ -59,12 +77,41 @@
     workspaceProjectListCount: document.querySelector("#workspace-project-list-count"),
     workspaceProjectList: document.querySelector("#workspace-project-list"),
     workspaceContextPreview: document.querySelector("#workspace-context-preview"),
+    workspaceConversations: document.querySelector("#workspace-conversations"),
+    workspaceRoomCount: document.querySelector("#workspace-room-count"),
+    workspaceRoomList: document.querySelector("#workspace-room-list"),
+    selectedRoomName: document.querySelector("#selected-room-name"),
+    selectedRoomDescription: document.querySelector("#selected-room-description"),
+    roomLiveStatus: document.querySelector("#room-live-status"),
+    roomMessageList: document.querySelector("#room-message-list"),
+    roomMessageEmpty: document.querySelector("#room-message-empty"),
+    roomMessageForm: document.querySelector("#room-message-form"),
+    roomMessageInput: document.querySelector("#room-message-input"),
+    sendRoomMessage: document.querySelector("#send-room-message"),
+    roomMentionMenu: document.querySelector("#room-mention-menu"),
+    roomReplyPreview: document.querySelector("#room-reply-preview"),
+    roomReplyCopy: document.querySelector("#room-reply-copy"),
+    cancelRoomReply: document.querySelector("#cancel-room-reply"),
+    openCreateRoom: document.querySelector("#open-create-room"),
+    createRoomDialog: document.querySelector("#create-room-dialog"),
+    createRoomForm: document.querySelector("#create-room-form"),
+    createRoomName: document.querySelector("#create-room-name"),
+    createRoomDescription: document.querySelector("#create-room-description"),
+    createRoomSubmit: document.querySelector("#create-room-submit"),
+    cancelCreateRoom: document.querySelector("#cancel-create-room"),
+    openRoomMentions: document.querySelector("#open-room-mentions"),
+    roomMentionCount: document.querySelector("#room-mention-count"),
+    roomMentionsDialog: document.querySelector("#room-mentions-dialog"),
+    roomMentionList: document.querySelector("#room-mention-list"),
+    roomMentionsKicker: document.querySelector("#room-mentions-kicker"),
+    roomMentionsTitle: document.querySelector("#room-mentions-title"),
     workspaceEmpty: document.querySelector("#workspace-empty"),
     workspaceContent: document.querySelector("#workspace-content"),
     workspaceError: document.querySelector("#workspace-error"),
     workspaceErrorMessage: document.querySelector("#workspace-error-message"),
     retryOverview: document.querySelector("#retry-overview"),
     refreshOverview: document.querySelector("#refresh-overview"),
+    openProjectSettings: document.querySelector("#open-project-settings"),
     projectName: document.querySelector("#project-name"),
     workspaceName: document.querySelector("#workspace-name"),
     projectSlug: document.querySelector("#project-slug"),
@@ -80,6 +127,7 @@
     tabLiveCount: document.querySelector("#tab-live-count"),
     tabWorkCount: document.querySelector("#tab-work-count"),
     tabKnowledgeCount: document.querySelector("#tab-knowledge-count"),
+    tabAccessCount: document.querySelector("#tab-access-count"),
     tabRepositoryCount: document.querySelector("#tab-repository-count"),
     tabActivityCount: document.querySelector("#tab-activity-count"),
     streamStatus: document.querySelector("#stream-status"),
@@ -137,6 +185,16 @@
     handoffCount: document.querySelector("#handoff-count"),
     eventList: document.querySelector("#event-list"),
     eventEmpty: document.querySelector("#event-empty"),
+    accessLiveStatus: document.querySelector("#access-live-status"),
+    accessMemberCount: document.querySelector("#access-member-count"),
+    accessAgentCount: document.querySelector("#access-agent-count"),
+    accessConnectedCount: document.querySelector("#access-connected-count"),
+    accessMemberListCount: document.querySelector("#access-member-list-count"),
+    accessAgentListCount: document.querySelector("#access-agent-list-count"),
+    accessMemberList: document.querySelector("#access-member-list"),
+    accessAgentList: document.querySelector("#access-agent-list"),
+    accessMemberEmpty: document.querySelector("#access-member-empty"),
+    accessAgentEmpty: document.querySelector("#access-agent-empty"),
     settingsWorkspace: document.querySelector("#settings-workspace"),
     settingsRole: document.querySelector("#settings-role"),
     settingsProjectID: document.querySelector("#settings-project-id"),
@@ -192,6 +250,18 @@
     admin: "Administrador",
     member: "Miembro",
     viewer: "Observador",
+  };
+
+  const projectRoleCopy = {
+    owner: "Propietario",
+    maintainer: "Responsable",
+    contributor: "Colaborador",
+    viewer: "Observador",
+  };
+
+  const accessSourceCopy = {
+    organization: "Acceso global de la organización",
+    project: "Membresía directa del proyecto",
   };
 
   const intentStatusCopy = {
@@ -253,6 +323,11 @@
       title: "Conocimiento del workspace",
       description: "Decisiones, requisitos, restricciones, riesgos y fuentes durables.",
     },
+    access: {
+      kicker: "IDENTIDAD Y AUTORIZACIÓN",
+      title: "Quién puede entrar",
+      description: "Personas autorizadas, agentes patrocinados y conexiones vigentes del proyecto.",
+    },
     repositories: {
       kicker: "CÓDIGO Y PROVEEDORES",
       title: "Repositorios del proyecto",
@@ -313,9 +388,16 @@
     });
 
     elements.disconnectButton.addEventListener("click", disconnect);
+    elements.globalRoomMentions.addEventListener("click", openGlobalRoomMentionsDialog);
     elements.refreshProjects.addEventListener("click", () => refreshProjects());
     elements.refreshOverview.addEventListener("click", () =>
       loadOverview({ announce: true }),
+    );
+    elements.workspaceName.addEventListener("click", () => {
+      if (state.selectedWorkspaceID) selectWorkspace(state.selectedWorkspaceID);
+    });
+    elements.openProjectSettings.addEventListener("click", () =>
+      setDashboardView("settings"),
     );
     elements.syncRepository.addEventListener("click", syncCanonicalRepository);
     elements.connectGitHub.addEventListener("click", connectGitHub);
@@ -323,6 +405,20 @@
     elements.retryOverview.addEventListener("click", () =>
       loadOverview({ announce: true }),
     );
+    elements.openCreateRoom.addEventListener("click", openCreateRoomDialog);
+    elements.createRoomForm.addEventListener("submit", createRoom);
+    elements.cancelCreateRoom.addEventListener("click", closeCreateRoomDialog);
+    elements.createRoomDialog
+      .querySelector("[data-close-room-dialog]")
+      .addEventListener("click", closeCreateRoomDialog);
+    elements.roomMessageForm.addEventListener("submit", postRoomMessage);
+    elements.roomMessageInput.addEventListener("input", renderRoomMentionMenu);
+    elements.roomMessageInput.addEventListener("keydown", handleRoomComposerKeydown);
+    elements.cancelRoomReply.addEventListener("click", clearRoomReply);
+    elements.openRoomMentions.addEventListener("click", openRoomMentionsDialog);
+    elements.roomMentionsDialog
+      .querySelector("[data-close-mentions-dialog]")
+      .addEventListener("click", () => elements.roomMentionsDialog.close());
     elements.projectSearch.addEventListener("input", () => renderProjectList());
     for (const tab of elements.projectTabs.querySelectorAll("[data-dashboard-view]")) {
       tab.addEventListener("click", () => setDashboardView(tab.dataset.dashboardView));
@@ -332,6 +428,11 @@
       if (!document.hidden && state.selectedProjectID) {
         loadOverview({ silent: true });
       }
+      if (!document.hidden && state.selectedWorkspaceID && state.selectedRoomID) {
+        loadRoomMessages({ silent: true });
+        loadRoomMentions({ silent: true });
+      }
+      if (!document.hidden && state.token) loadGlobalRoomMentions({ silent: true });
     });
   }
 
@@ -360,12 +461,16 @@
       setGlobalConnection("connected", "Conectado");
       renderGitHubStatus();
       announceGitHubCallback();
+      await loadGlobalRoomMentions({ silent: true });
+      if (!state.token) return;
 
       const retained = projects.find(
         (project) => project.id === state.selectedProjectID,
       );
       if (retained) {
         await selectProject(retained.id);
+      } else if (state.workspaces.length > 0) {
+        await selectWorkspace(state.workspaces[0].id);
       } else if (projects.length > 0) {
         await selectProject(projects[0].id);
       } else {
@@ -393,8 +498,15 @@
     state.projects = [];
     state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.workspaceSection = "overview";
+    state.workspaceRoomDirectories.clear();
+    state.workspaceRoomDirectoryLoading.clear();
     state.workspaceContext = null;
+    resetWorkspaceRooms();
+    state.globalRoomMentions = [];
+    renderGlobalRoomMentionCount();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.githubStatus = null;
     state.principal = null;
@@ -413,12 +525,14 @@
     elements.authView.hidden = false;
     elements.appShell.hidden = true;
     elements.disconnectButton.hidden = true;
+    elements.globalRoomMentions.hidden = true;
   }
 
   function showApplication() {
     elements.authView.hidden = true;
     elements.appShell.hidden = false;
     elements.disconnectButton.hidden = false;
+    elements.globalRoomMentions.hidden = false;
   }
 
   async function refreshProjects() {
@@ -435,7 +549,15 @@
       state.projects = normalizeProjects(projectPayload);
       state.workspaces = normalizeWorkspaces(workspacePayload);
       state.githubStatus = githubPayload?.data || githubPayload || null;
+      const currentWorkspaceIDs = new Set(state.workspaces.map((workspace) => workspace.id));
+      for (const workspaceID of state.workspaceRoomDirectories.keys()) {
+        if (!currentWorkspaceIDs.has(workspaceID)) {
+          state.workspaceRoomDirectories.delete(workspaceID);
+        }
+      }
       renderGitHubStatus();
+      await loadGlobalRoomMentions({ silent: true });
+      if (!state.token) return;
 
       if (
         state.selectedProjectID &&
@@ -456,6 +578,9 @@
         if (workspace) renderWorkspaceOverview(workspace, state.workspaceContext);
       }
       renderProjectList();
+      if (state.selectedWorkspaceID) {
+        loadWorkspaceRoomDirectory(state.selectedWorkspaceID, { silent: true });
+      }
       showToast("Workspaces y proyectos actualizados.");
     } catch (error) {
       handleRequestFailure(error, "No se pudieron actualizar los proyectos.");
@@ -530,10 +655,10 @@
       ? `${formatInteger(visibleProjectCount)} de ${formatInteger(state.projects.length)} proyectos`
       : `${formatInteger(state.workspaces.length)} ${state.workspaces.length === 1 ? "workspace" : "workspaces"} · ${formatInteger(state.projects.length)} proyectos`;
 
-    if (groups.length === 0 || (visibleProjectCount === 0 && query)) {
+    if (groups.length === 0) {
       const empty = document.createElement("p");
       empty.className = "rail-empty";
-      empty.textContent = "Ningún proyecto coincide con el filtro.";
+      empty.textContent = "Ningún workspace o proyecto coincide con el filtro.";
       elements.projectList.append(empty);
       return;
     }
@@ -542,28 +667,139 @@
     for (const group of groups) {
       const groupElement = document.createElement("section");
       groupElement.className = "workspace-group";
+      const isCurrentWorkspace = group.workspace.id === state.selectedWorkspaceID;
+      groupElement.classList.toggle("is-current", isCurrentWorkspace);
+
       const heading = document.createElement("button");
       heading.type = "button";
       heading.className = "workspace-group-heading";
-      heading.classList.toggle(
-        "is-selected",
-        group.workspace.id === state.selectedWorkspaceID && !state.selectedProjectID,
-      );
-      heading.setAttribute(
-        "aria-current",
-        group.workspace.id === state.selectedWorkspaceID && !state.selectedProjectID
-          ? "page"
-          : "false",
-      );
+      heading.classList.toggle("is-current", isCurrentWorkspace);
+      heading.setAttribute("aria-expanded", String(isCurrentWorkspace));
+      heading.setAttribute("aria-label", `Abrir workspace ${group.workspace.name}`);
+
+      const workspaceIcon = document.createElement("span");
+      workspaceIcon.className = "workspace-heading-icon";
+      workspaceIcon.textContent = "W";
+      workspaceIcon.setAttribute("aria-hidden", "true");
+
+      const workspaceCopy = document.createElement("span");
+      workspaceCopy.className = "workspace-heading-copy";
+      const workspaceKind = document.createElement("small");
+      workspaceKind.textContent = "Workspace";
       const workspaceName = document.createElement("strong");
       workspaceName.textContent = valueOrDash(group.workspace.name);
+      workspaceCopy.append(workspaceKind, workspaceName);
+
+      const workspaceMeta = document.createElement("span");
+      workspaceMeta.className = "workspace-heading-meta";
       const workspaceCount = document.createElement("span");
       workspaceCount.textContent = String(group.projects.length);
-      heading.append(workspaceName, workspaceCount);
-      heading.addEventListener("click", () => selectWorkspace(group.workspace.id));
+      workspaceCount.title = `${group.projects.length} proyectos`;
+      const chevron = document.createElement("span");
+      chevron.textContent = "›";
+      chevron.setAttribute("aria-hidden", "true");
+      workspaceMeta.append(workspaceCount, chevron);
+      heading.append(workspaceIcon, workspaceCopy, workspaceMeta);
+      heading.addEventListener("click", () =>
+        selectWorkspace(group.workspace.id, { section: "overview" }),
+      );
       groupElement.append(heading);
 
-      for (const project of group.projects) {
+      if (isCurrentWorkspace) {
+        const workspaceNavigation = document.createElement("div");
+        workspaceNavigation.className = "workspace-navigation";
+        workspaceNavigation.append(
+          createWorkspaceNavigationButton({
+            icon: "⌂",
+            label: "Resumen del workspace",
+            selected: !state.selectedProjectID && state.workspaceSection === "overview",
+            onClick: () => selectWorkspace(group.workspace.id, { section: "overview" }),
+          }),
+        );
+
+        const directory = state.workspaceRoomDirectories.get(group.workspace.id);
+        const pendingMentions = state.globalRoomMentions.filter(
+          (mention) => mention.workspace_id === group.workspace.id,
+        );
+        workspaceNavigation.append(
+          createWorkspaceNavigationButton({
+            icon: "#",
+            label: "Conversaciones",
+            count: directory ? directory.length : null,
+            badge: pendingMentions.length,
+            selected: !state.selectedProjectID && state.workspaceSection === "conversations",
+            onClick: () => openWorkspaceConversations(group.workspace.id),
+          }),
+        );
+
+        const roomList = document.createElement("div");
+        roomList.className = "rail-room-list";
+        if (!directory) {
+          const loading = document.createElement("p");
+          loading.className = "rail-room-state";
+          loading.textContent = "Cargando conversaciones…";
+          roomList.append(loading);
+        } else if (directory.length === 0) {
+          const empty = document.createElement("p");
+          empty.className = "rail-room-state";
+          empty.textContent = "Sin conversaciones";
+          roomList.append(empty);
+        } else {
+          const pendingRoomIDs = new Set(pendingMentions.map((mention) => mention.room_id));
+          for (const room of directory.slice(0, 5)) {
+            const roomButton = document.createElement("button");
+            roomButton.type = "button";
+            roomButton.className = "rail-room-button";
+            roomButton.classList.toggle(
+              "is-selected",
+              !state.selectedProjectID &&
+                state.workspaceSection === "conversations" &&
+                room.id === state.selectedRoomID,
+            );
+            roomButton.setAttribute(
+              "aria-current",
+              !state.selectedProjectID &&
+                state.workspaceSection === "conversations" &&
+                room.id === state.selectedRoomID
+                ? "page"
+                : "false",
+            );
+            const hash = document.createElement("span");
+            hash.textContent = "#";
+            hash.setAttribute("aria-hidden", "true");
+            const roomName = document.createElement("span");
+            roomName.textContent = room.name;
+            roomButton.append(hash, roomName);
+            if (pendingRoomIDs.has(room.id)) {
+              const unread = document.createElement("small");
+              unread.textContent = "●";
+              unread.setAttribute("aria-label", "Tiene menciones pendientes");
+              roomButton.append(unread);
+            }
+            roomButton.addEventListener("click", () =>
+              openWorkspaceConversation(group.workspace.id, room.id),
+            );
+            roomList.append(roomButton);
+          }
+          if (directory.length > 5) {
+            const allRooms = document.createElement("button");
+            allRooms.type = "button";
+            allRooms.className = "rail-room-more";
+            allRooms.textContent = `Ver todas (${directory.length})`;
+            allRooms.addEventListener("click", () => openWorkspaceConversations(group.workspace.id));
+            roomList.append(allRooms);
+          }
+        }
+        workspaceNavigation.append(roomList);
+        groupElement.append(workspaceNavigation);
+
+        const projectsLabel = document.createElement("p");
+        projectsLabel.className = "rail-section-label";
+        projectsLabel.textContent = "Proyectos";
+        groupElement.append(projectsLabel);
+      }
+
+      for (const project of (isCurrentWorkspace || query ? group.projects : [])) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "project-button";
@@ -604,6 +840,34 @@
     if (focusTarget) focusTarget.focus();
   }
 
+  function createWorkspaceNavigationButton({ icon, label, count = null, badge = 0, selected, onClick }) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-navigation-button";
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-current", selected ? "page" : "false");
+    const symbol = document.createElement("span");
+    symbol.textContent = icon;
+    symbol.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("strong");
+    copy.textContent = label;
+    button.append(symbol, copy);
+    if (count !== null) {
+      const total = document.createElement("small");
+      total.textContent = String(count);
+      total.title = `${count} conversaciones`;
+      button.append(total);
+    }
+    if (badge > 0) {
+      const unread = document.createElement("em");
+      unread.textContent = badge > 99 ? "99+" : String(badge);
+      unread.setAttribute("aria-label", `${badge} menciones pendientes`);
+      button.append(unread);
+    }
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
   async function selectProject(projectID, { focusProject = false } = {}) {
     const project = state.projects.find((item) => item.id === projectID);
     if (!project) return;
@@ -612,8 +876,11 @@
     stopLiveUpdates();
     state.selectedWorkspaceID = workspace?.id || null;
     state.selectedProjectID = projectID;
+    state.workspaceSection = "overview";
     state.workspaceContext = null;
+    resetWorkspaceRooms();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
@@ -629,6 +896,7 @@
     elements.workspaceContent.hidden = false;
     setDashboardView("live");
     hideWorkspaceError();
+    if (workspace) loadWorkspaceRoomDirectory(workspace.id, { silent: true });
 
     const generation = state.streamGeneration;
     await loadOverview({ silent: true });
@@ -644,15 +912,21 @@
     runEventStream(projectID, generation);
   }
 
-  async function selectWorkspace(workspaceID) {
+  async function selectWorkspace(
+    workspaceID,
+    { section = "overview", roomID = null, focusMessageID = null } = {},
+  ) {
     const workspace = state.workspaces.find((item) => item.id === workspaceID);
     if (!workspace) return;
 
     stopLiveUpdates();
     state.selectedWorkspaceID = workspaceID;
     state.selectedProjectID = null;
+    state.workspaceSection = section;
     state.workspaceContext = null;
+    resetWorkspaceRooms();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
@@ -665,16 +939,96 @@
     renderWorkspaceOverview(workspace, null, { loading: true });
 
     try {
-      const payload = await requestJSON(
-        `/v1/workspaces/${encodeURIComponent(workspaceID)}/context`,
-      );
+      const [contextPayload, roomsPayload, participantsPayload, mentionsPayload] = await Promise.all([
+        requestJSON(`/v1/workspaces/${encodeURIComponent(workspaceID)}/context`),
+        requestJSON(`/v1/workspaces/${encodeURIComponent(workspaceID)}/rooms`),
+        requestJSON(`/v1/workspaces/${encodeURIComponent(workspaceID)}/participants`),
+        requestJSON(`/v1/me/room-mentions?workspace_id=${encodeURIComponent(workspaceID)}&status=pending&limit=100`),
+      ]);
       if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
-      state.workspaceContext = payload?.data || payload || {};
+      state.workspaceContext = contextPayload?.data || contextPayload || {};
+      state.rooms = roomsPayload?.data?.rooms || [];
+      state.workspaceRoomDirectories.set(workspaceID, state.rooms);
+      state.roomParticipants = participantsPayload?.data?.participants || [];
+      state.roomMentions = (mentionsPayload?.data?.mentions || []).filter(
+        (mention) => mention.workspace_id === workspaceID,
+      );
       renderWorkspaceOverview(workspace, state.workspaceContext);
+      renderRoomDirectory();
+      renderRoomMentionInbox();
+      renderProjectList();
+      const preferredRoom =
+        state.rooms.find((room) => room.id === roomID) ||
+        state.rooms.find((room) => room.managed_default) ||
+        state.rooms[0] ||
+        null;
+      if (preferredRoom) {
+        await selectRoom(preferredRoom.id, { focusMessageID });
+        if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
+        state.workspaceSection = section;
+        renderProjectList();
+        if (state.selectedWorkspaceID === workspaceID && !state.selectedProjectID) {
+          startRoomPolling();
+        }
+      } else {
+        renderRoomConversation();
+      }
+      focusWorkspaceSection(section, { focusComposer: Boolean(roomID || focusMessageID) });
     } catch (error) {
       if (handleUnauthorized(error)) return;
       if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
       renderWorkspaceOverview(workspace, null, { failed: true });
+    }
+  }
+
+  async function openWorkspaceConversations(workspaceID) {
+    const directory = state.workspaceRoomDirectories.get(workspaceID) || [];
+    const preferredRoom = directory.find((room) => room.managed_default) || directory[0] || null;
+    await selectWorkspace(workspaceID, {
+      section: "conversations",
+      roomID: preferredRoom?.id || null,
+    });
+  }
+
+  async function openWorkspaceConversation(workspaceID, roomID, { focusMessageID = null } = {}) {
+    await selectWorkspace(workspaceID, {
+      section: "conversations",
+      roomID,
+      focusMessageID,
+    });
+  }
+
+  function focusWorkspaceSection(section, { focusComposer = false } = {}) {
+    const target = section === "conversations"
+      ? elements.workspaceConversations
+      : elements.workspaceOverview;
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (section === "conversations") target.focus({ preventScroll: true });
+      if (focusComposer && !elements.roomMessageInput.disabled) {
+        elements.roomMessageInput.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  async function loadWorkspaceRoomDirectory(workspaceID, { silent = false, force = false } = {}) {
+    if (!workspaceID || state.workspaceRoomDirectoryLoading.has(workspaceID)) return;
+    if (!force && state.workspaceRoomDirectories.has(workspaceID)) {
+      renderProjectList();
+      return;
+    }
+    state.workspaceRoomDirectoryLoading.add(workspaceID);
+    try {
+      const payload = await requestJSON(
+        `/v1/workspaces/${encodeURIComponent(workspaceID)}/rooms`,
+      );
+      state.workspaceRoomDirectories.set(workspaceID, payload?.data?.rooms || []);
+      if (state.selectedWorkspaceID === workspaceID) renderProjectList();
+    } catch (error) {
+      if (handleUnauthorized(error)) return;
+      if (!silent) showToast("No se pudieron cargar las conversaciones.", { error: true });
+    } finally {
+      state.workspaceRoomDirectoryLoading.delete(workspaceID);
     }
   }
 
@@ -783,12 +1137,624 @@
     );
   }
 
+  function resetWorkspaceRooms() {
+    clearInterval(state.roomPollTimer);
+    state.roomPollTimer = null;
+    state.roomRequestSequence += 1;
+    state.rooms = [];
+    state.roomParticipants = [];
+    state.selectedRoomID = null;
+    state.roomMessages = [];
+    state.roomMentions = [];
+    state.roomMentionActorIDs = new Set();
+    state.replyToMessageID = null;
+    if (elements.roomMentionMenu) elements.roomMentionMenu.hidden = true;
+  }
+
+  function renderRoomDirectory() {
+    elements.workspaceRoomCount.textContent = formatInteger(state.rooms.length);
+    elements.workspaceRoomList.replaceChildren();
+    const pendingRooms = new Set(state.roomMentions.map((mention) => mention.room_id));
+
+    if (state.rooms.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "workspace-context-state";
+      empty.textContent = "No hay conversaciones disponibles.";
+      elements.workspaceRoomList.append(empty);
+      return;
+    }
+
+    for (const room of state.rooms) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-room-button";
+      button.classList.toggle("is-selected", room.id === state.selectedRoomID);
+      button.setAttribute("aria-current", room.id === state.selectedRoomID ? "page" : "false");
+      button.title = room.description || room.name;
+
+      const hash = document.createElement("span");
+      hash.textContent = "#";
+      hash.setAttribute("aria-hidden", "true");
+      const name = document.createElement("strong");
+      name.textContent = room.name;
+      button.append(hash, name);
+      if (pendingRooms.has(room.id)) {
+        const unread = document.createElement("small");
+        unread.setAttribute("aria-label", "Tiene menciones pendientes");
+        button.append(unread);
+      }
+      button.addEventListener("click", () => selectRoom(room.id));
+      elements.workspaceRoomList.append(button);
+    }
+  }
+
+  async function selectRoom(roomID, { focusMessageID = null } = {}) {
+    const room = state.rooms.find((candidate) => candidate.id === roomID);
+    if (!room || !state.selectedWorkspaceID || state.selectedProjectID) return;
+
+    state.selectedRoomID = roomID;
+    state.workspaceSection = "conversations";
+    state.roomMessages = [];
+    clearRoomReply();
+    renderRoomDirectory();
+    renderProjectList();
+    renderRoomConversation({ loading: true });
+    await loadRoomMessages({ focusMessageID });
+  }
+
+  async function loadRoomMessages({ silent = false, focusMessageID = null } = {}) {
+    const workspaceID = state.selectedWorkspaceID;
+    const roomID = state.selectedRoomID;
+    if (!workspaceID || !roomID || state.selectedProjectID) return;
+    const sequence = ++state.roomRequestSequence;
+    if (!silent) setRoomLiveStatus("loading", "Cargando");
+
+    try {
+      const payload = await requestJSON(
+        `/v1/workspaces/${encodeURIComponent(workspaceID)}/rooms/${encodeURIComponent(roomID)}/messages?limit=50`,
+      );
+      if (
+        sequence !== state.roomRequestSequence ||
+        state.selectedWorkspaceID !== workspaceID ||
+        state.selectedRoomID !== roomID ||
+        state.selectedProjectID
+      ) {
+        return;
+      }
+      const nextMessages = payload?.data?.messages || [];
+      if (silent && sameRoomMessages(state.roomMessages, nextMessages)) {
+        setRoomLiveStatus("live", "Actualizada");
+        return;
+      }
+      const distanceFromBottom =
+        elements.roomMessageList.scrollHeight -
+        elements.roomMessageList.scrollTop -
+        elements.roomMessageList.clientHeight;
+      const previousScrollTop = elements.roomMessageList.scrollTop;
+      state.roomMessages = nextMessages;
+      renderRoomConversation({
+        focusMessageID,
+        stickToBottom: !silent || distanceFromBottom < 80,
+        scrollTop: previousScrollTop,
+      });
+      setRoomLiveStatus("live", "Actualizada");
+    } catch (error) {
+      if (handleUnauthorized(error)) return;
+      if (sequence !== state.roomRequestSequence) return;
+      setRoomLiveStatus("error", "Sin conexión");
+      if (!silent) showToast(requestErrorMessage(error), { error: true });
+    }
+  }
+
+  function renderRoomConversation({
+    loading = false,
+    focusMessageID = null,
+    stickToBottom = true,
+    scrollTop = null,
+  } = {}) {
+    const room = state.rooms.find((candidate) => candidate.id === state.selectedRoomID);
+    elements.roomMessageList.replaceChildren();
+
+    if (!room) {
+      elements.selectedRoomName.textContent = "Selecciona una conversación";
+      elements.selectedRoomDescription.textContent =
+        "Elige un espacio para consultar o enriquecer el contexto compartido.";
+      elements.roomMessageEmpty.hidden = false;
+      elements.roomMessageInput.disabled = true;
+      elements.sendRoomMessage.disabled = true;
+      setRoomLiveStatus("stopped", "En espera");
+      return;
+    }
+
+    elements.selectedRoomName.textContent = `#${room.name}`;
+    elements.selectedRoomDescription.textContent =
+      room.description || "Conversación durable del workspace.";
+    elements.roomMessageInput.disabled = false;
+    elements.sendRoomMessage.disabled = false;
+
+    if (loading) {
+      elements.roomMessageEmpty.hidden = false;
+      elements.roomMessageEmpty.querySelector("h3").textContent = "Cargando conversación…";
+      elements.roomMessageEmpty.querySelector("p").textContent =
+        "Pact recupera únicamente los últimos mensajes de esta conversación.";
+      return;
+    }
+
+    const hasMessages = state.roomMessages.length > 0;
+    elements.roomMessageEmpty.hidden = hasMessages;
+    elements.roomMessageEmpty.querySelector("h3").textContent = "Esta conversación todavía está en silencio";
+    elements.roomMessageEmpty.querySelector("p").textContent =
+      "Comparte una decisión, una reunión o menciona a alguien para pedirle contexto.";
+
+    for (const message of state.roomMessages) {
+      const article = document.createElement("article");
+      article.className = "room-message";
+      article.classList.toggle("is-agent", message.author_kind === "agent");
+      article.dataset.messageId = message.id;
+
+      const avatar = document.createElement("span");
+      avatar.className = "room-message-avatar";
+      avatar.textContent = initials(message.author_display_name);
+      avatar.setAttribute("aria-hidden", "true");
+
+      const content = document.createElement("div");
+      const heading = document.createElement("div");
+      heading.className = "room-message-heading";
+      const author = document.createElement("strong");
+      author.textContent = valueOrDash(message.author_display_name);
+      const kind = document.createElement("span");
+      kind.className = "room-author-kind";
+      kind.textContent = message.author_kind === "agent" ? "IA" : "Persona";
+      const time = document.createElement("time");
+      time.dateTime = message.created_at || "";
+      time.textContent = formatRelativeDate(message.created_at);
+      time.title = formatDateTime(message.created_at);
+      heading.append(author, kind, time);
+
+      const body = document.createElement("p");
+      body.className = "room-message-body";
+      body.textContent = message.body;
+      content.append(heading, body);
+
+      const meta = document.createElement("div");
+      meta.className = "room-message-meta";
+      if (message.reply_to_message_id) {
+        const replyLabel = document.createElement("span");
+        replyLabel.className = "room-message-mention";
+        replyLabel.textContent = "Respuesta";
+        meta.append(replyLabel);
+      }
+      for (const mention of message.mentions || []) {
+        const chip = document.createElement("span");
+        chip.className = "room-message-mention";
+        chip.textContent = `@${participantHandle(mention.actor_id, mention.display_name)}`;
+        meta.append(chip);
+      }
+      const reply = document.createElement("button");
+      reply.type = "button";
+      reply.className = "room-message-reply";
+      reply.textContent = "Responder";
+      reply.addEventListener("click", () => setRoomReply(message));
+      meta.append(reply);
+      content.append(meta);
+      article.append(avatar, content);
+      elements.roomMessageList.append(article);
+    }
+
+    if (focusMessageID) {
+      elements.roomMessageList
+        .querySelector(`[data-message-id="${CSS.escape(focusMessageID)}"]`)
+        ?.scrollIntoView({ block: "center" });
+    } else if (stickToBottom) {
+      elements.roomMessageList.scrollTop = elements.roomMessageList.scrollHeight;
+    } else if (scrollTop !== null) {
+      elements.roomMessageList.scrollTop = scrollTop;
+    }
+  }
+
+  function sameRoomMessages(left, right) {
+    if (left.length !== right.length) return false;
+    return left.every((message, index) => {
+      const candidate = right[index];
+      if (!candidate || message.id !== candidate.id || message.body !== candidate.body) return false;
+      const mentionState = (message.mentions || [])
+        .map((mention) => `${mention.mention_id}:${mention.status}`)
+        .join("|");
+      const candidateMentionState = (candidate.mentions || [])
+        .map((mention) => `${mention.mention_id}:${mention.status}`)
+        .join("|");
+      return mentionState === candidateMentionState;
+    });
+  }
+
+  function startRoomPolling() {
+    clearInterval(state.roomPollTimer);
+    state.roomPollTimer = window.setInterval(() => {
+      if (document.hidden || !state.selectedRoomID || state.selectedProjectID) return;
+      loadRoomMessages({ silent: true });
+      loadRoomMentions({ silent: true });
+    }, ROOM_POLL_MS);
+  }
+
+  function setRoomLiveStatus(kind, label) {
+    elements.roomLiveStatus.classList.toggle("is-live", kind === "live");
+    elements.roomLiveStatus.classList.toggle("is-error", kind === "error");
+    const textNode = [...elements.roomLiveStatus.childNodes]
+      .reverse()
+      .find((node) => node.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = ` ${label}`;
+  }
+
+  function openCreateRoomDialog() {
+    if (!state.selectedWorkspaceID || state.selectedProjectID) return;
+    elements.createRoomForm.reset();
+    elements.createRoomDialog.showModal();
+    window.setTimeout(() => elements.createRoomName.focus(), 0);
+  }
+
+  function closeCreateRoomDialog() {
+    elements.createRoomDialog.close();
+  }
+
+  async function createRoom(event) {
+    event.preventDefault();
+    const workspaceID = state.selectedWorkspaceID;
+    const name = elements.createRoomName.value.trim();
+    const description = elements.createRoomDescription.value.trim();
+    if (!workspaceID || !name) {
+      elements.createRoomName.focus();
+      return;
+    }
+    setBusy(elements.createRoomSubmit, true);
+    try {
+      const payload = await requestJSON(
+        `/v1/workspaces/${encodeURIComponent(workspaceID)}/rooms`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": createIdempotencyKey("room") },
+          body: { name, description },
+        },
+      );
+      if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
+      const room = payload?.data;
+      if (room) state.rooms.push(room);
+      state.workspaceRoomDirectories.set(workspaceID, [...state.rooms]);
+      closeCreateRoomDialog();
+      renderRoomDirectory();
+      renderProjectList();
+      showToast(`Conversación #${room?.name || name} creada.`);
+      if (room) await selectRoom(room.id);
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo crear la conversación.");
+    } finally {
+      setBusy(elements.createRoomSubmit, false);
+    }
+  }
+
+  async function postRoomMessage(event) {
+    event.preventDefault();
+    const workspaceID = state.selectedWorkspaceID;
+    const roomID = state.selectedRoomID;
+    const body = elements.roomMessageInput.value.trim();
+    if (!workspaceID || !roomID || !body) {
+      elements.roomMessageInput.focus();
+      return;
+    }
+
+    const mentionActorIDs = [...state.roomMentionActorIDs].filter((actorID) => {
+      const participant = state.roomParticipants.find((item) => item.actor_id === actorID);
+      return participant && body.includes(`@${participant.handle}`);
+    });
+    setBusy(elements.sendRoomMessage, true);
+    try {
+      const payload = await requestJSON(
+        `/v1/workspaces/${encodeURIComponent(workspaceID)}/rooms/${encodeURIComponent(roomID)}/messages`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": createIdempotencyKey("message") },
+          body: {
+            body,
+            reply_to_message_id: state.replyToMessageID || undefined,
+            mention_actor_ids: mentionActorIDs,
+          },
+        },
+      );
+      if (
+        state.selectedWorkspaceID !== workspaceID ||
+        state.selectedRoomID !== roomID ||
+        state.selectedProjectID
+      ) {
+        return;
+      }
+      const message = payload?.data;
+      if (message && !state.roomMessages.some((item) => item.id === message.id)) {
+        state.roomMessages.push(message);
+      }
+      elements.roomMessageInput.value = "";
+      state.roomMentionActorIDs.clear();
+      clearRoomReply();
+      renderRoomConversation();
+      elements.roomMessageInput.focus();
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo enviar el mensaje.");
+    } finally {
+      setBusy(elements.sendRoomMessage, false);
+    }
+  }
+
+  function renderRoomMentionMenu() {
+    const input = elements.roomMessageInput;
+    const beforeCursor = input.value.slice(0, input.selectionStart || input.value.length);
+    const match = beforeCursor.match(/(^|\s)@([a-z0-9-]*)$/i);
+    if (!match) {
+      elements.roomMentionMenu.hidden = true;
+      return;
+    }
+    const query = match[2].toLocaleLowerCase("es");
+    const participants = state.roomParticipants
+      .filter((participant) =>
+        [participant.handle, participant.display_name].some((value) =>
+          String(value || "").toLocaleLowerCase("es").includes(query),
+        ),
+      )
+      .slice(0, 10);
+    elements.roomMentionMenu.replaceChildren();
+    if (participants.length === 0) {
+      elements.roomMentionMenu.hidden = true;
+      return;
+    }
+    for (const participant of participants) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "room-mention-option";
+      button.setAttribute("role", "option");
+      const avatar = document.createElement("span");
+      avatar.textContent = initials(participant.display_name);
+      const copy = document.createElement("span");
+      const name = document.createElement("strong");
+      name.textContent = participant.display_name;
+      const handle = document.createElement("small");
+      handle.textContent = `@${participant.handle}`;
+      copy.append(name, handle);
+      const kind = document.createElement("em");
+      kind.textContent = participant.kind === "agent"
+        ? participant.online ? "IA · activa" : "IA"
+        : "Persona";
+      button.append(avatar, copy, kind);
+      button.addEventListener("click", () => selectRoomMention(participant, match));
+      elements.roomMentionMenu.append(button);
+    }
+    elements.roomMentionMenu.hidden = false;
+  }
+
+  function selectRoomMention(participant, match) {
+    const input = elements.roomMessageInput;
+    const cursor = input.selectionStart || input.value.length;
+    const beforeCursor = input.value.slice(0, cursor);
+    const mentionStart = beforeCursor.length - match[2].length - 1;
+    const replacement = `@${participant.handle} `;
+    input.value =
+      input.value.slice(0, mentionStart) + replacement + input.value.slice(cursor);
+    const nextCursor = mentionStart + replacement.length;
+    input.setSelectionRange(nextCursor, nextCursor);
+    state.roomMentionActorIDs.add(participant.actor_id);
+    elements.roomMentionMenu.hidden = true;
+    input.focus();
+  }
+
+  function handleRoomComposerKeydown(event) {
+    if (event.key === "Escape" && !elements.roomMentionMenu.hidden) {
+      elements.roomMentionMenu.hidden = true;
+      event.preventDefault();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      elements.roomMessageForm.requestSubmit();
+    }
+  }
+
+  function setRoomReply(message) {
+    state.replyToMessageID = message.id;
+    elements.roomReplyCopy.textContent = `Respondiendo a ${message.author_display_name}: ${truncateText(message.body, 90)}`;
+    elements.roomReplyPreview.hidden = false;
+    elements.roomMessageInput.focus();
+  }
+
+  function clearRoomReply() {
+    state.replyToMessageID = null;
+    elements.roomReplyPreview.hidden = true;
+    elements.roomReplyCopy.textContent = "";
+  }
+
+  async function loadRoomMentions({ silent = false } = {}) {
+    const workspaceID = state.selectedWorkspaceID;
+    if (!workspaceID || state.selectedProjectID) return;
+    try {
+      const payload = await requestJSON(
+        `/v1/me/room-mentions?workspace_id=${encodeURIComponent(workspaceID)}&status=pending&limit=100`,
+      );
+      if (state.selectedWorkspaceID !== workspaceID || state.selectedProjectID) return;
+      state.roomMentions = (payload?.data?.mentions || []).filter(
+        (mention) => mention.workspace_id === workspaceID,
+      );
+      renderRoomMentionInbox();
+      renderRoomDirectory();
+      await loadGlobalRoomMentions({ silent: true });
+    } catch (error) {
+      if (!silent) handleRequestFailure(error, "No se pudieron cargar las menciones.");
+    }
+  }
+
+  async function loadGlobalRoomMentions({ silent = false } = {}) {
+    if (!state.token) return;
+    try {
+      const payload = await requestJSON("/v1/me/room-mentions?status=pending&limit=100");
+      const nextMentions = payload?.data?.mentions || [];
+      const directoryChanged = roomMentionDirectoryKey(state.globalRoomMentions) !==
+        roomMentionDirectoryKey(nextMentions);
+      state.globalRoomMentions = nextMentions;
+      renderGlobalRoomMentionCount();
+      if (directoryChanged) renderProjectList();
+      if (state.mentionDialogScope === "global" && elements.roomMentionsDialog.open) {
+        renderRoomMentionInbox({ mentions: state.globalRoomMentions, global: true });
+      }
+    } catch (error) {
+      if (handleUnauthorized(error)) return;
+      if (!silent) showToast("No se pudieron cargar las menciones.", { error: true });
+    }
+  }
+
+  function roomMentionDirectoryKey(mentions) {
+    return mentions
+      .map((mention) => `${mention.id}:${mention.workspace_id}:${mention.room_id}:${mention.status}`)
+      .sort()
+      .join("|");
+  }
+
+  function renderGlobalRoomMentionCount() {
+    const count = state.globalRoomMentions.length;
+    elements.globalRoomMentionCount.textContent = count > 99 ? "99+" : String(count);
+    elements.globalRoomMentions.classList.toggle("has-mentions", count > 0);
+    elements.globalRoomMentions.setAttribute(
+      "aria-label",
+      count === 1 ? "Abrir 1 mención pendiente" : `Abrir ${count} menciones pendientes`,
+    );
+  }
+
+  function renderRoomMentionInbox({ mentions = state.roomMentions, global = false } = {}) {
+    elements.roomMentionCount.textContent = formatInteger(state.roomMentions.length);
+    elements.roomMentionList.replaceChildren();
+    if (mentions.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "workspace-context-state";
+      empty.textContent = global
+        ? "No tienes menciones pendientes."
+        : "No tienes menciones pendientes en este workspace.";
+      elements.roomMentionList.append(empty);
+      return;
+    }
+    for (const mention of mentions) {
+      const item = document.createElement("article");
+      item.className = "room-inbox-item";
+      const header = document.createElement("header");
+      const author = document.createElement("strong");
+      author.textContent = `${mention.message.author_display_name} · #${mention.room_name}`;
+      const time = document.createElement("span");
+      time.textContent = formatRelativeDate(mention.created_at);
+      header.append(author, time);
+      const body = document.createElement("p");
+      body.textContent = mention.message.body;
+      const actions = document.createElement("div");
+      actions.className = "room-inbox-actions";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "room-mention-action";
+      open.textContent = "Abrir conversación";
+      open.addEventListener("click", () => openRoomMention(mention));
+      const dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.className = "room-mention-action";
+      dismiss.textContent = "Descartar";
+      dismiss.addEventListener("click", () => updateRoomMention(mention.id, "dismissed"));
+      actions.append(open, dismiss);
+      item.append(header, body, actions);
+      elements.roomMentionList.append(item);
+    }
+  }
+
+  function openRoomMentionsDialog() {
+    state.mentionDialogScope = "workspace";
+    const workspace = state.workspaces.find((item) => item.id === state.selectedWorkspaceID);
+    elements.roomMentionsKicker.textContent = "WORKSPACE";
+    elements.roomMentionsTitle.textContent = workspace
+      ? `Menciones en ${workspace.name}`
+      : "Menciones pendientes";
+    renderRoomMentionInbox();
+    elements.roomMentionsDialog.showModal();
+  }
+
+  function openGlobalRoomMentionsDialog() {
+    state.mentionDialogScope = "global";
+    elements.roomMentionsKicker.textContent = "PARA TI";
+    elements.roomMentionsTitle.textContent = "Menciones pendientes";
+    renderRoomMentionInbox({ mentions: state.globalRoomMentions, global: true });
+    elements.roomMentionsDialog.showModal();
+  }
+
+  async function openRoomMention(mention) {
+    elements.roomMentionsDialog.close();
+    if (state.selectedWorkspaceID !== mention.workspace_id || state.selectedProjectID) {
+      await openWorkspaceConversation(mention.workspace_id, mention.room_id, {
+        focusMessageID: mention.message.id,
+      });
+    } else {
+      await selectRoom(mention.room_id, { focusMessageID: mention.message.id });
+      focusWorkspaceSection("conversations", { focusComposer: true });
+    }
+    await updateRoomMention(mention.id, "read", { announce: false });
+    const message = state.roomMessages.find((item) => item.id === mention.message.id);
+    if (message) setRoomReply(message);
+  }
+
+  async function updateRoomMention(mentionID, status, { announce = true } = {}) {
+    try {
+      await requestJSON(`/v1/me/room-mentions/${encodeURIComponent(mentionID)}/status`, {
+        method: "POST",
+        body: { status },
+      });
+      state.roomMentions = state.roomMentions.filter((mention) => mention.id !== mentionID);
+      state.globalRoomMentions = state.globalRoomMentions.filter(
+        (mention) => mention.id !== mentionID,
+      );
+      renderGlobalRoomMentionCount();
+      renderRoomMentionInbox(
+        state.mentionDialogScope === "global"
+          ? { mentions: state.globalRoomMentions, global: true }
+          : undefined,
+      );
+      renderRoomDirectory();
+      renderProjectList();
+      if (announce) showToast(status === "dismissed" ? "Mención descartada." : "Mención leída.");
+    } catch (error) {
+      handleRequestFailure(error, "No se pudo actualizar la mención.");
+    }
+  }
+
+  function participantHandle(actorID, displayName) {
+    return state.roomParticipants.find((participant) => participant.actor_id === actorID)?.handle ||
+      String(displayName || "actor").toLocaleLowerCase("es").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  }
+
+  function initials(value) {
+    return String(value || "?")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0] || "")
+      .join("")
+      .toLocaleUpperCase("es") || "?";
+  }
+
+  function truncateText(value, maximum) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text.length > maximum ? `${text.slice(0, maximum - 1)}…` : text;
+  }
+
+  function createIdempotencyKey(prefix) {
+    if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
   function clearSelection() {
     stopLiveUpdates();
     state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.workspaceSection = "overview";
     state.workspaceContext = null;
+    resetWorkspaceRooms();
     state.overview = null;
+    state.projectAccess = null;
     state.knowledge = null;
     state.projectRepositories = [];
     state.repositorySyncStates = [];
@@ -842,13 +1808,17 @@
     elements.dashboardViewKicker.textContent = copy.kicker;
     elements.dashboardViewTitle.textContent = copy.title;
     elements.dashboardViewDescription.textContent = copy.description;
+    elements.openProjectSettings.classList.toggle("is-active", view === "settings");
+    elements.openProjectSettings.setAttribute("aria-pressed", String(view === "settings"));
 
-    for (const tab of elements.projectTabs.querySelectorAll("[data-dashboard-view]")) {
+    const dashboardTabs = [...elements.projectTabs.querySelectorAll("[data-dashboard-view]")];
+    for (const tab of dashboardTabs) {
       const selected = tab.dataset.dashboardView === view;
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
       if (selected && focus) tab.focus();
     }
+    if (view === "settings" && dashboardTabs[0]) dashboardTabs[0].tabIndex = 0;
     for (const panel of elements.dashboardPanels) {
       const sections = String(panel.dataset.dashboardSections || "")
         .split(/\s+/)
@@ -880,11 +1850,13 @@
     renderActiveWork([]);
     renderWorkItems([]);
     renderKnowledge(null);
+    renderProjectAccess(null);
     renderHandoffs([]);
     renderEvents([]);
     elements.tabLiveCount.textContent = "—";
     elements.tabWorkCount.textContent = "—";
     elements.tabKnowledgeCount.textContent = "—";
+    elements.tabAccessCount.textContent = "—";
     elements.tabRepositoryCount.textContent = "—";
     elements.tabActivityCount.textContent = "—";
     elements.generatedAt.textContent = "Actualizando estado…";
@@ -909,11 +1881,12 @@
 
     try {
       const workspace = workspaceForProject(projectID);
-      const [payload, knowledgePayload] = await Promise.all([
+      const [payload, knowledgePayload, accessPayload] = await Promise.all([
         requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/overview`),
         workspace
           ? requestJSON(`/v1/workspaces/${encodeURIComponent(workspace.id)}/context`)
           : Promise.resolve(null),
+        requestJSON(`/v1/projects/${encodeURIComponent(projectID)}/access`),
       ]);
       if (
         requestSequence !== state.overviewRequestSequence ||
@@ -927,6 +1900,9 @@
       state.overview = overview || {};
       state.knowledge = knowledgePayload
         ? (knowledgePayload.data || knowledgePayload)
+        : null;
+      state.projectAccess = accessPayload
+        ? (accessPayload.data || accessPayload)
         : null;
       const project = state.overview.project;
       if (project && project.id === projectID) {
@@ -975,6 +1951,7 @@
       Array.isArray(overview.work_items) ? overview.work_items : [],
     );
     renderKnowledge(state.knowledge);
+    renderProjectAccess(state.projectAccess);
     renderHandoffs(
       Array.isArray(overview.handoffs) ? overview.handoffs : [],
     );
@@ -1626,6 +2603,129 @@
     }
   }
 
+  function renderProjectAccess(access) {
+    const value = access && typeof access === "object" ? access : {};
+    const members = Array.isArray(value.members) ? value.members : [];
+    const agents = Array.isArray(value.agents) ? value.agents : [];
+    const connectedAgents = agents.filter((agent) => agent.connected);
+
+    elements.accessMemberCount.textContent = formatInteger(members.length);
+    elements.accessAgentCount.textContent = formatInteger(agents.length);
+    elements.accessConnectedCount.textContent = formatInteger(connectedAgents.length);
+    elements.accessMemberListCount.textContent = formatInteger(members.length);
+    elements.accessAgentListCount.textContent = formatInteger(agents.length);
+    elements.tabAccessCount.textContent = formatInteger(members.length);
+    elements.accessMemberEmpty.hidden = members.length !== 0;
+    elements.accessAgentEmpty.hidden = agents.length !== 0;
+    elements.accessLiveStatus.classList.toggle("is-live", connectedAgents.length > 0);
+    elements.accessLiveStatus.lastChild.textContent =
+      ` ${formatInteger(connectedAgents.length)} conectados`;
+
+    elements.accessMemberList.replaceChildren();
+    for (const member of members) {
+      const row = document.createElement("article");
+      row.className = "access-entry access-member-entry";
+      if (member.status !== "active") row.classList.add("is-disabled");
+
+      const identity = document.createElement("div");
+      identity.className = "access-identity";
+      const avatar = document.createElement("span");
+      avatar.className = "actor-avatar";
+      avatar.textContent = initials(member.display_name || member.principal_id);
+      avatar.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("div");
+      copy.className = "access-identity-copy";
+      const nameLine = document.createElement("div");
+      nameLine.className = "access-name-line";
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(member.display_name || member.principal_id);
+      nameLine.append(name);
+      if (member.principal_id === state.principal?.id) {
+        const current = document.createElement("span");
+        current.className = "current-user-chip";
+        current.textContent = "Tú";
+        nameLine.append(current);
+      }
+      const kind = document.createElement("span");
+      kind.textContent = member.bootstrap
+        ? "Administrador local de PACT"
+        : member.principal_type === "service" ? "Cuenta de servicio" : "Persona";
+      copy.append(nameLine, kind);
+      identity.append(avatar, copy);
+
+      const permission = document.createElement("div");
+      permission.className = "access-permission";
+      const role = document.createElement("span");
+      role.className = `access-role role-${member.effective_role || "viewer"}`;
+      role.textContent = projectRoleCopy[member.effective_role] || valueOrDash(member.effective_role);
+      const source = document.createElement("span");
+      source.textContent = accessSourceCopy[member.access_source] || valueOrDash(member.access_source);
+      permission.append(role, source);
+
+      row.append(identity, permission);
+      elements.accessMemberList.append(row);
+    }
+
+    elements.accessAgentList.replaceChildren();
+    for (const agent of agents) {
+      const row = document.createElement("article");
+      row.className = "access-entry access-agent-entry";
+      row.classList.toggle("is-connected", Boolean(agent.connected));
+      row.classList.toggle("is-disabled", !agent.access_active);
+
+      const identity = document.createElement("div");
+      identity.className = "access-identity";
+      const presence = document.createElement("span");
+      presence.className = "agent-presence";
+      presence.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("div");
+      copy.className = "access-identity-copy";
+      const name = document.createElement("strong");
+      name.textContent = valueOrDash(agent.display_name || agent.agent_id);
+      const kind = document.createElement("span");
+      kind.textContent = [agent.agent_type, agent.last_client_type]
+        .filter((item, index, list) => item && list.indexOf(item) === index)
+        .join(" · ") || "Agente";
+      copy.append(name, kind);
+      identity.append(presence, copy);
+
+      const ownership = document.createElement("div");
+      ownership.className = "agent-ownership";
+      const ownerLabel = document.createElement("span");
+      ownerLabel.textContent = "Responsable";
+      const owner = document.createElement("strong");
+      owner.textContent = valueOrDash(agent.sponsor_display_name);
+      const ownerRole = document.createElement("span");
+      ownerRole.textContent = agent.access_active
+        ? projectRoleCopy[agent.sponsor_effective_role] || valueOrDash(agent.sponsor_effective_role)
+        : "Sin acceso vigente";
+      ownership.append(ownerLabel, owner, ownerRole);
+
+      const session = document.createElement("div");
+      session.className = "agent-session-state";
+      const connection = document.createElement("strong");
+      connection.textContent = agent.connected
+        ? `${formatInteger(agent.active_sessions)} ${Number(agent.active_sessions) === 1 ? "sesión activa" : "sesiones activas"}`
+        : "Desconectado";
+      const lastSeen = document.createElement("time");
+      lastSeen.textContent = agent.last_seen_at
+        ? `Última señal ${formatRelativeDate(agent.last_seen_at)}`
+        : "Sin señales registradas";
+      if (agent.last_seen_at) {
+        lastSeen.dateTime = agent.last_seen_at;
+        lastSeen.title = formatDateTime(agent.last_seen_at);
+      }
+      const node = document.createElement("span");
+      node.textContent = agent.last_node_name
+        ? `Nodo: ${agent.last_node_name}`
+        : `${formatInteger(agent.session_count)} sesiones históricas`;
+      session.append(connection, lastSeen, node);
+
+      row.append(identity, ownership, session);
+      elements.accessAgentList.append(row);
+    }
+  }
+
   function renderActiveWork(items) {
     elements.activeWorkList.replaceChildren();
     elements.activeWorkCount.textContent = formatInteger(items.length);
@@ -1965,6 +3065,8 @@
     state.reconnectAttempt = 0;
     clearInterval(state.pollTimer);
     state.pollTimer = null;
+    clearInterval(state.roomPollTimer);
+    state.roomPollTimer = null;
     clearTimeout(state.deferredRefresh);
     state.deferredRefresh = null;
     if (state.streamController) {
@@ -2254,7 +3356,13 @@
     state.projects = [];
     state.selectedWorkspaceID = null;
     state.selectedProjectID = null;
+    state.workspaceSection = "overview";
+    state.workspaceRoomDirectories.clear();
+    state.workspaceRoomDirectoryLoading.clear();
     state.workspaceContext = null;
+    resetWorkspaceRooms();
+    state.globalRoomMentions = [];
+    renderGlobalRoomMentionCount();
     showAuth();
     setGlobalConnection("error", "Sesión vencida");
     showAuthError("El token fue rechazado. Introduce uno válido para continuar.");

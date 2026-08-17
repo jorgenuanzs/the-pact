@@ -196,7 +196,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"pact.project_context", "pact.list_projects", "pact.list_workspaces", "pact.refresh_git_observation",
-		"pact.workspace_context", "pact.list_resources", "pact.add_resource", "pact.list_records",
+		"pact.workspace_context", "pact.rooms", "pact.list_resources", "pact.add_resource", "pact.list_records",
 		"pact.propose_record", "pact.review_record", "pact.check_scopes", "pact.start_work",
 		"pact.list_work", "pact.update_work", "pact.list_handoffs", "pact.offer_handoff",
 		"pact.update_handoff", "pact.compile_context_pack", "pact.get_context_pack",

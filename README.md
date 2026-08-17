@@ -53,6 +53,7 @@ The current implementation includes:
 - multi-repository projects with flexible purposes, a primary revision projection, and per-repository verified state;
 - durable workspaces that group related projects under shared context;
 - typed knowledge records, source references, evidence, review states, and deterministic Workspace context;
+- human-created Workspace rooms with bounded chat history, replies, explicit `@` mentions, and separate inboxes for people and agents;
 - structured cross-agent handoffs and immutable, verifiable Context Packs;
 - machine identities, agent sessions, heartbeats, and live presence;
 - privacy-preserving Git observation from Pact Node and wrapped agents;
@@ -83,8 +84,8 @@ roadmap. See [Project status and limitations](#project-status-and-limitations).
                                 │ HTTPS
                                 ▼
 ┌──────────────────────────── Pact Server ─────────────────────────────┐
-│ Identity · workspaces · projects · knowledge · sessions · intents  │
-│ Handoffs · Context Packs · repository sets · events · access       │
+│ Identity · workspaces · projects · knowledge · rooms · sessions   │
+│ Intents · Handoffs · Context Packs · repositories · events        │
 │  Embedded live backoffice                                           │
 └───────────────────────────────┬──────────────────────────────────────┘
                          ┌──────┴──────┐
@@ -413,7 +414,7 @@ and a SHA-256 fingerprint. File names and contents are not sent to Pact Server.
 
 ## Shared knowledge and coordinated work through MCP
 
-The local MCP adapter currently exposes twenty-one tools:
+The local MCP adapter exposes the following tools:
 
 | Tool | Purpose |
 |---|---|
@@ -421,6 +422,7 @@ The local MCP adapter currently exposes twenty-one tools:
 | `pact.list_projects` | List projects visible to the current identity |
 | `pact.list_workspaces` | List shared Workspaces and their related projects |
 | `pact.workspace_context` | Return accepted decisions, requirements, constraints, open questions, risks, and sources |
+| `pact.rooms` | List human-created rooms and participants, read bounded context, post or reply, and handle this agent's explicit mention inbox |
 | `pact.list_resources` | Search registered source references |
 | `pact.add_resource` | Register a source locator without copying its content |
 | `pact.list_records` | Search typed, evidence-backed knowledge records |
@@ -446,6 +448,13 @@ project_context → workspace_context → get_repository_sync → check_scopes �
                 → compile_context_pack → offer_handoff or update_work
 ```
 
+Rooms are deliberately outside that mandatory coordination flow. A human
+creates a small number of long-lived rooms and may mention an agent with `@`.
+The agent then calls `pact.rooms` to inspect its inbox and read only the
+relevant bounded message window. Pact never injects every room into every
+prompt, and posting a message never creates an intent, scope, branch, or
+worktree.
+
 `pact.start_work` returns a private `worktree_path` created under
 `.pact/worktrees/`. The deprecated `workspace_path` alias remains in the result
 for v0.7 clients. Agents should edit only that worktree during coordinated work.
@@ -470,6 +479,7 @@ and conflict signals around them.
 The embedded backoffice is available at `/admin/` on Pact Server. It shows:
 
 - visible Workspaces with their projects grouped beneath them;
+- human-created context rooms, replies, participant suggestions, and personal mention inboxes;
 - currently active humans and agents;
 - intended work, reserved scopes, branches, and worktree status;
 - accepted decisions, requirements, constraints, open questions, risks, and registered sources;
@@ -494,7 +504,7 @@ Pact is designed around several boundaries:
 - user credentials live outside repositories in `~/.config/pact/config.json`
   on macOS/Linux and `%APPDATA%\Pact\config.json` on Windows;
 - `.pact/` contains machine-local state and is ignored by Git;
-- agent conversations and command output are not captured;
+- private agent conversations, prompts, stdin, stdout, and command output are not captured; only messages deliberately posted to a Workspace room are stored;
 - Git observations do not upload file names, diffs, or source contents;
 - non-loopback server URLs require HTTPS;
 - generated containers drop Linux capabilities and use read-only filesystems
@@ -508,6 +518,7 @@ Current limitations matter:
   still determine what local files and commands it can access;
 - observer mode does not prevent someone from bypassing Pact and changing Git
   directly;
+- room mentions create durable inbox items but do not wake or run an agent by themselves;
 - local tokens are permission-protected files, not yet OS keychain entries;
 - the bootstrap token is powerful and should be replaced by personal
   invitations for routine collaboration;
@@ -658,6 +669,7 @@ Implemented now:
 - live sessions and Git observation;
 - MCP project context;
 - typed Workspace Resources and Records with evidence, lifecycle review, full-text search, and deterministic context;
+- durable Workspace rooms with manual membership in the information flow, replies, explicit mentions, and bounded MCP reads;
 - coordinated intentions, scopes, leases, and worktrees;
 - structured Handoffs and intent-specific Context Packs with integrity verification;
 - backoffice and durable event stream;

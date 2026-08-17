@@ -28,6 +28,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
+	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -79,6 +80,16 @@ type KnowledgeService interface {
 	Context(context.Context, string) (knowledge.WorkspaceContext, error)
 }
 
+type RoomService interface {
+	CreateRoom(context.Context, string, string, string, rooms.CreateRoomInput) (rooms.CreateRoomResult, error)
+	ListRooms(context.Context, string) ([]rooms.Room, error)
+	ListParticipants(context.Context, string) ([]rooms.Participant, error)
+	CreateMessage(context.Context, string, bool, string, string, string, rooms.CreateMessageInput) (rooms.CreateMessageResult, error)
+	ListMessages(context.Context, string, string, rooms.MessageListOptions) ([]rooms.Message, error)
+	ListInbox(context.Context, string, bool, string, rooms.InboxOptions) ([]rooms.Mention, error)
+	UpdateMention(context.Context, string, bool, string, string, rooms.MentionStatusInput) (rooms.Mention, error)
+}
+
 type AgentSessionService interface {
 	Start(context.Context, string, string, agentsession.StartInput) (agentsession.Session, error)
 	Heartbeat(context.Context, string, bool, string) (agentsession.Session, error)
@@ -110,6 +121,7 @@ type AccessService interface {
 	RequireProjectRole(context.Context, access.Principal, string, string) error
 	VisibleProjectIDs(context.Context, access.Principal) (map[string]struct{}, error)
 	CanCreateProject(access.Principal) bool
+	GetProjectAccess(context.Context, access.Principal, string) (access.ProjectAccess, error)
 	CreateInvitation(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
 	AcceptInvitation(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
 	RevokeInvitation(context.Context, access.Principal, string) error
@@ -130,6 +142,7 @@ type Config struct {
 	GitHubAppService         GitHubAppService
 	WorkspaceService         WorkspaceService
 	KnowledgeService         KnowledgeService
+	RoomService              RoomService
 	AgentSessionService      AgentSessionService
 	CoordinationService      CoordinationService
 	HandoffService           HandoffService
@@ -153,6 +166,7 @@ type API struct {
 	githubApp            GitHubAppService
 	workspaces           WorkspaceService
 	knowledge            KnowledgeService
+	rooms                RoomService
 	agentSessions        AgentSessionService
 	coordination         CoordinationService
 	handoffs             HandoffService
@@ -184,6 +198,7 @@ func New(cfg Config) http.Handler {
 		githubApp:            cfg.GitHubAppService,
 		workspaces:           cfg.WorkspaceService,
 		knowledge:            cfg.KnowledgeService,
+		rooms:                cfg.RoomService,
 		agentSessions:        cfg.AgentSessionService,
 		coordination:         cfg.CoordinationService,
 		handoffs:             cfg.HandoffService,
@@ -216,6 +231,11 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/workspaces/{workspaceID}/records/{recordID}", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleGetRecord))))
 	mux.Handle("POST /v1/workspaces/{workspaceID}/records/{recordID}/status", api.requireAuth(api.requireWorkspaceRole("maintainer", http.HandlerFunc(api.handleUpdateRecordStatus))))
 	mux.Handle("GET /v1/workspaces/{workspaceID}/context", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleWorkspaceContext))))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/rooms", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListRooms))))
+	mux.Handle("POST /v1/workspaces/{workspaceID}/rooms", api.requireAuth(api.requireWorkspaceRole("maintainer", http.HandlerFunc(api.handleCreateRoom))))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/participants", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListRoomParticipants))))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/rooms/{roomID}/messages", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListRoomMessages))))
+	mux.Handle("POST /v1/workspaces/{workspaceID}/rooms/{roomID}/messages", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleCreateRoomMessage))))
 	mux.Handle("GET /v1/projects/{projectID}", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetProject))))
 	mux.Handle("GET /v1/projects/{projectID}/repository-sync", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleGetRepositorySync))))
 	mux.Handle("POST /v1/projects/{projectID}/repository-sync", api.requireAuth(api.requireProjectRole("maintainer", http.HandlerFunc(api.handleSyncRepository))))
@@ -229,6 +249,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("GET /v1/integrations/github/callback", api.handleGitHubCallback)
 	mux.HandleFunc("POST /v1/integrations/github/webhook", api.handleGitHubWebhook)
 	mux.Handle("GET /v1/projects/{projectID}/overview", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleProjectOverview))))
+	mux.Handle("GET /v1/projects/{projectID}/access", api.requireAuth(http.HandlerFunc(api.handleProjectAccess)))
 	mux.Handle("GET /v1/projects/{projectID}/events", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleListEvents))))
 	mux.Handle("GET /v1/projects/{projectID}/events/stream", api.requireAuth(api.requireProjectRole("viewer", http.HandlerFunc(api.handleStreamEvents))))
 	mux.Handle("POST /v1/projects/{projectID}/agent-sessions", api.requireAuth(api.requireProjectRole("contributor", http.HandlerFunc(api.handleStartAgentSession))))
@@ -250,6 +271,10 @@ func New(cfg Config) http.Handler {
 	mux.Handle("DELETE /v1/invitations/{invitationID}", api.requireAuth(http.HandlerFunc(api.handleRevokeInvitation)))
 	mux.HandleFunc("POST /v1/invitation-acceptances", api.handleAcceptInvitation)
 	mux.Handle("GET /v1/me", api.requireAuth(http.HandlerFunc(api.handleMe)))
+	mux.Handle("GET /v1/me/room-mentions", api.requireAuth(http.HandlerFunc(api.handleMyRoomMentions)))
+	mux.Handle("POST /v1/me/room-mentions/{mentionID}/status", api.requireAuth(http.HandlerFunc(api.handleMyRoomMentionStatus)))
+	mux.Handle("GET /v1/agent-sessions/{sessionID}/room-mentions", api.requireAuth(http.HandlerFunc(api.handleAgentRoomMentions)))
+	mux.Handle("POST /v1/agent-sessions/{sessionID}/room-mentions/{mentionID}/status", api.requireAuth(http.HandlerFunc(api.handleAgentRoomMentionStatus)))
 	mux.Handle("DELETE /v1/me/tokens/current", api.requireAuth(http.HandlerFunc(api.handleRevokeCurrentToken)))
 	mux.Handle("/{$}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/livez", api.methodNotAllowed(http.MethodGet))
@@ -266,6 +291,9 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/workspaces/{workspaceID}/records/{recordID}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}/records/{recordID}/status", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/workspaces/{workspaceID}/context", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/workspaces/{workspaceID}/rooms", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/workspaces/{workspaceID}/participants", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/workspaces/{workspaceID}/rooms/{roomID}/messages", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/repository-sync", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/repositories", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
@@ -276,6 +304,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/integrations/github/callback", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/integrations/github/webhook", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/projects/{projectID}/overview", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/projects/{projectID}/access", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects/{projectID}/agent-sessions", api.methodNotAllowed(http.MethodPost))
@@ -296,6 +325,10 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/invitations/{invitationID}", api.methodNotAllowed(http.MethodDelete))
 	mux.Handle("/v1/invitation-acceptances", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/me", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/me/room-mentions", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/me/room-mentions/{mentionID}/status", api.methodNotAllowed(http.MethodPost))
+	mux.Handle("/v1/agent-sessions/{sessionID}/room-mentions", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/agent-sessions/{sessionID}/room-mentions/{mentionID}/status", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/me/tokens/current", api.methodNotAllowed(http.MethodDelete))
 	mux.HandleFunc("/", api.handleNotFound)
 
@@ -629,6 +662,196 @@ func (a *API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": context})
+}
+
+func (a *API) handleListRooms(w http.ResponseWriter, r *http.Request) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	roomList, err := a.rooms.ListRooms(r.Context(), r.PathValue("workspaceID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"rooms": roomList}})
+}
+
+func (a *API) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input rooms.CreateRoomInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.rooms.CreateRoom(
+		r.Context(), principal.ID, r.PathValue("workspaceID"),
+		r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	w.Header().Set("Location", "/v1/workspaces/"+r.PathValue("workspaceID")+"/rooms/"+result.Room.ID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result.Room})
+}
+
+func (a *API) handleListRoomParticipants(w http.ResponseWriter, r *http.Request) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	participants, err := a.rooms.ListParticipants(r.Context(), r.PathValue("workspaceID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"participants": participants}})
+}
+
+func (a *API) handleListRoomMessages(w http.ResponseWriter, r *http.Request) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	limit, err := boundedQueryLimit(r, 40, 100)
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", err.Error())
+		return
+	}
+	messages, err := a.rooms.ListMessages(
+		r.Context(), r.PathValue("workspaceID"), r.PathValue("roomID"),
+		rooms.MessageListOptions{
+			BeforeMessageID:     r.URL.Query().Get("before"),
+			ThreadRootMessageID: r.URL.Query().Get("thread_root"),
+			Query:               r.URL.Query().Get("q"), Limit: limit,
+		},
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"messages": messages}})
+}
+
+func (a *API) handleCreateRoomMessage(w http.ResponseWriter, r *http.Request) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input rooms.CreateMessageInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.rooms.CreateMessage(
+		r.Context(), principal.ID, principal.Bootstrap,
+		r.PathValue("workspaceID"), r.PathValue("roomID"),
+		r.Header.Get("Idempotency-Key"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	if result.Replayed {
+		w.Header().Set("Idempotency-Replayed", "true")
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": result.Message})
+}
+
+func (a *API) handleMyRoomMentions(w http.ResponseWriter, r *http.Request) {
+	a.handleRoomMentions(w, r, "")
+}
+
+func (a *API) handleAgentRoomMentions(w http.ResponseWriter, r *http.Request) {
+	a.handleRoomMentions(w, r, r.PathValue("sessionID"))
+}
+
+func (a *API) handleRoomMentions(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	limit, err := boundedQueryLimit(r, 50, 100)
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	mentions, err := a.rooms.ListInbox(
+		r.Context(), principal.ID, principal.Bootstrap, sessionID,
+		rooms.InboxOptions{
+			WorkspaceID: r.URL.Query().Get("workspace_id"),
+			Status:      r.URL.Query().Get("status"), Limit: limit,
+		},
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"mentions": mentions}})
+}
+
+func (a *API) handleMyRoomMentionStatus(w http.ResponseWriter, r *http.Request) {
+	a.handleRoomMentionStatus(w, r, "")
+}
+
+func (a *API) handleAgentRoomMentionStatus(w http.ResponseWriter, r *http.Request) {
+	a.handleRoomMentionStatus(w, r, r.PathValue("sessionID"))
+}
+
+func (a *API) handleRoomMentionStatus(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if a.rooms == nil {
+		a.writeDomainError(w, r, errors.New("room service is not configured"))
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input rooms.MentionStatusInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	mention, err := a.rooms.UpdateMention(
+		r.Context(), principal.ID, principal.Bootstrap, sessionID,
+		r.PathValue("mentionID"), input,
+	)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": mention})
+}
+
+func boundedQueryLimit(r *http.Request, defaultValue, maximum int) (int, error) {
+	limit := defaultValue
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > maximum {
+			return 0, fmt.Errorf("limit must be an integer between 1 and %d", maximum)
+		}
+		limit = value
+	}
+	return limit, nil
 }
 
 func knowledgeListOptions(r *http.Request, kindKey string) (knowledge.ListOptions, error) {
@@ -1088,6 +1311,17 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"data": principal})
+}
+
+func (a *API) handleProjectAccess(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	roster, err := a.access.GetProjectAccess(r.Context(), principal, r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": roster})
 }
 
 func (a *API) handleRevokeCurrentToken(w http.ResponseWriter, r *http.Request) {
@@ -1628,6 +1862,7 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var coordinationValidationErr *coordination.ValidationError
 	var workspaceValidationErr *workspaces.ValidationError
 	var knowledgeValidationErr *knowledge.ValidationError
+	var roomValidationErr *rooms.ValidationError
 	var contextValidationErr *contextpack.ValidationError
 	var repositorySyncValidationErr *repositorysync.ValidationError
 	var providerErr *repositorysync.ProviderError
@@ -1647,6 +1882,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", workspaceValidationErr.Error())
 	case errors.As(err, &knowledgeValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", knowledgeValidationErr.Error())
+	case errors.As(err, &roomValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", roomValidationErr.Error())
 	case errors.As(err, &contextValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", contextValidationErr.Error())
 	case errors.As(err, &repositorySyncValidationErr):
@@ -1756,6 +1993,24 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, knowledge.ErrIdempotencyConflict):
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, knowledge.ErrCommandIncomplete):
+		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
+	case errors.Is(err, rooms.ErrWorkspaceNotFound):
+		writeProblem(w, r, http.StatusNotFound, "workspace_not_found", "Workspace not found", err.Error())
+	case errors.Is(err, rooms.ErrRoomNotFound):
+		writeProblem(w, r, http.StatusNotFound, "room_not_found", "Room not found", err.Error())
+	case errors.Is(err, rooms.ErrMessageNotFound):
+		writeProblem(w, r, http.StatusNotFound, "room_message_not_found", "Message not found", err.Error())
+	case errors.Is(err, rooms.ErrMentionNotFound):
+		writeProblem(w, r, http.StatusNotFound, "room_mention_not_found", "Mention not found", err.Error())
+	case errors.Is(err, rooms.ErrParticipantNotFound):
+		writeProblem(w, r, http.StatusUnprocessableEntity, "room_participant_unavailable", "Mention target unavailable", err.Error())
+	case errors.Is(err, rooms.ErrSlugTaken):
+		writeProblem(w, r, http.StatusConflict, "room_slug_taken", "Room already exists", err.Error())
+	case errors.Is(err, rooms.ErrForbidden):
+		writeProblem(w, r, http.StatusForbidden, "room_author_forbidden", "Forbidden", err.Error())
+	case errors.Is(err, rooms.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
+	case errors.Is(err, rooms.ErrCommandIncomplete):
 		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
 	case errors.Is(err, contextpack.ErrForbidden):
 		writeProblem(w, r, http.StatusForbidden, "context_pack_forbidden", "Forbidden", err.Error())

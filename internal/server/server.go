@@ -24,6 +24,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
+	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -114,6 +115,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	workspaceService := workspaces.NewService(cfg.LocalOrganization, workspaceRepository)
 	knowledgeRepository := knowledge.NewPostgresRepository(pool)
 	knowledgeService := knowledge.NewService(cfg.LocalOrganization, knowledgeRepository)
+	roomRepository := rooms.NewPostgresRepository(pool)
+	roomService := rooms.NewService(cfg.LocalOrganization, roomRepository)
 	agentSessionRepository := agentsession.NewPostgresRepository(pool)
 	agentSessionService := agentsession.NewService(cfg.LocalOrganization, agentSessionRepository)
 	coordinationRepository := coordination.NewPostgresRepository(pool)
@@ -147,6 +150,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		GitHubAppService:         githubAppService,
 		WorkspaceService:         workspaceService,
 		KnowledgeService:         knowledgeService,
+		RoomService:              roomService,
 		AgentSessionService:      agentSessionService,
 		CoordinationService:      coordinationService,
 		HandoffService:           coordinationService,

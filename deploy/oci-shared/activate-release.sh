@@ -255,6 +255,7 @@ docker run \
     ./internal/coordination \
     ./internal/workspaces \
     ./internal/knowledge \
+    ./internal/rooms \
     ./internal/contextpack \
     ./internal/projectrepo \
     ./internal/repositorysync

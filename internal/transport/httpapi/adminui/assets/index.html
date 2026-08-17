@@ -23,6 +23,17 @@
       </a>
 
       <div class="topbar-actions">
+        <button
+          id="global-room-mentions"
+          class="topbar-mentions-button"
+          type="button"
+          aria-label="Abrir menciones pendientes"
+          hidden
+        >
+          <span aria-hidden="true">@</span>
+          <span>Menciones</span>
+          <strong id="global-room-mention-count">0</strong>
+        </button>
         <span class="environment-chip" title="Este backoffice se conecta al Pact Server del mismo origen">
           <span class="environment-dot" aria-hidden="true"></span>
           Pact Server
@@ -109,7 +120,7 @@
           <div class="rail-heading">
             <div>
               <p class="section-kicker">Organización</p>
-              <h2 id="projects-heading">Workspaces</h2>
+              <h2 id="projects-heading">Navegación</h2>
             </div>
             <button
               id="refresh-projects"
@@ -134,7 +145,11 @@
           </label>
 
           <div id="project-list-status" class="rail-status" role="status"></div>
-          <nav id="project-list" class="project-list" aria-label="Proyectos"></nav>
+          <nav
+            id="project-list"
+            class="project-list"
+            aria-label="Workspaces, conversaciones y proyectos"
+          ></nav>
 
           <div class="rail-footer">
             <p>
@@ -148,6 +163,7 @@
           <div id="workspace-overview" class="workspace-overview" hidden>
             <header class="workspace-overview-header">
               <div>
+                <p class="context-type">WORKSPACE</p>
                 <p class="breadcrumb">Organización <span aria-hidden="true">/</span> Workspace</p>
                 <div class="project-title-row">
                   <h1 id="workspace-overview-name">—</h1>
@@ -180,6 +196,88 @@
                 <strong id="workspace-context-count">—</strong>
                 <p>Registros y fuentes compartidas</p>
               </article>
+            </section>
+
+            <section id="workspace-conversations" class="panel workspace-rooms-panel" aria-labelledby="workspace-rooms-title" tabindex="-1">
+              <header class="panel-header rooms-panel-header">
+                <div>
+                  <p class="section-kicker">CONTEXTO HUMANO Y DE AGENTES</p>
+                  <h2 id="workspace-rooms-title">Conversaciones</h2>
+                  <p>
+                    Espacios durables creados por personas. Una conversación solo entra al contexto de un
+                    agente cuando se le menciona o se le pide consultarlo.
+                  </p>
+                </div>
+                <div class="room-header-actions">
+                  <button id="open-room-mentions" class="secondary-button room-mentions-button" type="button">
+                    Menciones <span id="room-mention-count" class="count-chip">0</span>
+                  </button>
+                  <button id="open-create-room" class="primary-button compact-button" type="button">
+                    <span>Nueva conversación</span>
+                    <span aria-hidden="true">＋</span>
+                  </button>
+                </div>
+              </header>
+
+              <div class="rooms-layout">
+                <aside class="room-directory" aria-label="Conversaciones del workspace">
+                  <div class="room-directory-heading">
+                    <span>CONVERSACIONES</span>
+                    <span id="workspace-room-count">—</span>
+                  </div>
+                  <nav id="workspace-room-list" class="workspace-room-list"></nav>
+                  <p class="room-directory-note">
+                    Son manuales y estables: un mensaje no crea trabajo ni metadata adicional.
+                  </p>
+                </aside>
+
+                <div class="room-conversation">
+                  <header class="room-conversation-header">
+                    <div>
+                      <h3 id="selected-room-name">Selecciona una conversación</h3>
+                      <p id="selected-room-description">
+                        Elige un espacio para consultar o enriquecer el contexto compartido.
+                      </p>
+                    </div>
+                    <span id="room-live-status" class="live-label">
+                      <span aria-hidden="true"></span>
+                      En espera
+                    </span>
+                  </header>
+
+                  <div id="room-message-list" class="room-message-list" role="log" aria-live="polite"></div>
+                  <div id="room-message-empty" class="room-message-empty">
+                    <span aria-hidden="true">#</span>
+                    <h3>Esta conversación todavía está en silencio</h3>
+                    <p>Comparte una decisión, una reunión o menciona a alguien para pedirle contexto.</p>
+                  </div>
+
+                  <form id="room-message-form" class="room-message-form" novalidate>
+                    <div id="room-reply-preview" class="room-reply-preview" hidden>
+                      <span id="room-reply-copy"></span>
+                      <button id="cancel-room-reply" type="button" aria-label="Cancelar respuesta">×</button>
+                    </div>
+                    <div class="room-composer-wrap">
+                      <label class="visually-hidden" for="room-message-input">Mensaje para la conversación</label>
+                      <textarea
+                        id="room-message-input"
+                        rows="3"
+                        maxlength="50000"
+                        placeholder="Escribe contexto o usa @ para mencionar a una persona o agente…"
+                        disabled
+                      ></textarea>
+                      <div id="room-mention-menu" class="room-mention-menu" role="listbox" hidden></div>
+                    </div>
+                    <div class="room-composer-footer">
+                      <p>Solo se enviarán las menciones que elijas desde la lista.</p>
+                      <button id="send-room-message" class="primary-button compact-button" type="submit" disabled>
+                        <span>Enviar</span>
+                        <span aria-hidden="true">↗</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
             </section>
 
             <div class="workspace-overview-grid">
@@ -216,11 +314,12 @@
           <div id="workspace-content" hidden>
             <header class="project-header">
               <div class="project-identity">
+                <p class="context-type">PROYECTO</p>
                 <p class="breadcrumb">
-                  Workspaces <span aria-hidden="true">/</span>
-                  <span id="workspace-name">—</span>
+                  Workspace:
+                  <button id="workspace-name" class="breadcrumb-link" type="button">—</button>
                   <span aria-hidden="true">/</span>
-                  <span id="project-slug">—</span>
+                  Proyecto: <span id="project-slug">—</span>
                 </p>
                 <div class="project-title-row">
                   <h1 id="project-name">—</h1>
@@ -245,6 +344,13 @@
                 >
                   Actualizar
                 </button>
+                <button
+                  id="open-project-settings"
+                  class="secondary-button project-settings-button"
+                  type="button"
+                >
+                  Configuración
+                </button>
               </div>
             </header>
 
@@ -259,16 +365,16 @@
                 Trabajo <span id="tab-work-count" class="tab-count">—</span>
               </button>
               <button type="button" role="tab" data-dashboard-view="knowledge" aria-selected="false">
-                Conocimiento <span id="tab-knowledge-count" class="tab-count">—</span>
+                Contexto <span id="tab-knowledge-count" class="tab-count">—</span>
+              </button>
+              <button type="button" role="tab" data-dashboard-view="access" aria-selected="false">
+                Acceso <span id="tab-access-count" class="tab-count">—</span>
               </button>
               <button type="button" role="tab" data-dashboard-view="repositories" aria-selected="false">
-                Repositorios <span id="tab-repository-count" class="tab-count">—</span>
+                Código <span id="tab-repository-count" class="tab-count">—</span>
               </button>
               <button type="button" role="tab" data-dashboard-view="activity" aria-selected="false">
                 Actividad <span id="tab-activity-count" class="tab-count">—</span>
-              </button>
-              <button type="button" role="tab" data-dashboard-view="settings" aria-selected="false">
-                Configuración
               </button>
             </nav>
 
@@ -547,6 +653,82 @@
                 </div>
             </section>
 
+            <section class="panel access-panel" data-dashboard-sections="access" aria-labelledby="project-access-title">
+              <header class="panel-header access-header">
+                <div>
+                  <p class="section-kicker">IDENTIDAD Y AUTORIZACIÓN</p>
+                  <h2 id="project-access-title">Personas y agentes</h2>
+                  <p>Acceso efectivo al proyecto, agentes vinculados a cada persona y presencia reciente.</p>
+                </div>
+                <span id="access-live-status" class="live-label">
+                  <span aria-hidden="true"></span>
+                  0 conectados
+                </span>
+              </header>
+
+              <div class="access-summary-grid" aria-label="Resumen de acceso">
+                <article>
+                  <span>Personas con acceso</span>
+                  <strong id="access-member-count">—</strong>
+                </article>
+                <article>
+                  <span>Agentes conocidos</span>
+                  <strong id="access-agent-count">—</strong>
+                </article>
+                <article>
+                  <span>Agentes conectados</span>
+                  <strong id="access-connected-count">—</strong>
+                </article>
+              </div>
+
+              <div class="access-directories">
+                <section class="access-directory" aria-labelledby="access-members-title">
+                  <header>
+                    <div>
+                      <p class="section-kicker">PERMISOS EFECTIVOS</p>
+                      <h3 id="access-members-title">Personas</h3>
+                    </div>
+                    <span id="access-member-list-count" class="count-chip">—</span>
+                  </header>
+                  <div id="access-member-list" class="access-list"></div>
+                  <div id="access-member-empty" class="panel-empty" hidden>
+                    <span class="empty-line" aria-hidden="true"></span>
+                    <h3>No hay personas visibles</h3>
+                    <p>No se encontraron membresías efectivas para este proyecto.</p>
+                  </div>
+                </section>
+
+                <section class="access-directory" aria-labelledby="access-agents-title">
+                  <header>
+                    <div>
+                      <p class="section-kicker">IDENTIDADES PATROCINADAS</p>
+                      <h3 id="access-agents-title">Agentes</h3>
+                    </div>
+                    <span id="access-agent-list-count" class="count-chip">—</span>
+                  </header>
+                  <div id="access-agent-list" class="access-list"></div>
+                  <div id="access-agent-empty" class="panel-empty" hidden>
+                    <span class="empty-line" aria-hidden="true"></span>
+                    <h3>Aún no hay agentes conocidos</h3>
+                    <p>Un agente aparecerá cuando abra su primera sesión en este proyecto.</p>
+                  </div>
+                </section>
+              </div>
+
+              <section class="role-guide" aria-labelledby="role-guide-title">
+                <div>
+                  <p class="section-kicker">QUÉ PERMITE CADA ROL</p>
+                  <h3 id="role-guide-title">Alcance de permisos</h3>
+                </div>
+                <dl>
+                  <div><dt>Propietario</dt><dd>Administración completa del proyecto y sus invitaciones.</dd></div>
+                  <div><dt>Responsable</dt><dd>Gestiona repositorios, contexto, salas e invitaciones limitadas.</dd></div>
+                  <div><dt>Colaborador</dt><dd>Conecta agentes, coordina trabajo y participa en conversaciones.</dd></div>
+                  <div><dt>Observador</dt><dd>Consulta el proyecto sin modificar su estado.</dd></div>
+                </dl>
+              </section>
+            </section>
+
             <section class="panel settings-panel" data-dashboard-sections="settings" aria-labelledby="settings-title">
               <header class="panel-header">
                 <div>
@@ -595,6 +777,48 @@
         </section>
       </div>
     </main>
+
+    <dialog id="create-room-dialog" class="pact-dialog">
+      <form id="create-room-form" method="dialog" novalidate>
+        <header>
+          <div>
+            <p class="section-kicker">NUEVO ESPACIO HUMANO</p>
+            <h2>Nueva conversación</h2>
+          </div>
+          <button id="cancel-create-room" class="dialog-close" type="button" aria-label="Cerrar">×</button>
+        </header>
+        <p class="muted">
+          Úsala para un tema durable del workspace, no para convertir cada tarea pequeña en una conversación.
+        </p>
+        <div class="field">
+          <label for="create-room-name">Nombre</label>
+          <input id="create-room-name" name="name" maxlength="120" placeholder="Diseño de producto" required />
+        </div>
+        <div class="field">
+          <label for="create-room-description">Propósito</label>
+          <textarea id="create-room-description" name="description" rows="4" maxlength="2000" placeholder="Qué conversación pertenece aquí y cuándo debería consultarse."></textarea>
+        </div>
+        <footer>
+          <button class="secondary-button" type="button" data-close-room-dialog>Cancelar</button>
+          <button id="create-room-submit" class="primary-button" type="submit">
+            <span>Crear conversación</span><span aria-hidden="true">→</span>
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="room-mentions-dialog" class="pact-dialog room-mentions-dialog">
+      <section>
+        <header>
+          <div>
+            <p id="room-mentions-kicker" class="section-kicker">PARA TI</p>
+            <h2 id="room-mentions-title">Menciones pendientes</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-mentions-dialog aria-label="Cerrar">×</button>
+        </header>
+        <div id="room-mention-list" class="room-mention-list"></div>
+      </section>
+    </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   </body>

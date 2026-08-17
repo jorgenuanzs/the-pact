@@ -252,11 +252,24 @@ El backoffice utiliza:
 GET /v1/projects
 GET /v1/projects/{project_id}/overview
 GET /v1/projects/{project_id}/events/stream
+GET /v1/workspaces/{workspace_id}/rooms
+GET /v1/workspaces/{workspace_id}/rooms/{room_id}/messages
+POST /v1/workspaces/{workspace_id}/rooms/{room_id}/messages
+GET /v1/me/room-mentions?workspace_id={workspace_id}
 ```
 
 La lista permite seleccionar un proyecto. El overview reúne sus contadores,
 sesiones y trabajo activos, estado de observación del código y los eventos más
 recientes. El stream SSE entrega eventos duraderos recuperables por cursor.
+
+Al seleccionar el encabezado de un Workspace, Pact Control abre sus rooms de
+contexto. Cada Workspace recibe `#general`; un maintainer puede crear otras
+rooms manualmente. El compositor resuelve `@` contra personas y agentes
+elegibles, y crea una notificación durable solo para los actores elegidos. El
+cliente consulta únicamente los últimos cincuenta mensajes de la room abierta
+y actualiza esa ventana cada cinco segundos. Las rooms no crean intents,
+scopes, ramas ni worktrees. Consulta
+[ADR-0016](adr/0016-workspace-context-rooms.md).
 
 La actividad del código utiliza estos estados:
 

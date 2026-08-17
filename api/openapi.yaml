@@ -18,6 +18,7 @@ tags:
   - name: GitHub Integration
   - name: Workspaces
   - name: Knowledge
+  - name: Rooms
   - name: Events
   - name: Agents
   - name: Coordination
@@ -822,6 +823,266 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/rooms:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Rooms]
+      operationId: listWorkspaceRooms
+      summary: Lista las rooms creadas deliberadamente en el Workspace
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Rooms activas y archivadas, ordenadas por actividad.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Rooms]
+      operationId: createWorkspaceRoom
+      summary: Crea una room humana y durable
+      description: Requiere rol maintainer. Crear una room no crea un intent ni trabajo coordinado.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          description: Room creada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+  /v1/workspaces/{workspace_id}/participants:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Rooms]
+      operationId: listWorkspaceRoomParticipants
+      summary: Lista personas y agentes que pueden mencionarse
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Participantes con handle estable dentro de la respuesta y presencia orientativa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomParticipantListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/workspaces/{workspace_id}/rooms/{room_id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/RoomId"
+    get:
+      tags: [Rooms]
+      operationId: listRoomMessages
+      summary: Lee una ventana acotada de mensajes de una room
+      description: El historial solo se devuelve cuando el cliente lo solicita explícitamente.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: thread_root
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 500
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 40
+      responses:
+        "200":
+          description: Ventana cronológica de mensajes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMessageListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Rooms]
+      operationId: createRoomMessage
+      summary: Publica un mensaje o respuesta con menciones explícitas
+      description: Requiere rol contributor. No crea intents, scopes ni worktrees.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomMessageRequest"
+      responses:
+        "201":
+          description: Mensaje publicado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          description: Alguno de los actores mencionados no está disponible.
+  /v1/me/room-mentions:
+    get:
+      tags: [Rooms]
+      operationId: listMyRoomMentions
+      summary: Lista las menciones dirigidas a la persona autenticada
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RoomInboxWorkspace"
+        - $ref: "#/components/parameters/RoomMentionStatusQuery"
+        - $ref: "#/components/parameters/RoomLimit"
+      responses:
+        "200":
+          description: Inbox personal de menciones.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMentionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/room-mentions/{mention_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/MentionId"
+    post:
+      tags: [Rooms]
+      operationId: updateMyRoomMention
+      summary: Marca una mención personal como leída, respondida o descartada
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoomMentionRequest"
+      responses:
+        "200":
+          description: Estado de mención actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMentionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/agent-sessions/{session_id}/room-mentions:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      tags: [Rooms, Agents]
+      operationId: listAgentRoomMentions
+      summary: Lista el inbox explícito de una sesión de agente activa
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RoomInboxWorkspace"
+        - $ref: "#/components/parameters/RoomMentionStatusQuery"
+        - $ref: "#/components/parameters/RoomLimit"
+      responses:
+        "200":
+          description: Menciones dirigidas al actor agente de la sesión.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMentionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/agent-sessions/{session_id}/room-mentions/{mention_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+      - $ref: "#/components/parameters/MentionId"
+    post:
+      tags: [Rooms, Agents]
+      operationId: updateAgentRoomMention
+      summary: Confirma lectura o respuesta de una mención del agente
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoomMentionRequest"
+      responses:
+        "200":
+          description: Estado de mención actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMentionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/projects/{project_id}/overview:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -852,6 +1113,37 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/projects/{project_id}/access:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags:
+        - Access
+        - Projects
+      operationId: getProjectAccess
+      summary: Lista el acceso efectivo y los agentes conocidos de un proyecto
+      description: |
+        Incluye membresías directas y acceso heredado de propietarios o
+        administradores de la organización. Los agentes se atribuyen a la
+        persona que los patrocina y solo aparecen si tienen historial de sesión
+        en este proyecto. `connected` representa una sesión activa y reciente.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Personas con acceso y agentes asociados al proyecto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectAccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1632,6 +1924,47 @@ components:
       schema:
         type: string
         format: uuid
+    RoomId:
+      name: room_id
+      in: path
+      required: true
+      description: Identificador de una room del Workspace.
+      schema:
+        type: string
+        format: uuid
+    MentionId:
+      name: mention_id
+      in: path
+      required: true
+      description: Identificador de una mención explícita.
+      schema:
+        type: string
+        format: uuid
+    RoomMentionStatusQuery:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [pending, read, responded, dismissed, all]
+        default: pending
+    RoomInboxWorkspace:
+      name: workspace_id
+      in: query
+      required: false
+      description: Limita el inbox a un Workspace para evitar cargar contexto ajeno.
+      schema:
+        type: string
+        format: uuid
+    RoomLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
     RecordId:
       name: record_id
       in: path
@@ -2378,6 +2711,280 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/WorkspaceContext"
+    Room:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, slug, name, description, status, managed_default, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        managed_default:
+          type: boolean
+        created_by_actor_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_message_at:
+          type: string
+          format: date-time
+    CreateRoomRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          maxLength: 63
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+        description:
+          type: string
+          maxLength: 2000
+    RoomResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Room"
+    RoomListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [rooms]
+          properties:
+            rooms:
+              type: array
+              items:
+                $ref: "#/components/schemas/Room"
+    RoomParticipant:
+      type: object
+      additionalProperties: false
+      required: [actor_id, display_name, kind, handle, online]
+      properties:
+        actor_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        kind:
+          type: string
+          enum: [principal, agent]
+        agent_type:
+          type: string
+        handle:
+          type: string
+        online:
+          type: boolean
+    RoomParticipantListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [participants]
+          properties:
+            participants:
+              type: array
+              items:
+                $ref: "#/components/schemas/RoomParticipant"
+    RoomMessageMention:
+      type: object
+      additionalProperties: false
+      required: [mention_id, actor_id, display_name, kind, status]
+      properties:
+        mention_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        kind:
+          type: string
+          enum: [principal, agent]
+        status:
+          type: string
+          enum: [pending, read, responded, dismissed]
+    RoomMessage:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, room_id, author_actor_id, author_display_name, author_kind, body, mentions, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        author_actor_id:
+          type: string
+          format: uuid
+        author_display_name:
+          type: string
+        author_kind:
+          type: string
+          enum: [principal, agent]
+        author_session_id:
+          type: string
+          format: uuid
+        reply_to_message_id:
+          type: string
+          format: uuid
+        thread_root_message_id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        mentions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoomMessageMention"
+        created_at:
+          type: string
+          format: date-time
+    CreateRoomMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        reply_to_message_id:
+          type: string
+          format: uuid
+        mention_actor_ids:
+          type: array
+          maxItems: 25
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        author_session_id:
+          type: string
+          format: uuid
+          description: Sesión activa que atribuye el mensaje a un agente patrocinado por la identidad autenticada.
+    RoomMessageResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/RoomMessage"
+    RoomMessageListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [messages]
+          properties:
+            messages:
+              type: array
+              items:
+                $ref: "#/components/schemas/RoomMessage"
+    RoomMention:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, room_id, room_name, message, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        room_name:
+          type: string
+        message:
+          $ref: "#/components/schemas/RoomMessage"
+        status:
+          type: string
+          enum: [pending, read, responded, dismissed]
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+        responded_at:
+          type: string
+          format: date-time
+        dismissed_at:
+          type: string
+          format: date-time
+    RoomMentionListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [mentions]
+          properties:
+            mentions:
+              type: array
+              items:
+                $ref: "#/components/schemas/RoomMention"
+    RoomMentionResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/RoomMention"
+    UpdateRoomMentionRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [read, responded, dismissed]
     CreateProjectRequest:
       type: object
       additionalProperties: false
@@ -4080,6 +4687,122 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/ProjectOverview"
+    ProjectAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ProjectAccess"
+    ProjectAccess:
+      type: object
+      additionalProperties: false
+      required: [project_id, members, agents, generated_at]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectMember"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectAgent"
+        generated_at:
+          type: string
+          format: date-time
+    ProjectMember:
+      type: object
+      additionalProperties: false
+      required:
+        - principal_id
+        - display_name
+        - principal_type
+        - status
+        - organization_role
+        - effective_role
+        - access_source
+        - bootstrap
+      properties:
+        principal_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        principal_type:
+          type: string
+          enum: [human, service]
+        status:
+          type: string
+          enum: [active, disabled]
+        organization_role:
+          type: string
+          enum: [owner, admin, member]
+        project_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        effective_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        access_source:
+          type: string
+          enum: [organization, project]
+        bootstrap:
+          type: boolean
+    ProjectAgent:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_id
+        - display_name
+        - agent_type
+        - status
+        - sponsor_principal_id
+        - sponsor_display_name
+        - access_active
+        - connected
+        - active_sessions
+        - session_count
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        agent_type:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled, retired]
+        sponsor_principal_id:
+          type: string
+          format: uuid
+        sponsor_display_name:
+          type: string
+        sponsor_effective_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        access_active:
+          type: boolean
+        connected:
+          type: boolean
+        active_sessions:
+          type: integer
+          format: int64
+          minimum: 0
+        session_count:
+          type: integer
+          format: int64
+          minimum: 1
+        last_client_type:
+          type: string
+        last_node_name:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
     ProjectOverview:
       type: object
       additionalProperties: false
