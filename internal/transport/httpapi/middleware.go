@@ -2,34 +2,80 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 )
 
 type requestIDKey struct{}
 type principalKey struct{}
+type authenticationKey struct{}
+
+type requestAuthentication struct {
+	Kind   string
+	Web    *authn.WebSession
+	Device *authn.DevicePrincipal
+}
 
 func (a *API) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scheme, token, found := strings.Cut(r.Header.Get("Authorization"), " ")
-		if !found || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" || a.access == nil {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "A valid Pact access token is required.")
+		if a.authentication == nil {
+			writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "Authentication is required.")
 			return
 		}
-		principal, err := a.access.Authenticate(r.Context(), token)
-		if err != nil {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			a.writeDomainError(w, r, err)
-			return
+
+		var principal access.Principal
+		var authentication requestAuthentication
+		if cookie, err := r.Cookie(authn.WebSessionCookie); err == nil && strings.TrimSpace(cookie.Value) != "" {
+			session, authErr := a.authentication.AuthenticateWeb(r.Context(), cookie.Value)
+			if authErr != nil {
+				a.writeDomainError(w, r, authErr)
+				return
+			}
+			if methodRequiresCSRF(r.Method) {
+				csrfCookie, cookieErr := r.Cookie(authn.CSRFCookie)
+				csrfHeader := strings.TrimSpace(r.Header.Get("X-Pact-CSRF"))
+				if cookieErr != nil || csrfHeader == "" || subtle.ConstantTimeCompare([]byte(csrfCookie.Value), []byte(csrfHeader)) != 1 || !a.authentication.ValidateCSRF(session, csrfHeader) {
+					writeProblem(w, r, http.StatusForbidden, "csrf_invalid", "Request rejected", "The browser security token is missing or invalid.")
+					return
+				}
+			}
+			principal = session.Principal
+			authentication = requestAuthentication{Kind: "web", Web: &session}
+		} else {
+			scheme, credential, found := strings.Cut(r.Header.Get("Authorization"), " ")
+			if !found || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(credential) == "" {
+				w.Header().Set("WWW-Authenticate", "Bearer")
+				writeProblem(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", "Log in to Pact or provide a valid device credential.")
+				return
+			}
+			device, authErr := a.authentication.AuthenticateDevice(r.Context(), credential)
+			if authErr != nil {
+				w.Header().Set("WWW-Authenticate", "Bearer")
+				a.writeDomainError(w, r, authErr)
+				return
+			}
+			principal = device.Principal
+			authentication = requestAuthentication{Kind: "device", Device: &device}
 		}
 		ctx := context.WithValue(r.Context(), principalKey{}, principal)
+		ctx = context.WithValue(ctx, authenticationKey{}, authentication)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func authenticationFromContext(ctx context.Context) (requestAuthentication, bool) {
+	authentication, ok := ctx.Value(authenticationKey{}).(requestAuthentication)
+	return authentication, ok
+}
+
+func methodRequiresCSRF(method string) bool {
+	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
 
 func (a *API) requireProjectRole(minimum string, next http.Handler) http.Handler {

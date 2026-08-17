@@ -4,63 +4,39 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"net/mail"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const (
 	defaultInvitationLifetime = 24 * time.Hour
 	maximumInvitationLifetime = 7 * 24 * time.Hour
-	personalTokenLifetime     = 30 * 24 * time.Hour
 )
 
 type Repository interface {
-	Authenticate(context.Context, string, [sha256.Size]byte) (Principal, error)
 	ProjectRole(context.Context, string, string, string) (string, error)
 	VisibleProjectIDs(context.Context, string, string) (map[string]struct{}, error)
 	GetProjectAccess(context.Context, string, string, time.Time, time.Time) (ProjectAccess, error)
 	CreateInvitation(context.Context, string, Principal, string, CreateInvitationInput, [sha256.Size]byte) (Invitation, error)
-	AcceptInvitation(context.Context, string, AcceptInvitationInput, [sha256.Size]byte, [sha256.Size]byte, time.Time) (AcceptedInvitation, error)
 	RevokeInvitation(context.Context, string, Principal, string) error
-	RevokeToken(context.Context, string, Principal) error
 	GrantProjectOwner(context.Context, string, string, string) error
 }
 
 type Service struct {
 	organizationID string
-	bootstrapHash  [sha256.Size]byte
 	repository     Repository
 	now            func() time.Time
 }
 
-func NewService(organizationID, bootstrapToken string, repository Repository) *Service {
+func NewService(organizationID string, repository Repository) *Service {
 	return &Service{
 		organizationID: organizationID,
-		bootstrapHash:  sha256.Sum256([]byte(bootstrapToken)),
 		repository:     repository,
 		now:            time.Now,
 	}
-}
-
-func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal, error) {
-	rawToken = strings.TrimSpace(rawToken)
-	if rawToken == "" {
-		return Principal{}, ErrUnauthorized
-	}
-	digest := sha256.Sum256([]byte(rawToken))
-	if subtle.ConstantTimeCompare(digest[:], s.bootstrapHash[:]) == 1 {
-		return Principal{
-			ID: BootstrapPrincipalID, OrganizationID: s.organizationID,
-			DisplayName: "Local administrator", PrincipalType: "human",
-			OrganizationRole: "owner", Bootstrap: true,
-		}, nil
-	}
-	return s.repository.Authenticate(ctx, s.organizationID, digest)
 }
 
 func (s *Service) ProjectRole(ctx context.Context, principal Principal, projectID string) (string, error) {
@@ -116,6 +92,14 @@ func (s *Service) CreateInvitation(
 ) (CreatedInvitation, error) {
 	input.Email = normalizeEmail(input.Email)
 	input.Role = strings.ToLower(strings.TrimSpace(input.Role))
+	input.OrganizationRole = strings.ToLower(strings.TrimSpace(input.OrganizationRole))
+	if input.OrganizationRole == "" {
+		if input.Role == "owner" {
+			input.OrganizationRole = "owner"
+		} else {
+			input.OrganizationRole = "member"
+		}
+	}
 	if input.ExpiresAfter == 0 {
 		input.ExpiresAfter = defaultInvitationLifetime
 	}
@@ -129,7 +113,10 @@ func (s *Service) CreateInvitation(
 	if actualRole != "owner" && actualRole != "maintainer" {
 		return CreatedInvitation{}, ErrForbidden
 	}
-	if input.Role == "owner" && !principal.Bootstrap {
+	if input.Role == "owner" && principal.OrganizationRole != "owner" && principal.OrganizationRole != "admin" {
+		return CreatedInvitation{}, ErrForbidden
+	}
+	if input.OrganizationRole == "owner" && principal.OrganizationRole != "owner" {
 		return CreatedInvitation{}, ErrForbidden
 	}
 	if actualRole == "maintainer" && input.Role == "maintainer" {
@@ -148,44 +135,8 @@ func (s *Service) CreateInvitation(
 	return CreatedInvitation{Invitation: invitation, Secret: secret}, nil
 }
 
-func (s *Service) AcceptInvitation(ctx context.Context, input AcceptInvitationInput) (AcceptedInvitation, error) {
-	input.Secret = strings.TrimSpace(input.Secret)
-	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	input.TokenName = strings.TrimSpace(input.TokenName)
-	if !strings.HasPrefix(input.Secret, "pact_inv_") || len(input.Secret) < 40 {
-		return AcceptedInvitation{}, ErrInvitationInvalid
-	}
-	if input.DisplayName == "" || utf8.RuneCountInString(input.DisplayName) > 200 {
-		return AcceptedInvitation{}, &ValidationError{Field: "display_name", Message: "must contain 1 to 200 characters"}
-	}
-	if input.TokenName == "" || utf8.RuneCountInString(input.TokenName) > 200 {
-		return AcceptedInvitation{}, &ValidationError{Field: "token_name", Message: "must contain 1 to 200 characters"}
-	}
-	accessToken, accessDigest, err := newSecret("pact_pat_")
-	if err != nil {
-		return AcceptedInvitation{}, err
-	}
-	inviteDigest := sha256.Sum256([]byte(input.Secret))
-	expiresAt := s.now().UTC().Add(personalTokenLifetime)
-	result, err := s.repository.AcceptInvitation(
-		ctx, s.organizationID, input, inviteDigest, accessDigest, expiresAt,
-	)
-	if err != nil {
-		return AcceptedInvitation{}, err
-	}
-	result.AccessToken = accessToken
-	return result, nil
-}
-
 func (s *Service) RevokeInvitation(ctx context.Context, principal Principal, invitationID string) error {
 	return s.repository.RevokeInvitation(ctx, s.organizationID, principal, strings.TrimSpace(invitationID))
-}
-
-func (s *Service) RevokeCurrentToken(ctx context.Context, principal Principal) error {
-	if principal.Bootstrap || principal.TokenID == "" {
-		return &ValidationError{Field: "token", Message: "the bootstrap credential cannot be revoked through the API"}
-	}
-	return s.repository.RevokeToken(ctx, s.organizationID, principal)
 }
 
 func (s *Service) GrantProjectOwner(ctx context.Context, principal Principal, projectID string) error {
@@ -204,6 +155,8 @@ func validateInvitationInput(input CreateInvitationInput) error {
 	switch {
 	case input.Email == "" || len(input.Email) > 320:
 		return &ValidationError{Field: "email", Message: "must be a valid email address"}
+	case input.OrganizationRole != "owner" && input.OrganizationRole != "member":
+		return &ValidationError{Field: "organization_role", Message: "must be owner or member"}
 	case input.Role != "owner" && input.Role != "maintainer" && input.Role != "contributor" && input.Role != "viewer":
 		return &ValidationError{Field: "role", Message: "must be owner, maintainer, contributor, or viewer"}
 	case input.ExpiresAfter < time.Hour || input.ExpiresAfter > maximumInvitationLifetime:

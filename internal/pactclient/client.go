@@ -14,6 +14,7 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
@@ -29,7 +30,7 @@ const maxResponseBody = 2 << 20
 
 type Client struct {
 	baseURL    *url.URL
-	apiToken   string
+	credential string
 	httpClient *http.Client
 }
 
@@ -51,15 +52,15 @@ func (p *Problem) Error() string {
 	return fmt.Sprintf("Pact Server returned HTTP %d", p.Status)
 }
 
-func New(serverURL, apiToken string) (*Client, error) {
+func New(serverURL, deviceCredential string) (*Client, error) {
 	client, err := newUnauthenticated(serverURL)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(apiToken) == "" {
-		return nil, errors.New("Pact API token is required")
+	if !strings.HasPrefix(strings.TrimSpace(deviceCredential), "pact_device_") {
+		return nil, errors.New("Pact device credential is required")
 	}
-	client.apiToken = apiToken
+	client.credential = strings.TrimSpace(deviceCredential)
 	return client, nil
 }
 
@@ -770,26 +771,38 @@ func (c *Client) CreateInvitation(
 	return response.Data, nil
 }
 
-func AcceptInvitation(
-	ctx context.Context,
-	serverURL string,
-	input access.AcceptInvitationInput,
-) (access.AcceptedInvitation, error) {
+func BeginDeviceAuthorization(ctx context.Context, serverURL string, input authn.BeginDeviceInput) (authn.DeviceAuthorization, error) {
 	client, err := newUnauthenticated(serverURL)
 	if err != nil {
-		return access.AcceptedInvitation{}, err
+		return authn.DeviceAuthorization{}, err
 	}
 	var response struct {
-		Data access.AcceptedInvitation `json:"data"`
+		Data authn.DeviceAuthorization `json:"data"`
 	}
-	if err := client.do(ctx, http.MethodPost, "/v1/invitation-acceptances", "application/json", request{Body: input}, &response); err != nil {
-		return access.AcceptedInvitation{}, err
+	if err := client.do(ctx, http.MethodPost, "/v1/auth/devices", "application/json", request{Body: input}, &response); err != nil {
+		return authn.DeviceAuthorization{}, err
 	}
 	return response.Data, nil
 }
 
-func (c *Client) RevokeCurrentToken(ctx context.Context) error {
-	return c.do(ctx, http.MethodDelete, "/v1/me/tokens/current", "", nil, nil)
+func ExchangeDeviceAuthorization(ctx context.Context, serverURL, deviceCode string) (authn.DeviceExchange, error) {
+	client, err := newUnauthenticated(serverURL)
+	if err != nil {
+		return authn.DeviceExchange{}, err
+	}
+	var response struct {
+		Data authn.DeviceExchange `json:"data"`
+	}
+	if err := client.do(ctx, http.MethodPost, "/v1/auth/devices/exchange", "application/json", request{
+		Body: map[string]string{"device_code": deviceCode},
+	}, &response); err != nil {
+		return authn.DeviceExchange{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) RevokeCurrentDevice(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/v1/auth/device/current", "", nil, nil)
 }
 
 type request struct {
@@ -827,8 +840,8 @@ func (c *Client) do(
 		return fmt.Errorf("create request: %w", err)
 	}
 	httpRequest.Header.Set("Accept", "application/json")
-	if c.apiToken != "" {
-		httpRequest.Header.Set("Authorization", "Bearer "+c.apiToken)
+	if c.credential != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+c.credential)
 	}
 	if contentType != "" {
 		httpRequest.Header.Set("Content-Type", contentType)

@@ -15,7 +15,7 @@ const DefaultLocalOrganizationID = "00000000-0000-4000-8000-000000000001"
 type Config struct {
 	HTTPAddress         string
 	DatabaseURL         string
-	LocalAPIToken       string
+	SetupToken          string
 	LocalOrganization   string
 	LogLevel            string
 	RunMigrations       bool
@@ -72,7 +72,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddress:         envOrDefault("PACT_HTTP_ADDRESS", "127.0.0.1:8080"),
 		DatabaseURL:         strings.TrimSpace(os.Getenv("PACT_DATABASE_URL")),
-		LocalAPIToken:       os.Getenv("PACT_LOCAL_API_TOKEN"),
+		SetupToken:          strings.TrimSpace(os.Getenv("PACT_SETUP_TOKEN")),
 		LocalOrganization:   envOrDefault("PACT_LOCAL_ORGANIZATION_ID", DefaultLocalOrganizationID),
 		LogLevel:            strings.ToLower(envOrDefault("PACT_LOG_LEVEL", "info")),
 		RunMigrations:       runMigrations,
@@ -177,8 +177,8 @@ func (c Config) ValidateServer() error {
 	if _, _, err := net.SplitHostPort(c.HTTPAddress); err != nil {
 		errs = append(errs, fmt.Errorf("PACT_HTTP_ADDRESS must be host:port: %w", err))
 	}
-	if len(c.LocalAPIToken) < 24 {
-		errs = append(errs, errors.New("PACT_LOCAL_API_TOKEN must contain at least 24 characters"))
+	if c.SetupToken != "" && len(c.SetupToken) < 24 {
+		errs = append(errs, errors.New("PACT_SETUP_TOKEN must contain at least 24 characters when configured"))
 	}
 
 	return errors.Join(errs...)

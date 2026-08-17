@@ -12,20 +12,21 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
-	"github.com/jorgenuanzs/the-pact/internal/config"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/useradmin"
 )
 
-func TestInvitationPersonalTokenAndRevocationLifecycle(t *testing.T) {
+func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("PACT_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("PACT_TEST_DATABASE_URL is not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pool, err := postgres.Open(ctx, databaseURL, postgres.Config{ApplicationName: "pact-access-integration-test"})
+	pool, err := postgres.Open(ctx, databaseURL, postgres.Config{ApplicationName: "pact-authentication-integration-test"})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
@@ -35,8 +36,16 @@ func TestInvitationPersonalTokenAndRevocationLifecycle(t *testing.T) {
 	}
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	var organizationID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO identity.organizations (slug, name)
+		VALUES ($1, $2)
+		RETURNING id
+	`, "auth-"+suffix, "Authentication "+suffix).Scan(&organizationID); err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
 	projectResult, err := projects.NewService(
-		config.DefaultLocalOrganizationID,
+		organizationID,
 		projects.NewPostgresRepository(pool),
 	).Create(ctx, "access-project-"+suffix, projects.CreateInput{
 		Name: "Access project " + suffix,
@@ -45,80 +54,210 @@ func TestInvitationPersonalTokenAndRevocationLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	const bootstrapToken = "integration-bootstrap-token-long-enough"
-	service := access.NewService(
-		config.DefaultLocalOrganizationID,
-		bootstrapToken,
-		access.NewPostgresRepository(pool),
-	)
-	administrator, err := service.Authenticate(ctx, bootstrapToken)
+
+	const setupCode = "integration-setup-code-long-enough"
+	authentication := authn.NewService(authn.Config{
+		OrganizationID: organizationID,
+		SetupToken:     setupCode,
+		PublicURL:      "https://pact.example.com",
+	}, authn.NewPostgresRepository(pool))
+	ownerSession, err := authentication.Setup(ctx, authn.SetupInput{
+		SetupCode: setupCode,
+		AccountInput: authn.AccountInput{
+			DisplayName: "Integration owner", Email: "owner-" + suffix + "@example.com",
+			Username: "owner." + suffix[len(suffix)-8:], Password: "a sufficiently long owner password",
+		},
+	}, authn.SessionMetadata{UserAgent: "integration-test"})
 	if err != nil {
-		t.Fatalf("authenticate bootstrap: %v", err)
+		t.Fatalf("create owner account: %v", err)
 	}
-	created, err := service.CreateInvitation(ctx, administrator, projectResult.Project.ID, access.CreateInvitationInput{
+	owner, err := authentication.AuthenticateWeb(ctx, ownerSession.SessionSecret)
+	if err != nil {
+		t.Fatalf("authenticate owner session: %v", err)
+	}
+	if owner.Principal.OrganizationRole != "owner" || owner.Principal.Bootstrap {
+		t.Fatalf("owner principal = %#v", owner.Principal)
+	}
+	if _, err := authentication.Setup(ctx, authn.SetupInput{
+		SetupCode: setupCode,
+		AccountInput: authn.AccountInput{
+			DisplayName: "Second owner", Email: "second-" + suffix + "@example.com",
+			Username: "second." + suffix[len(suffix)-8:], Password: "a sufficiently long second owner password",
+		},
+	}, authn.SessionMetadata{}); !errors.Is(err, authn.ErrAlreadyConfigured) {
+		t.Fatalf("second owner setup error = %v", err)
+	}
+	if _, err := authentication.Login(ctx, authn.LoginInput{
+		Login: "owner." + suffix[len(suffix)-8:], Password: "incorrect but sufficiently long",
+	}, authn.SessionMetadata{}); !errors.Is(err, authn.ErrInvalidCredentials) {
+		t.Fatalf("invalid owner login error = %v", err)
+	}
+	loginSession, err := authentication.Login(ctx, authn.LoginInput{
+		Login: "owner-" + suffix + "@example.com", Password: "a sufficiently long owner password",
+	}, authn.SessionMetadata{UserAgent: "integration-login"})
+	if err != nil {
+		t.Fatalf("owner password login: %v", err)
+	}
+	if loggedIn, err := authentication.AuthenticateWeb(ctx, loginSession.SessionSecret); err != nil || loggedIn.Principal.ID != owner.Principal.ID {
+		t.Fatalf("owner login session = %#v, %v", loggedIn, err)
+	}
+
+	authorization := access.NewService(organizationID, access.NewPostgresRepository(pool))
+	created, err := authorization.CreateInvitation(ctx, owner.Principal, projectResult.Project.ID, access.CreateInvitationInput{
 		Email: "collaborator-" + suffix + "@example.com", Role: "contributor", ExpiresAfter: time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("create invitation: %v", err)
 	}
-	if created.Secret == "" {
-		t.Fatal("invitation secret is empty")
+	preview, err := authentication.PreviewInvitation(ctx, created.Secret)
+	if err != nil || preview.ProjectID != projectResult.Project.ID {
+		t.Fatalf("preview invitation = %#v, %v", preview, err)
 	}
-	accepted, err := service.AcceptInvitation(ctx, access.AcceptInvitationInput{
-		Secret: created.Secret, DisplayName: "Integration collaborator", TokenName: "Integration computer",
-	})
+	collaboratorSession, err := authentication.RegisterInvitation(ctx, authn.InvitationRegistrationInput{
+		Secret: created.Secret,
+		AccountInput: authn.AccountInput{
+			DisplayName: "Integration collaborator", Email: created.Invitation.Email,
+			Username: "collab." + suffix[len(suffix)-8:], Password: "a sufficiently long collaborator password",
+		},
+	}, authn.SessionMetadata{UserAgent: "integration-test"})
 	if err != nil {
-		t.Fatalf("accept invitation: %v", err)
+		t.Fatalf("register invited account: %v", err)
 	}
-	if accepted.AccessToken == "" || accepted.ProjectRole != "contributor" {
-		t.Fatalf("accepted invitation = %#v", accepted)
+	if collaboratorSession.Acceptance.ProjectRole != "contributor" {
+		t.Fatalf("invitation acceptance = %#v", collaboratorSession.Acceptance)
 	}
-	if _, err := service.AcceptInvitation(ctx, access.AcceptInvitationInput{
-		Secret: created.Secret, DisplayName: "Replay", TokenName: "Replay",
-	}); !errors.Is(err, access.ErrInvitationInvalid) {
+	if _, err := authentication.RegisterInvitation(ctx, authn.InvitationRegistrationInput{
+		Secret: created.Secret,
+		AccountInput: authn.AccountInput{
+			DisplayName: "Replay", Email: created.Invitation.Email,
+			Username: "replay." + suffix[len(suffix)-8:], Password: "a sufficiently long replay password",
+		},
+	}, authn.SessionMetadata{}); !errors.Is(err, authn.ErrInvitationInvalid) {
 		t.Fatalf("replayed invitation error = %v", err)
 	}
-	principal, err := service.Authenticate(ctx, accepted.AccessToken)
+
+	collaborator := collaboratorSession.Acceptance.Principal
+	if err := authorization.RequireProjectRole(ctx, collaborator, projectResult.Project.ID, "contributor"); err != nil {
+		t.Fatalf("collaborator authorization: %v", err)
+	}
+	deviceAuthorization, err := authentication.BeginDevice(ctx, authn.BeginDeviceInput{DeviceName: "Integration laptop"})
 	if err != nil {
-		t.Fatalf("authenticate personal token: %v", err)
+		t.Fatalf("begin device authorization: %v", err)
 	}
-	if principal.ID != accepted.Principal.ID || principal.Bootstrap {
-		t.Fatalf("personal principal = %#v", principal)
+	if err := authentication.ApproveDevice(ctx, collaborator, deviceAuthorization.UserCode); err != nil {
+		t.Fatalf("approve device: %v", err)
 	}
-	if err := service.RequireProjectRole(ctx, principal, projectResult.Project.ID, "contributor"); err != nil {
-		t.Fatalf("contributor authorization: %v", err)
+	exchange, err := authentication.ExchangeDevice(ctx, deviceAuthorization.DeviceCode)
+	if err != nil || exchange.Status != "authorized" || exchange.DeviceCredential == "" {
+		t.Fatalf("device exchange = %#v, %v", exchange, err)
 	}
+	device, err := authentication.AuthenticateDevice(ctx, exchange.DeviceCredential)
+	if err != nil || device.Principal.ID != collaborator.ID {
+		t.Fatalf("device principal = %#v, %v", device, err)
+	}
+
+	if err := authentication.ChangePassword(ctx, collaboratorSession.Session, authn.ChangePasswordInput{
+		CurrentPassword: "a sufficiently long collaborator password",
+		NewPassword:     "a different sufficiently long password",
+	}); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+	if _, err := authentication.AuthenticateDevice(ctx, exchange.DeviceCredential); !errors.Is(err, authn.ErrUnauthorized) {
+		t.Fatalf("device remained active after password change: %v", err)
+	}
+
 	agentSession, err := agentsession.NewService(
-		config.DefaultLocalOrganizationID,
+		organizationID,
 		agentsession.NewPostgresRepository(pool),
-	).Start(ctx, principal.ID, projectResult.Project.ID, agentsession.StartInput{
+	).Start(ctx, collaborator.ID, projectResult.Project.ID, agentsession.StartInput{
 		NodeKey: "access-node-" + suffix, NodeName: "Access node",
 		AgentName: "Access Codex", AgentType: "codex", ClientType: "codex", ObserveGit: true,
 	})
 	if err != nil {
 		t.Fatalf("start access agent session: %v", err)
 	}
-	roster, err := service.GetProjectAccess(ctx, principal, projectResult.Project.ID)
+	roster, err := authorization.GetProjectAccess(ctx, owner.Principal, projectResult.Project.ID)
 	if err != nil {
 		t.Fatalf("get project access: %v", err)
 	}
-	if !containsMember(roster.Members, access.BootstrapPrincipalID) || !containsMember(roster.Members, principal.ID) {
+	if !containsMember(roster.Members, owner.Principal.ID) || !containsMember(roster.Members, collaborator.ID) || containsMember(roster.Members, access.BootstrapPrincipalID) {
 		t.Fatalf("project members = %#v", roster.Members)
 	}
-	if len(roster.Agents) != 1 || roster.Agents[0].AgentID != agentSession.ActorID ||
-		roster.Agents[0].SponsorPrincipalID != principal.ID || !roster.Agents[0].Connected {
+	if len(roster.Agents) != 1 || roster.Agents[0].AgentID != agentSession.ActorID || !roster.Agents[0].Connected {
 		t.Fatalf("project agents = %#v", roster.Agents)
 	}
-	if _, err := service.CreateInvitation(ctx, principal, projectResult.Project.ID, access.CreateInvitationInput{
-		Email: "forbidden@example.com", Role: "viewer",
-	}); !errors.Is(err, access.ErrForbidden) {
-		t.Fatalf("contributor invitation error = %v", err)
+
+	userAdministration := useradmin.NewService(
+		organizationID,
+		useradmin.NewPostgresRepository(pool),
+	)
+	directory, err := userAdministration.Directory(ctx, owner.Principal)
+	if err != nil {
+		t.Fatalf("list organization users: %v", err)
 	}
-	if err := service.RevokeCurrentToken(ctx, principal); err != nil {
-		t.Fatalf("revoke personal token: %v", err)
+	if len(directory.Users) != 2 || len(directory.Invitations) != 0 {
+		t.Fatalf("initial user directory = %#v", directory)
 	}
-	if _, err := service.Authenticate(ctx, accepted.AccessToken); !errors.Is(err, access.ErrUnauthorized) {
-		t.Fatalf("authentication after revocation error = %v", err)
+	updatedCollaborator, err := userAdministration.SetProjectPermission(
+		ctx, owner.Principal, collaborator.ID, projectResult.Project.ID, "viewer",
+	)
+	if err != nil {
+		t.Fatalf("lower collaborator project permission: %v", err)
+	}
+	if len(updatedCollaborator.ProjectRoles) != 1 || updatedCollaborator.ProjectRoles[0].Role != "viewer" {
+		t.Fatalf("updated collaborator permissions = %#v", updatedCollaborator.ProjectRoles)
+	}
+	if err := authorization.RequireProjectRole(ctx, collaborator, projectResult.Project.ID, "contributor"); !errors.Is(err, access.ErrForbidden) {
+		t.Fatalf("lowered project permission error = %v", err)
+	}
+	disabled := "disabled"
+	updatedCollaborator, err = userAdministration.UpdateUser(
+		ctx, owner.Principal, collaborator.ID, useradmin.UpdateUserInput{Status: &disabled},
+	)
+	if err != nil || updatedCollaborator.Status != "disabled" || updatedCollaborator.ActiveSessions != 0 {
+		t.Fatalf("disabled collaborator = %#v, %v", updatedCollaborator, err)
+	}
+	if _, err := authentication.Login(ctx, authn.LoginInput{
+		Login: created.Invitation.Email, Password: "a different sufficiently long password",
+	}, authn.SessionMetadata{}); !errors.Is(err, authn.ErrInvalidCredentials) {
+		t.Fatalf("disabled collaborator login error = %v", err)
+	}
+	var sponsoredSessionStatus string
+	if err := pool.QueryRow(ctx, `
+		SELECT status FROM identity.sessions WHERE organization_id = $1 AND id = $2
+	`, organizationID, agentSession.ID).Scan(&sponsoredSessionStatus); err != nil || sponsoredSessionStatus != "closed" {
+		t.Fatalf("sponsored session status = %q, %v", sponsoredSessionStatus, err)
+	}
+	active := "active"
+	if _, err := userAdministration.UpdateUser(
+		ctx, owner.Principal, collaborator.ID, useradmin.UpdateUserInput{Status: &active},
+	); err != nil {
+		t.Fatalf("reactivate collaborator: %v", err)
+	}
+
+	adminInvitation, err := userAdministration.CreateInvitation(ctx, owner.Principal, useradmin.CreateInvitationInput{
+		Email: "admin-" + suffix + "@example.com", OrganizationRole: "admin", ExpiresAfter: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("create organization administrator invitation: %v", err)
+	}
+	adminPreview, err := authentication.PreviewInvitation(ctx, adminInvitation.Secret)
+	if err != nil || adminPreview.OrganizationRole != "admin" || adminPreview.ProjectID != "" {
+		t.Fatalf("administrator invitation preview = %#v, %v", adminPreview, err)
+	}
+	adminSession, err := authentication.RegisterInvitation(ctx, authn.InvitationRegistrationInput{
+		Secret: adminInvitation.Secret,
+		AccountInput: authn.AccountInput{
+			DisplayName: "Integration administrator", Email: adminInvitation.Invitation.Email,
+			Username: "admin." + suffix[len(suffix)-8:], Password: "a sufficiently long administrator password",
+		},
+	}, authn.SessionMetadata{UserAgent: "integration-test"})
+	if err != nil || adminSession.Acceptance.Principal.OrganizationRole != "admin" {
+		t.Fatalf("register organization administrator = %#v, %v", adminSession, err)
+	}
+	directory, err = userAdministration.Directory(ctx, owner.Principal)
+	if err != nil || len(directory.Users) != 3 || len(directory.Events) < 4 {
+		t.Fatalf("final user directory = %#v, %v", directory, err)
 	}
 }
 

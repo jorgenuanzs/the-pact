@@ -14,12 +14,13 @@ import (
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
 )
 
-const cliTestToken = "this-is-a-long-cli-test-token"
+const cliTestToken = "pact_device_this-is-a-long-cli-test-device-credential"
 
 func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	var (
@@ -30,6 +31,20 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 		observationReported bool
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost && request.URL.Path == "/v1/auth/devices" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": authn.DeviceAuthorization{
+				DeviceCode: "pact_device_code_test-device-authorization-secret",
+				UserCode:   "ABCD-2345", VerificationURI: "/admin/#device=ABCD-2345",
+				ExpiresAt: time.Now().Add(10 * time.Second), IntervalSeconds: 1,
+			}})
+			return
+		}
+		if request.Method == http.MethodPost && request.URL.Path == "/v1/auth/devices/exchange" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": authn.DeviceExchange{
+				Status: "authorized", DeviceCredential: cliTestToken,
+			}})
+			return
+		}
 		if request.Header.Get("Authorization") != "Bearer "+cliTestToken {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -133,8 +148,8 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	if err := run(
-		[]string{"login", "--server", server.URL, "--token-stdin"},
-		strings.NewReader(cliTestToken),
+		[]string{"login", "--server", server.URL, "--no-browser"},
+		strings.NewReader(""),
 		&stdout,
 		&stderr,
 	); err != nil {
@@ -151,7 +166,7 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 		"Created and connected Pact project",
 		filepath.Join(ownerRoot, "pact.yaml"),
 		"footfall (018f784a-68c1-7b0f-8f2a-cfc255f99e1d)",
-		"No database credentials or API tokens",
+		"No database credentials, passwords, or device credentials",
 	} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Errorf("init stdout does not contain %q:\n%s", expected, stdout.String())

@@ -116,16 +116,17 @@ cd the-pact
 make init
 ```
 
-`make init` creates `.env` from `.env.example`. Set both blank secrets before
-continuing:
+`make init` creates `.env` from `.env.example`. Set the database password and a
+one-time setup code before continuing:
 
 ```dotenv
 PACT_DB_PASSWORD=<at-least-16-url-safe-characters>
-PACT_LOCAL_API_TOKEN=<at-least-24-random-characters>
+PACT_SETUP_TOKEN=<at-least-24-random-characters>
 ```
 
 For example, `openssl rand -hex 32` generates an appropriate value. Use a
-different value for each setting and never commit `.env`.
+different value for each setting and never commit `.env`. `PACT_SETUP_TOKEN`
+is accepted only while no local owner exists; it is never an API credential.
 
 Start the server and PostgreSQL:
 
@@ -141,8 +142,10 @@ curl --fail-with-body http://127.0.0.1:8080/readyz
 ```
 
 Open the backoffice at [http://127.0.0.1:8080/admin/](http://127.0.0.1:8080/admin/)
-and enter `PACT_LOCAL_API_TOKEN`. The UI keeps it only in the browser tab's
-`sessionStorage`; it is not embedded in the page or added to the URL.
+and create the first owner with the setup code. Then remove
+`PACT_SETUP_TOKEN` from `.env` and restart the server. Subsequent visits use
+the owner's username or email and password; the browser receives an HttpOnly,
+SameSite session cookie instead of seeing an API credential.
 
 ## Install the CLI
 
@@ -223,21 +226,17 @@ next to each participant's Git checkout.
 
 ### 1. Log in on the first computer
 
-For a self-hosted server, use the bootstrap token from its `.env`. Read it from
-standard input so it does not appear in shell history:
+The CLI uses device authorization. It opens Pact in the browser, where you log
+in and confirm the code shown by the terminal:
 
 ```sh
-printf '%s' "$PACT_API_TOKEN" | pact login \
-  --server http://127.0.0.1:8080 \
-  --token-stdin
+pact login --server http://127.0.0.1:8080
 ```
 
 PowerShell equivalent:
 
 ```powershell
-$env:PACT_API_TOKEN | pact login `
-  --server http://127.0.0.1:8080 `
-  --token-stdin
+pact login --server http://127.0.0.1:8080
 ```
 
 Remote non-loopback servers must use HTTPS.
@@ -261,8 +260,8 @@ server, and writes two different surfaces:
 | `.pact/node.json` | Private machine identity, created when observation starts | Ignored |
 | `.pact/worktrees/` | Isolated Git worktrees created for coordinated work | Ignored |
 
-No API token, PostgreSQL credential, or cloud secret is written into the
-repository.
+No password, device credential, PostgreSQL credential, or cloud secret is
+written into the repository.
 
 `pact init` also creates a default remote Workspace for a new project. Related
 projects can later be grouped without changing their Git repositories:
@@ -301,23 +300,31 @@ Available project roles are `owner`, `maintainer`, `contributor`, and `viewer`.
 Invitations last 24 hours by default and may be configured between one hour and
 seven days with `--expires`.
 
-Send the displayed `pact_inv_...` secret through a private channel. It is shown
-only once.
+Send the private registration URL through a trusted channel. It contains the
+one-time `pact_inv_...` invitation and is shown only once.
 
-The collaborator installs Pact, clones the repository, and accepts the
-invitation:
+The collaborator opens that URL, creates an account, installs Pact, and then
+authorizes the computer before connecting the checkout:
 
 ```sh
+pact login --server https://pact.example.com
+
 git clone https://github.com/example/project.git
 cd project
-
-printf '%s' "$PACT_INVITATION" | pact join \
-  --server https://pact.example.com \
-  --name "Collaborator name" \
-  --invite-stdin
-
 pact connect
 ```
+
+If the collaborator receives the raw invitation secret instead of the URL,
+this opens the same registration screen:
+
+```sh
+printf '%s' "$PACT_INVITATION" | pact join \
+  --server https://pact.example.com \
+  --invite-stdin
+```
+
+`pact login` then asks the signed-in account to approve this computer and
+stores a separate revocable device credential outside the repository.
 
 `pact connect` requires the `pact.yaml` created by the owner and connects only
 to an existing remote project. It never creates a project silently. SSH and
@@ -478,6 +485,8 @@ and conflict signals around them.
 
 The embedded backoffice is available at `/admin/` on Pact Server. It shows:
 
+- an organization directory for owners and administrators, with invitations,
+  roles, project permissions, session revocation, account status, and audit;
 - visible Workspaces with their projects grouped beneath them;
 - human-created context rooms, replies, participant suggestions, and personal mention inboxes;
 - currently active humans and agents;
@@ -498,9 +507,9 @@ merge branches, or mutate repositories.
 
 Pact is designed around several boundaries:
 
-- tokens are accepted through stdin or environment variables, never URL query
-  parameters;
-- PostgreSQL stores digests of invitations and personal access tokens;
+- passwords are hashed with Argon2id and never available to the CLI;
+- PostgreSQL stores only digests of invitations, web sessions, CSRF secrets,
+  device codes, and device credentials;
 - user credentials live outside repositories in `~/.config/pact/config.json`
   on macOS/Linux and `%APPDATA%\Pact\config.json` on Windows;
 - `.pact/` contains machine-local state and is ignored by Git;
@@ -519,9 +528,9 @@ Current limitations matter:
 - observer mode does not prevent someone from bypassing Pact and changing Git
   directly;
 - room mentions create durable inbox items but do not wake or run an agent by themselves;
-- local tokens are permission-protected files, not yet OS keychain entries;
-- the bootstrap token is powerful and should be replaced by personal
-  invitations for routine collaboration;
+- device credentials are permission-protected files, not yet OS keychain entries;
+- the one-time setup code must be removed from the server environment after
+  the first owner account is created;
 - production deployment requires HTTPS, backups, monitoring, and appropriate
   secret management.
 
@@ -531,7 +540,7 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 
 | Command | Description |
 |---|---|
-| `pact login --server URL --token-stdin` | Authenticate this computer with a bootstrap or personal token |
+| `pact login --server URL` | Authorize this computer through the browser device flow |
 | `pact init [PATH]` | Create or recover a project and connect the owner checkout |
 | `pact connect [PATH]` | Connect another checkout to an existing Pact project |
 | `pact repository list` | Show the primary and additional project repositories and their verified revisions |
@@ -540,9 +549,9 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 | `pact enable codex` | Install the project-scoped Codex MCP configuration |
 | `pact enable claude` | Install the project-scoped Claude Code MCP configuration |
 | `pact invite create --email EMAIL` | Create a one-time project invitation |
-| `pact join --server URL --name NAME --invite-stdin` | Accept an invitation and store the new personal token |
+| `pact join --server URL --invite-stdin` | Open an invitation registration URL in the browser |
 | `pact whoami` | Show the current identity and server |
-| `pact logout --revoke` | Revoke the current token and delete it locally |
+| `pact logout` | Revoke the current device and delete its local credential |
 | `pact agent run --client TYPE -- COMMAND` | Run and observe an agent process |
 | `pact node run` | Continuously observe human, IDE, and external Git changes |
 | `pact mcp serve --client TYPE` | Start the local MCP adapter over stdio |
@@ -558,7 +567,7 @@ settings include:
 | Variable | Purpose |
 |---|---|
 | `PACT_DB_PASSWORD` | PostgreSQL password; use a URL-safe random value |
-| `PACT_LOCAL_API_TOKEN` | Initial bootstrap credential |
+| `PACT_SETUP_TOKEN` | One-time first-owner setup code; remove after setup |
 | `PACT_LOCAL_ORGANIZATION_ID` | UUID of the initial organization |
 | `PACT_HTTP_PORT` | Loopback port exposed by Docker Compose |
 | `PACT_DATABASE_TIMEOUT` | Database connection timeout |

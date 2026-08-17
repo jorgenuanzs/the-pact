@@ -10,42 +10,29 @@ type Principal struct {
 	DisplayName      string `json:"display_name"`
 	PrincipalType    string `json:"principal_type"`
 	OrganizationRole string `json:"organization_role"`
-	TokenID          string `json:"-"`
 	Bootstrap        bool   `json:"bootstrap"`
 }
 
 type CreateInvitationInput struct {
-	Email        string        `json:"email"`
-	Role         string        `json:"role"`
-	ExpiresAfter time.Duration `json:"-"`
+	Email            string        `json:"email"`
+	Role             string        `json:"role"`
+	OrganizationRole string        `json:"organization_role,omitempty"`
+	ExpiresAfter     time.Duration `json:"-"`
 }
 
 type Invitation struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	Status    string    `json:"status"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ID               string    `json:"id"`
+	ProjectID        string    `json:"project_id"`
+	Email            string    `json:"email"`
+	Role             string    `json:"role"`
+	OrganizationRole string    `json:"organization_role"`
+	Status           string    `json:"status"`
+	ExpiresAt        time.Time `json:"expires_at"`
 }
 
 type CreatedInvitation struct {
 	Invitation Invitation `json:"invitation"`
 	Secret     string     `json:"secret"`
-}
-
-type AcceptInvitationInput struct {
-	Secret      string `json:"secret"`
-	DisplayName string `json:"display_name"`
-	TokenName   string `json:"token_name"`
-}
-
-type AcceptedInvitation struct {
-	Principal   Principal `json:"principal"`
-	ProjectID   string    `json:"project_id"`
-	ProjectRole string    `json:"project_role"`
-	AccessToken string    `json:"access_token"`
-	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 // ProjectAccess is the effective access roster for a project. Organization

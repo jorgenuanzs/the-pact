@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pact API
-  version: 0.11.0
+  version: 0.12.0
   description: |
     API del primer recorrido vertical de Pact.
 
@@ -25,6 +25,8 @@ tags:
   - name: Handoffs
   - name: Context Packs
   - name: Access
+  - name: Authentication
+  - name: User Administration
 paths:
   /livez:
     get:
@@ -93,12 +95,9 @@ paths:
       summary: Abre el backoffice local de Pact
       description: |
         Entrega la interfaz HTML del backoffice. El documento no contiene datos
-        del proyecto ni credenciales: la interfaz solicita el token local y lo
-        utiliza para consultar las operaciones protegidas de la API.
-
-        Este perfil está diseñado para ejecutarse en la interfaz de loopback y
-        no debe exponerse a una red hasta incorporar el modelo de autenticación
-        y permisos para equipos.
+        del proyecto ni credenciales. El navegador inicia sesión con una cuenta
+        local y recibe una cookie HttpOnly de corta duración. Las mutaciones
+        requieren además el encabezado CSRF ligado a esa sesión.
       security: []
       responses:
         "200":
@@ -1794,24 +1793,384 @@ paths:
                 $ref: "#/components/schemas/PrincipalResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
-  /v1/me/tokens/current:
+  /v1/admin/users:
+    get:
+      tags: [User Administration]
+      operationId: listOrganizationUsers
+      summary: Lista usuarios, invitaciones pendientes y auditoría de acceso
+      description: Requiere una sesión web interactiva con rol owner o admin.
+      security:
+        - browserSession: []
+      responses:
+        "200":
+          description: Directorio administrativo de la organización.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAdminDirectoryResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/admin/users/{principal_id}:
+    parameters:
+      - $ref: "#/components/parameters/AdminPrincipalId"
+    get:
+      tags: [User Administration]
+      operationId: getOrganizationUser
+      summary: Obtiene una cuenta administrable
+      security:
+        - browserSession: []
+      responses:
+        "200":
+          description: Cuenta encontrada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationUserResponse" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [User Administration]
+      operationId: updateOrganizationUser
+      summary: Actualiza identidad, rol o estado de una cuenta
+      description: Desactivar una cuenta revoca también sus sesiones web, dispositivos y sesiones de agentes patrocinados.
+      security:
+        - browserSession: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateOrganizationUserRequest" }
+      responses:
+        "200":
+          description: Cuenta actualizada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationUserResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
     delete:
-      tags:
-        - Access
-      operationId: revokeCurrentAccessToken
-      summary: Revoca inmediatamente el token personal utilizado en la solicitud
-      description: La credencial bootstrap no puede revocarse mediante este endpoint.
+      tags: [User Administration]
+      operationId: disableOrganizationUser
+      summary: Desactiva una cuenta conservando su auditoría
+      security:
+        - browserSession: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Cuenta desactivada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationUserResponse" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/users/{principal_id}/sessions:
+    parameters:
+      - $ref: "#/components/parameters/AdminPrincipalId"
+    delete:
+      tags: [User Administration]
+      operationId: revokeOrganizationUserSessions
+      summary: Revoca sesiones, dispositivos y agentes patrocinados por una cuenta
+      security:
+        - browserSession: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Accesos revocados.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationUserResponse" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/admin/users/{principal_id}/projects/{project_id}:
+    parameters:
+      - $ref: "#/components/parameters/AdminPrincipalId"
+      - $ref: "#/components/parameters/ProjectId"
+    put:
+      tags: [User Administration]
+      operationId: setOrganizationUserProjectPermission
+      summary: Crea o reemplaza el permiso directo de un usuario en un proyecto
+      security:
+        - browserSession: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/ProjectRole" }
+      responses:
+        "200":
+          description: Permiso guardado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationUserResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [User Administration]
+      operationId: removeOrganizationUserProjectPermission
+      summary: Retira el permiso directo de un usuario en un proyecto
+      security:
+        - browserSession: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Permiso retirado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationUserResponse" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/admin/invitations:
+    post:
+      tags: [User Administration]
+      operationId: createOrganizationUserInvitation
+      summary: Crea una invitación de cuenta de un solo uso
+      description: El secreto se devuelve una sola vez. El proyecto inicial es opcional para miembros y no aplica a roles globales.
+      security:
+        - browserSession: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrganizationInvitationRequest" }
+      responses:
+        "201":
+          description: Invitación creada.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedOrganizationInvitationResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/invitations/{invitation_id}:
+    parameters:
+      - $ref: "#/components/parameters/InvitationId"
+    delete:
+      tags: [User Administration]
+      operationId: revokeOrganizationUserInvitation
+      summary: Revoca una invitación de cuenta pendiente
+      security:
+        - browserSession: []
+          csrfHeader: []
+      responses:
+        "204": { description: Invitación revocada. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/auth/setup:
+    get:
+      tags: [Authentication]
+      operationId: getAuthenticationSetupStatus
+      summary: Indica si falta crear la primera cuenta propietaria
+      security: []
+      responses:
+        "200":
+          description: Estado de configuración inicial.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    required: [required, configured]
+                    properties:
+                      required: { type: boolean }
+                      configured: { type: boolean }
+    post:
+      tags: [Authentication]
+      operationId: createFirstOwnerAccount
+      summary: Consume el código de configuración y crea la primera cuenta
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/AccountRegistrationRequest"
+                - type: object
+                  required: [setup_code]
+                  properties:
+                    setup_code: { type: string, writeOnly: true, minLength: 24 }
+      responses:
+        "201": { $ref: "#/components/responses/WebSessionCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: createWebSession
+      summary: Inicia una sesión web con usuario o correo y contraseña
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [login, password]
+              properties:
+                login: { type: string }
+                password: { type: string, writeOnly: true }
+      responses:
+        "200": { $ref: "#/components/responses/WebSessionCreated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/auth/session:
+    get:
+      tags: [Authentication]
+      operationId: getAuthenticationSession
+      summary: Devuelve la sesión o dispositivo autenticado
+      security:
+        - browserSession: []
+        - bearerAuth: []
+      responses:
+        "200": { description: Sesión autenticada. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [Authentication]
+      operationId: revokeWebSession
+      summary: Cierra la sesión del navegador actual
+      security:
+        - browserSession: []
+          csrfHeader: []
+      responses:
+        "204": { description: Sesión cerrada y cookies eliminadas. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/auth/password:
+    put:
+      tags: [Authentication]
+      operationId: changeLocalPassword
+      summary: Cambia la contraseña y revoca las demás sesiones y dispositivos
+      security:
+        - browserSession: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, writeOnly: true }
+                new_password: { type: string, writeOnly: true, minLength: 15, maxLength: 128 }
+      responses:
+        "204": { description: Contraseña actualizada. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/auth/devices:
+    post:
+      tags: [Authentication]
+      operationId: beginDeviceAuthorization
+      summary: Inicia la autorización de una CLI o herramienta
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_name]
+              properties:
+                device_name: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "201":
+          description: Código de dispositivo y URL de verificación.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceAuthorizationResponse"
+    get:
+      tags: [Authentication]
+      operationId: listAuthorizedDevices
+      summary: Lista dispositivos emitidos para la cuenta actual
+      security:
+        - browserSession: []
+        - bearerAuth: []
+      responses:
+        "200": { description: Lista de dispositivos. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/auth/devices/approve:
+    post:
+      tags: [Authentication]
+      operationId: approveDeviceAuthorization
+      summary: Autoriza explícitamente un código mostrado por una herramienta
+      security:
+        - browserSession: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_code]
+              properties:
+                user_code: { type: string, pattern: "^[A-Z2-7]{4}-[A-Z2-7]{4}$" }
+      responses:
+        "204": { description: Dispositivo aprobado. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /v1/auth/devices/exchange:
+    post:
+      tags: [Authentication]
+      operationId: exchangeDeviceAuthorization
+      summary: Consulta el estado y canjea una aprobación por una credencial
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_code]
+              properties:
+                device_code: { type: string, writeOnly: true, pattern: "^pact_device_code_" }
+      responses:
+        "200":
+          description: Estado pendiente o credencial de dispositivo emitida una sola vez.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceExchangeResponse"
+  /v1/auth/devices/{device_id}:
+    parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Authentication]
+      operationId: revokeAuthorizedDevice
+      summary: Revoca un dispositivo de la cuenta
+      security:
+        - browserSession: []
+          csrfHeader: []
+      responses:
+        "204": { description: Dispositivo revocado. }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/auth/device/current:
+    delete:
+      tags: [Authentication]
+      operationId: revokeCurrentDevice
+      summary: Revoca la credencial Bearer utilizada por la CLI actual
       security:
         - bearerAuth: []
       responses:
-        "204":
-          description: Token personal revocado.
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "204": { description: Dispositivo actual revocado. }
   /v1/projects/{project_id}/invitations:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1821,8 +2180,8 @@ paths:
       operationId: createProjectInvitation
       summary: Crea una invitación de proyecto de un solo uso
       description: |
-        Requiere owner o maintainer. Solo la credencial bootstrap puede emitir
-        una invitación owner para establecer el primer propietario humano.
+        Requiere owner o maintainer. Solo un owner o administrador de la
+        organización puede emitir una invitación con rol owner.
         El secreto se devuelve una sola vez y nunca se guarda en texto plano.
       security:
         - bearerAuth: []
@@ -1876,45 +2235,83 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-  /v1/invitation-acceptances:
+  /v1/auth/invitations/preview:
     post:
-      tags:
-        - Access
-      operationId: acceptProjectInvitation
-      summary: Canjea una invitación por una identidad y un token personal
-      description: No requiere autenticación previa. El secreto de invitación es de un solo uso.
+      tags: [Authentication]
+      operationId: previewAuthenticationInvitation
+      summary: Comprueba una invitación antes de registrar la cuenta
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AcceptInvitationRequest"
+              type: object
+              required: [secret]
+              properties:
+                secret: { type: string, writeOnly: true, pattern: "^pact_inv_" }
       responses:
-        "201":
-          description: Invitación aceptada y token personal emitido.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                const: no-store
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AcceptedInvitationResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
+        "200": { description: Correo, proyecto, rol y expiración de la invitación. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/auth/invitations/register:
+    post:
+      tags: [Authentication]
+      operationId: registerInvitedAccount
+      summary: Crea una cuenta local, acepta la invitación e inicia sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/AccountRegistrationRequest"
+                - type: object
+                  required: [secret]
+                  properties:
+                    secret: { type: string, writeOnly: true, pattern: "^pact_inv_" }
+      responses:
+        "201": { $ref: "#/components/responses/WebSessionCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/auth/invitations/accept:
+    post:
+      tags: [Authentication]
+      operationId: acceptInvitationForCurrentAccount
+      summary: Añade una invitación a una cuenta ya autenticada
+      security:
+        - browserSession: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secret]
+              properties:
+                secret: { type: string, writeOnly: true, pattern: "^pact_inv_" }
+      responses:
+        "200": { description: Invitación aceptada. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: opaque
-      description: Token personal opaco y revocable, o credencial bootstrap de recuperación.
+      description: Credencial opaca pact_device_*, limitada a un dispositivo y revocable.
+    browserSession:
+      type: apiKey
+      in: cookie
+      name: pact_session
+      description: Cookie opaca HttpOnly, Secure en HTTPS y SameSite=Strict.
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-Pact-CSRF
+      description: Secreto CSRF leído de la cookie pact_csrf y ligado a la sesión web.
   parameters:
     WorkspaceId:
       name: workspace_id
@@ -2022,6 +2419,14 @@ components:
       schema:
         type: string
         format: uuid
+    AdminPrincipalId:
+      name: principal_id
+      in: path
+      required: true
+      description: Identificador de la cuenta humana administrada.
+      schema:
+        type: string
+        format: uuid
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -2059,6 +2464,9 @@ components:
       schema:
         $ref: "#/components/schemas/EventCursor"
   schemas:
+    ProjectRole:
+      type: string
+      enum: [owner, maintainer, contributor, viewer]
     PrincipalResponse:
       type: object
       additionalProperties: false
@@ -2099,6 +2507,144 @@ components:
             - member
         bootstrap:
           type: boolean
+    UserAdminDirectoryResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/UserAdminDirectory"
+    UserAdminDirectory:
+      type: object
+      additionalProperties: false
+      required: [users, invitations, events, generated_at]
+      properties:
+        users:
+          type: array
+          items: { $ref: "#/components/schemas/OrganizationUser" }
+        invitations:
+          type: array
+          items: { $ref: "#/components/schemas/OrganizationInvitation" }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/UserAdminEvent" }
+        generated_at: { type: string, format: date-time }
+    OrganizationUserResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/OrganizationUser" }
+    OrganizationUser:
+      type: object
+      additionalProperties: false
+      required:
+        - principal_id
+        - display_name
+        - email
+        - username
+        - status
+        - organization_role
+        - project_roles
+        - active_sessions
+        - active_devices
+        - created_at
+        - updated_at
+      properties:
+        principal_id: { type: string, format: uuid }
+        display_name: { type: string, minLength: 1, maxLength: 200 }
+        email: { type: string, format: email, maxLength: 320 }
+        username: { type: string, pattern: "^[a-z0-9][a-z0-9._-]{2,31}$" }
+        status: { type: string, enum: [active, disabled] }
+        organization_role: { type: string, enum: [owner, admin, member] }
+        project_roles:
+          type: array
+          items: { $ref: "#/components/schemas/UserProjectPermission" }
+        active_sessions: { type: integer, format: int64, minimum: 0 }
+        active_devices: { type: integer, format: int64, minimum: 0 }
+        last_login_at:
+          type: [string, "null"]
+          format: date-time
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    UserProjectPermission:
+      type: object
+      additionalProperties: false
+      required: [project_id, project_name, project_slug, role]
+      properties:
+        project_id: { type: string, format: uuid }
+        project_name: { type: string }
+        project_slug: { type: string }
+        role: { $ref: "#/components/schemas/ProjectRole" }
+    UpdateOrganizationUserRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 200 }
+        email: { type: string, format: email, maxLength: 320 }
+        username: { type: string, pattern: "^[a-z0-9][a-z0-9._-]{2,31}$" }
+        status: { type: string, enum: [active, disabled] }
+        organization_role: { type: string, enum: [owner, admin, member] }
+    OrganizationInvitation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - email
+        - organization_role
+        - status
+        - expires_at
+        - created_at
+        - created_by_principal_id
+        - created_by_display_name
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        organization_role: { type: string, enum: [owner, admin, member] }
+        project_id: { type: string, format: uuid }
+        project_name: { type: string }
+        project_role: { $ref: "#/components/schemas/ProjectRole" }
+        status: { type: string, enum: [pending, accepted, revoked, expired] }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        created_by_principal_id: { type: string, format: uuid }
+        created_by_display_name: { type: string }
+    CreateOrganizationInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, organization_role]
+      properties:
+        email: { type: string, format: email, maxLength: 320 }
+        organization_role: { type: string, enum: [owner, admin, member] }
+        project_id: { type: string, format: uuid }
+        project_role: { $ref: "#/components/schemas/ProjectRole" }
+        expires_in_hours: { type: integer, minimum: 1, maximum: 168, default: 24 }
+    CreatedOrganizationInvitationResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [invitation, secret]
+          properties:
+            invitation: { $ref: "#/components/schemas/OrganizationInvitation" }
+            secret: { type: string, writeOnly: true, pattern: "^pact_inv_" }
+    UserAdminEvent:
+      type: object
+      additionalProperties: false
+      required: [id, action, actor_principal_id, actor_display_name, details, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string }
+        actor_principal_id: { type: string, format: uuid }
+        actor_display_name: { type: string }
+        target_principal_id: { type: string, format: uuid }
+        target_display_name: { type: string }
+        details: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
     CreateInvitationRequest:
       type: object
       additionalProperties: false
@@ -2179,58 +2725,79 @@ components:
               writeOnly: true
               pattern: "^pact_inv_[A-Za-z0-9_-]+$"
               description: Se muestra una sola vez y debe transferirse por un canal privado.
-    AcceptInvitationRequest:
+    AccountRegistrationRequest:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required:
-        - secret
         - display_name
-        - token_name
+        - email
+        - username
+        - password
       properties:
-        secret:
-          type: string
-          writeOnly: true
-          pattern: "^pact_inv_[A-Za-z0-9_-]+$"
         display_name:
           type: string
           minLength: 1
           maxLength: 200
-        token_name:
+        email:
           type: string
-          minLength: 1
-          maxLength: 200
-    AcceptedInvitationResponse:
+          format: email
+          maxLength: 320
+        username:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9._-]{2,31}$"
+        password:
+          type: string
+          writeOnly: true
+          minLength: 15
+          maxLength: 128
+    DeviceAuthorizationResponse:
       type: object
       additionalProperties: false
-      required:
-        - data
+      required: [data]
       properties:
         data:
           type: object
           additionalProperties: false
-          required:
-            - principal
-            - project_id
-            - project_role
-            - access_token
-            - expires_at
+          required: [device_code, user_code, verification_uri, expires_at, interval_seconds]
           properties:
-            principal:
-              $ref: "#/components/schemas/Principal"
-            project_id:
-              type: string
-              format: uuid
-            project_role:
-              type: string
-              enum:
-                - owner
-                - maintainer
-                - contributor
-                - viewer
-            access_token:
+            device_code:
               type: string
               writeOnly: true
-              pattern: "^pact_pat_[A-Za-z0-9_-]+$"
+              pattern: "^pact_device_code_"
+            user_code:
+              type: string
+              pattern: "^[A-Z2-7]{4}-[A-Z2-7]{4}$"
+            verification_uri:
+              type: string
+              format: uri-reference
+            expires_at:
+              type: string
+              format: date-time
+            interval_seconds:
+              type: integer
+              minimum: 1
+    DeviceExchangeResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [pending, authorized]
+            device_credential:
+              type: string
+              writeOnly: true
+              pattern: "^pact_device_"
+            credential_id:
+              type: string
+              format: uuid
+            principal:
+              $ref: "#/components/schemas/Principal"
             expires_at:
               type: string
               format: date-time
@@ -5252,6 +5819,17 @@ components:
         request_id:
           type: string
   responses:
+    WebSessionCreated:
+      description: Sesión web creada; las credenciales se entregan únicamente como cookies.
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+        Set-Cookie:
+          description: Cookies pact_session (HttpOnly) y pact_csrf.
+          schema:
+            type: string
     BadRequest:
       description: La solicitud no tiene una forma o un valor válido.
       content:
@@ -5259,7 +5837,7 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     Unauthorized:
-      description: Falta un Bearer token válido.
+      description: Falta una sesión web o credencial de dispositivo válida.
       headers:
         WWW-Authenticate:
           schema:

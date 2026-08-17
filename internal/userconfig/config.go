@@ -12,12 +12,13 @@ import (
 	"strings"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 type Config struct {
-	SchemaVersion int    `json:"schema_version"`
-	ServerURL     string `json:"server_url"`
-	APIToken      string `json:"api_token"`
+	SchemaVersion    int    `json:"schema_version"`
+	ServerURL        string `json:"server_url"`
+	DeviceCredential string `json:"device_credential"`
+	LegacyAPIToken   string `json:"api_token,omitempty"`
 }
 
 func Load() (Config, error) {
@@ -27,7 +28,7 @@ func Load() (Config, error) {
 	}
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, errors.New("not logged in; run pact login --server <url> --token-stdin")
+		return Config{}, errors.New("not logged in; run pact login --server <url>")
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("read Pact user configuration: %w", err)
@@ -42,6 +43,9 @@ func Load() (Config, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Config{}, errors.New("decode Pact user configuration: unexpected trailing data")
 	}
+	if config.SchemaVersion == 1 || config.LegacyAPIToken != "" {
+		return Config{}, errors.New("the stored token belongs to Pact's retired authentication model; run pact login --server <url> again")
+	}
 	if config.SchemaVersion != schemaVersion {
 		return Config{}, fmt.Errorf("unsupported Pact user configuration version %d", config.SchemaVersion)
 	}
@@ -49,8 +53,8 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if len(config.APIToken) < 24 {
-		return Config{}, errors.New("stored Pact API token is invalid")
+	if !strings.HasPrefix(config.DeviceCredential, "pact_device_") || len(config.DeviceCredential) < 40 {
+		return Config{}, errors.New("stored Pact device credential is invalid")
 	}
 	config.ServerURL = normalized
 	if err := os.Chmod(path, 0o600); err != nil {
@@ -59,14 +63,14 @@ func Load() (Config, error) {
 	return config, nil
 }
 
-func Save(serverURL, apiToken string) (string, error) {
+func Save(serverURL, deviceCredential string) (string, error) {
 	normalized, err := NormalizeServerURL(serverURL)
 	if err != nil {
 		return "", err
 	}
-	apiToken = strings.TrimSpace(apiToken)
-	if len(apiToken) < 24 {
-		return "", errors.New("Pact API token must contain at least 24 characters")
+	deviceCredential = strings.TrimSpace(deviceCredential)
+	if !strings.HasPrefix(deviceCredential, "pact_device_") || len(deviceCredential) < 40 {
+		return "", errors.New("Pact device credential is invalid")
 	}
 	path, err := configPath()
 	if err != nil {
@@ -80,9 +84,9 @@ func Save(serverURL, apiToken string) (string, error) {
 		return "", fmt.Errorf("secure Pact configuration directory: %w", err)
 	}
 	payload, err := json.MarshalIndent(Config{
-		SchemaVersion: schemaVersion,
-		ServerURL:     normalized,
-		APIToken:      apiToken,
+		SchemaVersion:    schemaVersion,
+		ServerURL:        normalized,
+		DeviceCredential: deviceCredential,
 	}, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("encode Pact user configuration: %w", err)

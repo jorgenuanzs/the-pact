@@ -1,6 +1,6 @@
 # ADR-0005 — Incorporación y conexión entre máquinas
 
-**Estado:** aceptado
+**Estado:** aceptado; autenticación reemplazada por ADR-0017
 **Fecha:** 13 de agosto de 2026
 
 ## Contexto
@@ -26,7 +26,7 @@ pact connect  conecta un checkout a un proyecto que ya debe existir
 ### Primer participante
 
 ```sh
-pact login --server https://pact.example.com --token-stdin
+pact login --server https://pact.example.com
 cd repository
 pact init
 ```
@@ -40,7 +40,7 @@ remoto únicamente en `.pact/config.json`.
 ```sh
 git clone git@github.com:example/repository.git
 cd repository
-pact login --server https://pact.example.com --token-stdin
+pact login --server https://pact.example.com
 pact connect
 ```
 
@@ -64,14 +64,11 @@ guarda en `.pact/config.json`, junto con la URL del servidor y sin credenciales.
 
 ## Autenticación
 
-El token configurado en el servidor es una credencial bootstrap de recuperación
-y se guarda fuera del repositorio. ADR-0006 incorporó invitaciones de un solo
-uso, identidades personales, roles por organización y proyecto, vencimiento y
-revocación. Un colaborador recibe su propio token y no comparte el bootstrap.
-
-OIDC, device flow y almacenamiento nativo en el llavero siguen siendo la
-evolución prevista para reemplazar la emisión local y proteger la credencial en
-reposo con servicios del sistema operativo.
+ADR-0017 reemplazó la autenticación provisional: `pact login` utiliza un flujo
+de autorización de dispositivos en el navegador y cada computador recibe su
+propia credencial revocable. Las contraseñas nunca pasan por el CLI. El
+almacenamiento nativo en el llavero sigue siendo la evolución prevista para
+proteger esa credencial en reposo con servicios del sistema operativo.
 
 ## Agentes
 
@@ -103,5 +100,5 @@ la identidad con la que ese computador inició sesión en Pact Server.
 - `.pact/` puede reconstruirse después de clonar o borrar el estado local.
 - conectar es seguro por defecto y no crea proyectos por un error tipográfico;
 - un cliente de IA puede publicar presencia sin entregar su conversación;
-- la colaboración entre personas utiliza identidades y tokens individuales;
+- la colaboración entre personas utiliza cuentas y credenciales revocables por dispositivo;
 - solo una sesión observadora con telemetría reciente demuestra modificaciones.

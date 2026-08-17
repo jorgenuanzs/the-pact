@@ -11,6 +11,7 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/config"
@@ -26,6 +27,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi"
+	"github.com/jorgenuanzs/the-pact/internal/useradmin"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -129,7 +131,15 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	eventReader := eventlog.NewPostgresReader(pool)
 	backofficeReader := backoffice.NewPostgresReader(pool)
 	accessRepository := access.NewPostgresRepository(pool)
-	accessService := access.NewService(cfg.LocalOrganization, cfg.LocalAPIToken, accessRepository)
+	accessService := access.NewService(cfg.LocalOrganization, accessRepository)
+	authenticationRepository := authn.NewPostgresRepository(pool)
+	authenticationService := authn.NewService(authn.Config{
+		OrganizationID: cfg.LocalOrganization,
+		SetupToken:     cfg.SetupToken,
+		PublicURL:      cfg.PublicURL,
+	}, authenticationRepository)
+	userAdminRepository := useradmin.NewPostgresRepository(pool)
+	userAdminService := useradmin.NewService(cfg.LocalOrganization, userAdminRepository)
 	requestContext, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
 	streamContext, cancelStreams := context.WithCancel(context.Background())
@@ -155,7 +165,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		CoordinationService:      coordinationService,
 		HandoffService:           coordinationService,
 		ContextPackService:       contextPackService,
+		AuthenticationService:    authenticationService,
 		AccessService:            accessService,
+		UserAdminService:         userAdminService,
 		BackofficeReader:         backofficeReader,
 		EventReader:              eventReader,
 		StreamShutdown:           streamContext.Done(),

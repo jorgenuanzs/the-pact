@@ -14,6 +14,7 @@ import (
 
 	"github.com/jorgenuanzs/the-pact/internal/access"
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
 	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
@@ -23,6 +24,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
+	"github.com/jorgenuanzs/the-pact/internal/useradmin"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
@@ -32,9 +34,11 @@ type fakeAccessService struct {
 	require       func(context.Context, access.Principal, string, string) error
 	visible       func(context.Context, access.Principal) (map[string]struct{}, error)
 	projectAccess func(context.Context, access.Principal, string) (access.ProjectAccess, error)
-	accept        func(context.Context, access.AcceptInvitationInput) (access.AcceptedInvitation, error)
+	register      func(context.Context, authn.InvitationRegistrationInput, authn.SessionMetadata) (authn.CreatedInvitationSession, error)
 	createInvite  func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
 	principal     *access.Principal
+	webSession    *authn.WebSession
+	csrfSecret    string
 }
 
 func (f fakeAccessService) Authenticate(_ context.Context, token string) (access.Principal, error) {
@@ -49,6 +53,60 @@ func (f fakeAccessService) Authenticate(_ context.Context, token string) (access
 		DisplayName: "Test administrator", PrincipalType: "human", OrganizationRole: "owner", Bootstrap: true,
 	}, nil
 }
+
+func (fakeAccessService) SetupStatus(context.Context) (authn.SetupStatus, error) {
+	return authn.SetupStatus{}, nil
+}
+func (fakeAccessService) Setup(context.Context, authn.SetupInput, authn.SessionMetadata) (authn.CreatedWebSession, error) {
+	return authn.CreatedWebSession{}, nil
+}
+func (fakeAccessService) Login(context.Context, authn.LoginInput, authn.SessionMetadata) (authn.CreatedWebSession, error) {
+	return authn.CreatedWebSession{}, nil
+}
+func (f fakeAccessService) AuthenticateWeb(_ context.Context, secret string) (authn.WebSession, error) {
+	if f.webSession != nil && secret == "pact_web_test_secret" {
+		return *f.webSession, nil
+	}
+	return authn.WebSession{}, authn.ErrUnauthorized
+}
+func (f fakeAccessService) AuthenticateDevice(ctx context.Context, credential string) (authn.DevicePrincipal, error) {
+	principal, err := f.Authenticate(ctx, credential)
+	return authn.DevicePrincipal{CredentialID: "test-device", Principal: principal}, err
+}
+func (f fakeAccessService) ValidateCSRF(_ authn.WebSession, secret string) bool {
+	return f.csrfSecret == "" || secret == f.csrfSecret
+}
+func (fakeAccessService) LogoutWeb(context.Context, authn.WebSession) error { return nil }
+func (fakeAccessService) ChangePassword(context.Context, authn.WebSession, authn.ChangePasswordInput) error {
+	return nil
+}
+func (fakeAccessService) PreviewInvitation(context.Context, string) (authn.InvitationPreview, error) {
+	return authn.InvitationPreview{}, nil
+}
+
+func (f fakeAccessService) RegisterInvitation(ctx context.Context, input authn.InvitationRegistrationInput, metadata authn.SessionMetadata) (authn.CreatedInvitationSession, error) {
+	if f.register != nil {
+		return f.register(ctx, input, metadata)
+	}
+	return authn.CreatedInvitationSession{}, nil
+}
+func (fakeAccessService) AcceptInvitation(context.Context, access.Principal, string) (authn.InvitationAcceptance, error) {
+	return authn.InvitationAcceptance{}, nil
+}
+func (fakeAccessService) BeginDevice(context.Context, authn.BeginDeviceInput) (authn.DeviceAuthorization, error) {
+	return authn.DeviceAuthorization{}, nil
+}
+func (fakeAccessService) ApproveDevice(context.Context, access.Principal, string) error { return nil }
+func (fakeAccessService) ExchangeDevice(context.Context, string) (authn.DeviceExchange, error) {
+	return authn.DeviceExchange{}, nil
+}
+func (fakeAccessService) RevokeCurrentDevice(context.Context, authn.DevicePrincipal) error {
+	return nil
+}
+func (fakeAccessService) ListDevices(context.Context, access.Principal) ([]authn.Device, error) {
+	return []authn.Device{}, nil
+}
+func (fakeAccessService) RevokeDevice(context.Context, access.Principal, string) error { return nil }
 
 func (f fakeAccessService) RequireProjectRole(ctx context.Context, principal access.Principal, projectID, role string) error {
 	if f.require != nil {
@@ -80,17 +138,9 @@ func (f fakeAccessService) CreateInvitation(ctx context.Context, principal acces
 	return access.CreatedInvitation{}, nil
 }
 
-func (f fakeAccessService) AcceptInvitation(ctx context.Context, input access.AcceptInvitationInput) (access.AcceptedInvitation, error) {
-	if f.accept != nil {
-		return f.accept(ctx, input)
-	}
-	return access.AcceptedInvitation{}, nil
-}
-
 func (fakeAccessService) RevokeInvitation(context.Context, access.Principal, string) error {
 	return nil
 }
-func (fakeAccessService) RevokeCurrentToken(context.Context, access.Principal) error { return nil }
 func (fakeAccessService) GrantProjectOwner(context.Context, access.Principal, string) error {
 	return nil
 }
@@ -99,6 +149,43 @@ type fakeProjectService struct {
 	create func(context.Context, string, projects.CreateInput) (projects.CreateResult, error)
 	get    func(context.Context, string) (projects.Project, error)
 	list   func(context.Context) ([]projects.Project, error)
+}
+
+type fakeUserAdminService struct {
+	directory func(context.Context, access.Principal) (useradmin.Directory, error)
+	update    func(context.Context, access.Principal, string, useradmin.UpdateUserInput) (useradmin.User, error)
+}
+
+func (f fakeUserAdminService) Directory(ctx context.Context, principal access.Principal) (useradmin.Directory, error) {
+	return f.directory(ctx, principal)
+}
+
+func (fakeUserAdminService) GetUser(context.Context, access.Principal, string) (useradmin.User, error) {
+	return useradmin.User{}, nil
+}
+
+func (f fakeUserAdminService) UpdateUser(ctx context.Context, principal access.Principal, principalID string, input useradmin.UpdateUserInput) (useradmin.User, error) {
+	return f.update(ctx, principal, principalID, input)
+}
+
+func (fakeUserAdminService) SetProjectPermission(context.Context, access.Principal, string, string, string) (useradmin.User, error) {
+	return useradmin.User{}, nil
+}
+
+func (fakeUserAdminService) RemoveProjectPermission(context.Context, access.Principal, string, string) (useradmin.User, error) {
+	return useradmin.User{}, nil
+}
+
+func (fakeUserAdminService) RevokeUserSessions(context.Context, access.Principal, string) (useradmin.User, error) {
+	return useradmin.User{}, nil
+}
+
+func (fakeUserAdminService) CreateInvitation(context.Context, access.Principal, useradmin.CreateInvitationInput) (useradmin.CreatedInvitation, error) {
+	return useradmin.CreatedInvitation{}, nil
+}
+
+func (fakeUserAdminService) RevokeInvitation(context.Context, access.Principal, string) error {
+	return nil
 }
 
 type fakeRepositorySyncService struct {
@@ -881,17 +968,22 @@ func TestListProjectsFiltersInaccessibleProjects(t *testing.T) {
 	}
 }
 
-func TestAcceptInvitationDoesNotRequireAuthenticationAndDisablesCaching(t *testing.T) {
+func TestInvitationRegistrationCreatesBrowserSessionWithoutReturningADeviceCredential(t *testing.T) {
 	handler := testHandlerWithAccess(t, fakeProjectService{}, fakeAccessService{
-		accept: func(_ context.Context, input access.AcceptInvitationInput) (access.AcceptedInvitation, error) {
-			if input.Secret != "pact_inv_test" || input.DisplayName != "Ada" {
+		register: func(_ context.Context, input authn.InvitationRegistrationInput, _ authn.SessionMetadata) (authn.CreatedInvitationSession, error) {
+			if input.Secret != "pact_inv_test" || input.DisplayName != "Ada" || input.Username != "ada" {
 				t.Fatalf("input = %#v", input)
 			}
-			return access.AcceptedInvitation{AccessToken: "pact_pat_secret"}, nil
+			return authn.CreatedInvitationSession{
+				Acceptance:    authn.InvitationAcceptance{ProjectID: "project", ProjectRole: "contributor"},
+				Session:       authn.WebSession{ExpiresAt: time.Now().Add(time.Hour)},
+				SessionSecret: "pact_web_secret", CSRFSecret: "pact_csrf_secret",
+			}, nil
 		},
 	})
-	request := httptest.NewRequest(http.MethodPost, "/v1/invitation-acceptances", bytes.NewBufferString(`{
-		"secret":"pact_inv_test","display_name":"Ada","token_name":"Laptop"
+	request := httptest.NewRequest(http.MethodPost, "/v1/auth/invitations/register", bytes.NewBufferString(`{
+		"secret":"pact_inv_test","display_name":"Ada","email":"ada@example.com",
+		"username":"ada","password":"a sufficiently long password"
 	}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -901,9 +993,164 @@ func TestAcceptInvitationDoesNotRequireAuthenticationAndDisablesCaching(t *testi
 	if response.Code != http.StatusCreated || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status = %d, Cache-Control = %q, body = %s", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "pact_pat_secret") {
+	if strings.Contains(response.Body.String(), "pact_web_secret") || strings.Contains(response.Body.String(), "pact_device_") {
 		t.Fatalf("body = %s", response.Body.String())
 	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 2 || cookies[0].Name != authn.WebSessionCookie || !cookies[0].HttpOnly {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+}
+
+func TestBrowserSessionRequiresMatchingCSRFForMutation(t *testing.T) {
+	principal := access.Principal{
+		ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d", OrganizationID: "00000000-0000-4000-8000-000000000001",
+		DisplayName: "Ada", PrincipalType: "human", OrganizationRole: "owner",
+	}
+	authentication := fakeAccessService{
+		principal: &principal,
+		webSession: &authn.WebSession{
+			ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e2e", Principal: principal, ExpiresAt: time.Now().Add(time.Hour),
+		},
+		csrfSecret: "pact_csrf_test_secret",
+	}
+	handler := New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: principal.OrganizationID,
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AuthenticationService: authentication, AccessService: authentication,
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) {
+			return backoffice.Overview{}, nil
+		}},
+		EventReader: fakeEventReader{},
+	})
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/v1/auth/session", nil)
+	getRequest.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"kind":"web"`) {
+		t.Fatalf("GET session status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+
+	missingRequest := httptest.NewRequest(http.MethodPost, "/v1/auth/devices/approve", bytes.NewBufferString(`{"user_code":"ABCD-EFGH"}`))
+	missingRequest.Header.Set("Content-Type", "application/json")
+	missingRequest.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+	missingRequest.AddCookie(&http.Cookie{Name: authn.CSRFCookie, Value: "pact_csrf_test_secret"})
+	missingResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingResponse, missingRequest)
+	if missingResponse.Code != http.StatusForbidden || !strings.Contains(missingResponse.Body.String(), `"code":"csrf_invalid"`) {
+		t.Fatalf("missing CSRF status=%d body=%s", missingResponse.Code, missingResponse.Body.String())
+	}
+
+	validRequest := httptest.NewRequest(http.MethodPost, "/v1/auth/devices/approve", bytes.NewBufferString(`{"user_code":"ABCD-EFGH"}`))
+	validRequest.Header.Set("Content-Type", "application/json")
+	validRequest.Header.Set("X-Pact-CSRF", "pact_csrf_test_secret")
+	validRequest.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+	validRequest.AddCookie(&http.Cookie{Name: authn.CSRFCookie, Value: "pact_csrf_test_secret"})
+	validResponse := httptest.NewRecorder()
+	handler.ServeHTTP(validResponse, validRequest)
+	if validResponse.Code != http.StatusNoContent {
+		t.Fatalf("valid CSRF status=%d body=%s", validResponse.Code, validResponse.Body.String())
+	}
+}
+
+func TestUserAdministrationRequiresInteractiveWebSession(t *testing.T) {
+	principal := access.Principal{
+		ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d", OrganizationID: "00000000-0000-4000-8000-000000000001",
+		DisplayName: "Ada", PrincipalType: "human", OrganizationRole: "owner",
+	}
+	called := false
+	administration := fakeUserAdminService{
+		directory: func(_ context.Context, actor access.Principal) (useradmin.Directory, error) {
+			called = true
+			if actor.ID != principal.ID {
+				t.Fatalf("actor = %#v", actor)
+			}
+			return useradmin.Directory{Users: []useradmin.User{{PrincipalID: principal.ID, Email: "ada@example.com"}}}, nil
+		},
+	}
+	handler := userAdminTestHandler(principal, administration, "")
+
+	deviceRequest := authenticatedRequest(http.MethodGet, "/v1/admin/users", "")
+	deviceResponse := httptest.NewRecorder()
+	handler.ServeHTTP(deviceResponse, deviceRequest)
+	if deviceResponse.Code != http.StatusForbidden || !strings.Contains(deviceResponse.Body.String(), `"code":"web_session_required"`) {
+		t.Fatalf("device status=%d body=%s", deviceResponse.Code, deviceResponse.Body.String())
+	}
+	if called {
+		t.Fatal("directory was called for a device credential")
+	}
+
+	webRequest := httptest.NewRequest(http.MethodGet, "/v1/admin/users", nil)
+	webRequest.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+	webResponse := httptest.NewRecorder()
+	handler.ServeHTTP(webResponse, webRequest)
+	if webResponse.Code != http.StatusOK || !called || !strings.Contains(webResponse.Body.String(), "ada@example.com") {
+		t.Fatalf("web status=%d called=%v body=%s", webResponse.Code, called, webResponse.Body.String())
+	}
+}
+
+func TestUserAdministrationMutationRequiresCSRF(t *testing.T) {
+	principal := access.Principal{
+		ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d", OrganizationID: "00000000-0000-4000-8000-000000000001",
+		DisplayName: "Ada", PrincipalType: "human", OrganizationRole: "owner",
+	}
+	const targetID = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+	called := false
+	administration := fakeUserAdminService{
+		directory: func(context.Context, access.Principal) (useradmin.Directory, error) {
+			return useradmin.Directory{}, nil
+		},
+		update: func(_ context.Context, actor access.Principal, receivedTarget string, input useradmin.UpdateUserInput) (useradmin.User, error) {
+			called = true
+			if actor.ID != principal.ID || receivedTarget != targetID || input.Status == nil || *input.Status != "disabled" {
+				t.Fatalf("actor=%#v target=%q input=%#v", actor, receivedTarget, input)
+			}
+			return useradmin.User{PrincipalID: targetID, Status: "disabled"}, nil
+		},
+	}
+	handler := userAdminTestHandler(principal, administration, "pact_csrf_test_secret")
+	path := "/v1/admin/users/" + targetID
+
+	missingRequest := httptest.NewRequest(http.MethodPatch, path, bytes.NewBufferString(`{"status":"disabled"}`))
+	missingRequest.Header.Set("Content-Type", "application/json")
+	missingRequest.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+	missingResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingResponse, missingRequest)
+	if missingResponse.Code != http.StatusForbidden || called {
+		t.Fatalf("missing CSRF status=%d called=%v body=%s", missingResponse.Code, called, missingResponse.Body.String())
+	}
+
+	validRequest := httptest.NewRequest(http.MethodPatch, path, bytes.NewBufferString(`{"status":"disabled"}`))
+	validRequest.Header.Set("Content-Type", "application/json")
+	validRequest.Header.Set("X-Pact-CSRF", "pact_csrf_test_secret")
+	validRequest.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+	validRequest.AddCookie(&http.Cookie{Name: authn.CSRFCookie, Value: "pact_csrf_test_secret"})
+	validResponse := httptest.NewRecorder()
+	handler.ServeHTTP(validResponse, validRequest)
+	if validResponse.Code != http.StatusOK || !called || !strings.Contains(validResponse.Body.String(), `"status":"disabled"`) {
+		t.Fatalf("valid status=%d called=%v body=%s", validResponse.Code, called, validResponse.Body.String())
+	}
+}
+
+func userAdminTestHandler(principal access.Principal, administration UserAdminService, csrfSecret string) http.Handler {
+	authentication := fakeAccessService{
+		principal: &principal,
+		webSession: &authn.WebSession{
+			ID: "018f784a-68c1-7b0f-8f2a-cfc255f99e3f", Principal: principal, ExpiresAt: time.Now().Add(time.Hour),
+		},
+		csrfSecret: csrfSecret,
+	}
+	return New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: principal.OrganizationID,
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{}, AuthenticationService: authentication, AccessService: authentication,
+		UserAdminService: administration,
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) {
+			return backoffice.Overview{}, nil
+		}},
+		EventReader: fakeEventReader{},
+	})
 }
 
 func TestProjectAccessReturnsMembersAndOwnedAgents(t *testing.T) {

@@ -30,7 +30,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	const (
 		projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
 		sessionID = "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
-		secret    = "mcp-test-super-secret-token"
+		secret    = "pact_device_mcp-test-super-secret-device-credential"
 	)
 	now := time.Now().UTC().Truncate(time.Second)
 	remote := "https://username:embedded-secret@example.com/acme/project.git?token=hidden"
@@ -97,7 +97,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	}
 	principal := access.Principal{
 		ID: "principal-1", OrganizationID: "organization-1", DisplayName: "Jorge",
-		PrincipalType: "human", OrganizationRole: "owner", TokenID: "private-token-id",
+		PrincipalType: "human", OrganizationRole: "owner",
 	}
 	var observationReceived atomic.Bool
 
@@ -227,7 +227,7 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 			t.Errorf("project context does not contain %q: %s", expected, contextJSON)
 		}
 	}
-	for _, forbidden := range []string{secret, "embedded-secret", "must-not-leak", privatePath, root, privateFilename, "private content", "private-token-id"} {
+	for _, forbidden := range []string{secret, "embedded-secret", "must-not-leak", privatePath, root, privateFilename, "private content"} {
 		if strings.Contains(contextJSON, forbidden) {
 			t.Errorf("project context leaked %q: %s", forbidden, contextJSON)
 		}
