@@ -3,6 +3,7 @@ package userconfig
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,7 +28,7 @@ func TestSaveAndLoadDeviceCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
-	if permissions := info.Mode().Perm(); permissions != 0o600 {
+	if permissions := info.Mode().Perm(); runtime.GOOS != "windows" && permissions != 0o600 {
 		t.Fatalf("config permissions = %o", permissions)
 	}
 }
