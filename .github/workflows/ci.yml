@@ -54,6 +54,9 @@ jobs:
         run: |
           bash -n scripts/deploy-production.sh scripts/publish-desktop.sh scripts/publish-desktop_test.sh
           bash scripts/publish-desktop_test.sh
+          temporary_key="$(mktemp)"
+          trap 'rm -f "${temporary_key}"' EXIT
+          PACT_DEPLOY_HOST=test.invalid PACT_SSH_KEY="${temporary_key}" PACT_DEPLOY_DRY_RUN=true ./deploy/oci-shared/deploy.sh
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
         shell: pwsh

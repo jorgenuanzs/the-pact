@@ -6,6 +6,7 @@ project_dir="$(cd "${script_dir}/../.." && pwd)"
 deploy_host="${PACT_DEPLOY_HOST:-}"
 ssh_key="${PACT_SSH_KEY:-}"
 ssh_known_hosts="${PACT_SSH_KNOWN_HOSTS:-}"
+deploy_dry_run="${PACT_DEPLOY_DRY_RUN:-false}"
 temporary_dir="$(mktemp -d)"
 
 cleanup() {
@@ -46,9 +47,11 @@ if [[ -n "${ssh_known_hosts}" ]]; then
 fi
 
 source_archive="${temporary_dir}/source.tar.gz"
-COPYFILE_DISABLE=1 tar \
-  --no-xattrs \
-  --no-mac-metadata \
+tar_platform_options=()
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  tar_platform_options+=(--no-xattrs --no-mac-metadata)
+fi
+COPYFILE_DISABLE=1 tar "${tar_platform_options[@]}" \
   --exclude='./.git' \
   --exclude='./.DS_Store' \
   --exclude='*/.DS_Store' \
@@ -96,6 +99,11 @@ EOF
 cp "${script_dir}/docker-compose.prod.yml" "${temporary_dir}/docker-compose.prod.yml"
 cp "${script_dir}/activate-release.sh" "${temporary_dir}/activate-release.sh"
 chmod 700 "${temporary_dir}/activate-release.sh"
+
+if [[ "${deploy_dry_run}" == "true" ]]; then
+  echo "Prepared PACT release ${release_id}; dry run stopped before remote access."
+  exit 0
+fi
 
 remote_dir="/tmp/the-pact-${release_id}"
 ssh "${ssh_options[@]}" "${deploy_host}" "mkdir -m 700 '${remote_dir}'"
