@@ -77,6 +77,7 @@ desktop-dev:
 	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" "$(WAILS)" dev
 
 desktop-test:
+	@$(NPM) run build:desktop
 	@node web/scripts/build-desktop-helper.mjs
 	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" go test ./...
 	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" go vet ./...

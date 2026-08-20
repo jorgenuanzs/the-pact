@@ -68,14 +68,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: choco install nsis --yes --no-progress
-      - name: Test native layer
-        working-directory: desktop
-        run: |
-          node ../web/scripts/build-desktop-helper.mjs
-          go test ./...
       - name: Install frontend dependencies
         working-directory: web
         run: npm ci
+      - name: Test native layer
+        working-directory: desktop
+        run: |
+          npm --prefix ../web run build:desktop
+          node ../web/scripts/build-desktop-helper.mjs
+          go test ./...
       - name: Test desktop frontend
         working-directory: web
         run: npm test -- --run src/features/desktop/DesktopGate.test.tsx src/features/desktop/LocalComputerPage.test.tsx src/api/client.test.ts
