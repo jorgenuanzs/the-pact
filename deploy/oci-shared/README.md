@@ -25,16 +25,32 @@ VM address are managed outside this repository.
 
 ## Deploy
 
-The deployment deliberately packages the working tree, because early PACT work
-may not yet be committed. It never includes `.git`, `.env`, `.pact`, Terraform
-state, or local build output.
+The normal production path is asynchronous. From a clean, synchronized `main`
+branch, dispatch the protected GitHub Actions workflow and return immediately:
+
+```sh
+./scripts/deploy-production.sh
+# or: make deploy-production
+```
+
+The workflow accepts only `main`, serializes production deployments, builds an
+immutable release on GitHub, activates it through the existing rollback-safe
+server script, and verifies `https://pact.nuanzs.com/readyz`. GitHub repository
+secrets provide `PACT_PRODUCTION_HOST`, `PACT_PRODUCTION_SSH_KEY`, and the pinned
+`PACT_PRODUCTION_KNOWN_HOSTS`; no production credential enters the repository.
+
+The direct deployment command remains available as a break-glass path. It
+deliberately packages the working tree, but never includes `.git`, `.env`,
+`.pact`, Terraform state, secrets, or local build output.
 
 ```sh
 ./deploy/oci-shared/deploy.sh
 ```
 
-Set `PACT_DEPLOY_HOST` and `PACT_SSH_KEY` explicitly before deploying. No
-production host or private-key path is stored in this repository.
+Set `PACT_DEPLOY_HOST` and `PACT_SSH_KEY` explicitly before deploying. Set
+`PACT_SSH_KNOWN_HOSTS` as well when the deployment must use a dedicated pinned
+host-key file, as GitHub Actions does. No production host or private-key path is
+stored in this repository.
 New runtime settings are added to an existing `runtime.env` with safe defaults;
 configured values and secrets are never replaced.
 The server keeps the two newest PACT images and ten newest source releases. It

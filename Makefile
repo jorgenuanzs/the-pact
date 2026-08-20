@@ -19,7 +19,7 @@ WAILS_VERSION ?= v3.0.0-beta.11
 WAILS ?= $(shell go env GOPATH 2>/dev/null)/bin/wails3
 DESKTOP_GO_CACHE ?= /tmp/pact-desktop-go-cache
 
-.PHONY: init cli dev ui-install ui-dev ui-build ui-test desktop-install desktop-dev desktop-test desktop-build down logs ps migrate test-ui test-release-classifier test test-race test-integration build verify doctor
+.PHONY: init cli dev ui-install ui-dev ui-build ui-test desktop-install desktop-dev desktop-test desktop-build deploy-production publish-patch publish-minor publish-major down logs ps migrate test-ui test-release-classifier test test-race test-integration build verify doctor
 .PHONY: docker-builder docker-audit docker-clean-stale docker-clean
 .PHONY: _compose-config
 
@@ -83,6 +83,18 @@ desktop-test:
 desktop-build:
 	@test -x "$(WAILS)" || { echo "Wails is missing. Run make desktop-install."; exit 1; }
 	@cd desktop && PACT_VERSION="$(VERSION)" PACT_COMMIT="$(COMMIT)" GOARCH="$(HOST_ARCH)" GOCACHE="$(DESKTOP_GO_CACHE)" "$(WAILS)" package INSTALL_SCOPE=user
+
+deploy-production:
+	@./scripts/deploy-production.sh
+
+publish-patch:
+	@./scripts/publish-desktop.sh patch
+
+publish-minor:
+	@./scripts/publish-desktop.sh minor
+
+publish-major:
+	@./scripts/publish-desktop.sh major
 
 down:
 	@PACT_DB_PASSWORD=not-used $(COMPOSE) down

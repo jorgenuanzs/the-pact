@@ -5,6 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$(cd "${script_dir}/../.." && pwd)"
 deploy_host="${PACT_DEPLOY_HOST:-}"
 ssh_key="${PACT_SSH_KEY:-}"
+ssh_known_hosts="${PACT_SSH_KNOWN_HOSTS:-}"
 temporary_dir="$(mktemp -d)"
 
 cleanup() {
@@ -31,6 +32,18 @@ done
   echo "SSH key not found: ${ssh_key}" >&2
   exit 1
 }
+
+ssh_options=(-i "${ssh_key}")
+if [[ -n "${ssh_known_hosts}" ]]; then
+  [[ -f "${ssh_known_hosts}" ]] || {
+    echo "SSH known-hosts file not found: ${ssh_known_hosts}" >&2
+    exit 1
+  }
+  ssh_options+=(
+    -o "UserKnownHostsFile=${ssh_known_hosts}"
+    -o StrictHostKeyChecking=yes
+  )
+fi
 
 source_archive="${temporary_dir}/source.tar.gz"
 COPYFILE_DISABLE=1 tar \
@@ -85,13 +98,13 @@ cp "${script_dir}/activate-release.sh" "${temporary_dir}/activate-release.sh"
 chmod 700 "${temporary_dir}/activate-release.sh"
 
 remote_dir="/tmp/the-pact-${release_id}"
-ssh -i "${ssh_key}" "${deploy_host}" "mkdir -m 700 '${remote_dir}'"
-scp -i "${ssh_key}" \
+ssh "${ssh_options[@]}" "${deploy_host}" "mkdir -m 700 '${remote_dir}'"
+scp "${ssh_options[@]}" \
   "${source_archive}" \
   "${temporary_dir}/deployment.env" \
   "${temporary_dir}/docker-compose.prod.yml" \
   "${temporary_dir}/activate-release.sh" \
   "${deploy_host}:${remote_dir}/"
-ssh -i "${ssh_key}" "${deploy_host}" "sudo bash '${remote_dir}/activate-release.sh' '${remote_dir}'"
+ssh "${ssh_options[@]}" "${deploy_host}" "sudo bash '${remote_dir}/activate-release.sh' '${remote_dir}'"
 
 echo "Deployed PACT release ${release_id} to ${deploy_host}."
