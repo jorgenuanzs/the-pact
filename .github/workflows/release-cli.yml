@@ -48,6 +48,8 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/install.sh
+          bash -n scripts/deploy-production.sh scripts/publish-desktop.sh scripts/publish-desktop_test.sh
+          bash scripts/publish-desktop_test.sh
           bash -n scripts/generate-winget-manifests.sh
           node scripts/set-desktop-version.mjs "${GITHUB_REF_NAME}"
           docker compose --env-file deploy/self-host/.env.example --file deploy/self-host/compose.yaml config --quiet

@@ -48,6 +48,12 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: bash deploy/oci-shared/classify-release_test.sh
+      - name: Validate operator automation
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash -n scripts/deploy-production.sh scripts/publish-desktop.sh scripts/publish-desktop_test.sh
+          bash scripts/publish-desktop_test.sh
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
         shell: pwsh

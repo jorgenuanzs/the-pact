@@ -693,6 +693,8 @@ Common commands:
 | `make ui-install` | Install the locked React toolchain locally |
 | `make ui-dev` | Start Vite with API proxying and hot reload |
 | `make ui-build` | Build the React application for Go embedding |
+| `make deploy-production` | Queue a deployment of synchronized `main` in GitHub Actions |
+| `make publish-patch` | Publish the next patch release asynchronously |
 | `make ps` | Show Pact containers |
 | `make logs` | Follow server and database logs |
 | `make test-ui` | Run the fast Admin UI validation profile |
@@ -728,6 +730,14 @@ go test -race ./...
 CI runs the complete suite on Windows, macOS, and Linux and cross-compiles both
 Windows architectures. A release is smoke-tested by installing its published
 artifact on clean runners before the workflow succeeds.
+
+Production operations do not require keeping a local build or this terminal
+open. `./scripts/deploy-production.sh` dispatches the protected production
+workflow. `./scripts/publish-desktop.sh patch` creates the next stable tag and
+the existing release workflow builds and publishes Desktop, CLI, and PACT
+Server in GitHub Actions. Both commands reject dirty, detached, or unsynchronized
+working trees. Use `minor`, `major`, or an explicit `vX.Y.Z` when a patch bump is
+not appropriate.
 
 For a detailed setup and API walkthrough, see
 [docs/development.md](docs/development.md). Architecture decisions live under
