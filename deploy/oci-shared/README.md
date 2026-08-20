@@ -35,9 +35,11 @@ branch, dispatch the protected GitHub Actions workflow and return immediately:
 
 The workflow accepts only `main`, serializes production deployments, builds an
 immutable release on GitHub, activates it through the existing rollback-safe
-server script, and verifies `https://pact.nuanzs.com/readyz`. GitHub repository
-secrets provide `PACT_PRODUCTION_HOST`, `PACT_PRODUCTION_SSH_KEY`, and the pinned
-`PACT_PRODUCTION_KNOWN_HOSTS`; no production credential enters the repository.
+server script, and verifies `https://pact.nuanzs.com/readyz`. A dedicated
+self-hosted runner on the PACT VM receives this job over outbound HTTPS and
+deploys locally. GitHub stores no SSH credential and the VM does not expose SSH
+to GitHub-hosted runner ranges. The runner carries the additional
+`pact-production` label so normal CI jobs cannot select it accidentally.
 
 The direct deployment command remains available as a break-glass path. It
 deliberately packages the working tree, but never includes `.git`, `.env`,
@@ -49,8 +51,9 @@ deliberately packages the working tree, but never includes `.git`, `.env`,
 
 Set `PACT_DEPLOY_HOST` and `PACT_SSH_KEY` explicitly before deploying. Set
 `PACT_SSH_KNOWN_HOSTS` as well when the deployment must use a dedicated pinned
-host-key file, as GitHub Actions does. No production host or private-key path is
-stored in this repository.
+host-key file. `PACT_DEPLOY_LOCAL=true` is reserved for the production runner
+already operating on the target VM. No production host or private-key path is
+stored in this repository or in GitHub Actions.
 New runtime settings are added to an existing `runtime.env` with safe defaults;
 configured values and secrets are never replaced.
 The server keeps the two newest PACT images and ten newest source releases. It
