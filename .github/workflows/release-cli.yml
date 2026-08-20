@@ -156,7 +156,7 @@ jobs:
         run: |
           node scripts/set-desktop-version.mjs "${GITHUB_REF_NAME}"
           (cd desktop/build && wails3 update build-assets -name PACT -binaryname PACT -config config.yml -dir .)
-      - name: Require trusted signing for stable Desktop releases
+      - name: Report native Desktop signing status
         shell: bash
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -168,17 +168,23 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
-            exit 0
-          fi
           if [[ "${RUNNER_OS}" == "macOS" ]]; then
             required=(MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID)
           else
             required=(WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD)
           fi
+          configured=0
           for name in "${required[@]}"; do
-            [[ -n "${!name:-}" ]] || { echo "Stable Desktop release requires secret ${name}" >&2; exit 1; }
+            [[ -n "${!name:-}" ]] && configured=$((configured + 1))
           done
+          if [[ "${configured}" -eq 0 ]]; then
+            echo "::warning::${RUNNER_OS} Desktop artifacts will be published without native publisher signing. Update archives still require Ed25519 verification."
+          elif [[ "${configured}" -ne "${#required[@]}" ]]; then
+            echo "Incomplete ${RUNNER_OS} signing configuration" >&2
+            exit 1
+          else
+            echo "${RUNNER_OS} native publisher signing is configured."
+          fi
       - name: Build macOS application
         if: runner.os == 'macOS'
         working-directory: desktop
@@ -357,6 +363,7 @@ jobs:
           PACT_COMMIT: ${{ github.sha }}
           PACT_DESKTOP_CHANNEL: ${{ (secrets.MACOS_CERTIFICATE != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' && secrets.PACT_UPDATER_PRIVATE_KEY != '') && 'signed' || 'preview' }}
         run: |
+          printf '%s\n' "${PACT_DESKTOP_CHANNEL}" > "dist/desktop-channel-${PACT_DESKTOP_CHANNEL}.txt"
           cp scripts/install.sh dist/install-pact.sh
           cp scripts/install-windows.ps1 dist/install-pact.ps1
           mkdir -p dist/self-host
