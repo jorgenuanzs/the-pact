@@ -1,0 +1,38 @@
+version: '3'
+
+vars:
+  APP_NAME: PACT
+  BIN_DIR: build/bin
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  GOOS: '{{.GOOS | default OS}}'
+  TARGET_ARCH: '{{.GOARCH | default ARCH}}'
+  DESKTOP_VERSION: '{{.PACT_VERSION | default "dev" | trimPrefix "v"}}'
+  DESKTOP_COMMIT: '{{.PACT_COMMIT | default "unknown"}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+
+tasks:
+  build:
+    cmds:
+      - task: '{{.GOOS}}:build'
+        vars:
+          ARCH: '{{.TARGET_ARCH}}'
+          DEV: '{{.DEV}}'
+
+  package:
+    cmds:
+      - task: '{{.GOOS}}:package'
+        vars:
+          ARCH: '{{.TARGET_ARCH}}'
+          INSTALL_SCOPE: '{{.INSTALL_SCOPE}}'
+
+  run:
+    cmds:
+      - task: '{{.GOOS}}:run'
+
+  dev:
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}

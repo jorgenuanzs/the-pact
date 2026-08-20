@@ -19,6 +19,7 @@ import {
 import {
   desktopBridge,
   type ConnectLocalAgentResult,
+  type DesktopUpdateStatus,
   type LocalClientStatus,
   type LocalComputerStatus,
   type LocalFolderInspection,
@@ -79,6 +80,7 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [status, setStatus] = useState<LocalComputerStatus | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -93,11 +95,13 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
     setLoading(true);
     setError("");
     try {
-      const [nextStatus] = await Promise.all([
+      const [nextStatus, nextUpdateStatus] = await Promise.all([
         bridge.LocalComputerStatus(),
+        bridge.UpdateStatus(),
         directory.refreshDirectory(),
       ]);
       setStatus(normalizeLocalStatus(nextStatus));
+      setUpdateStatus(nextUpdateStatus);
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
@@ -152,7 +156,7 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
         ) : null}
         {status && view === "agents" ? <LocalAgents status={status} onConnect={openConnector} /> : null}
         {status && view === "folders" ? <LocalFolders status={status} onConnect={openConnector} /> : null}
-        {status && view === "service" ? <LocalService status={status} onRefresh={refresh} /> : null}
+        {status && view === "service" ? <LocalService status={status} updateStatus={updateStatus} onRefresh={refresh} /> : null}
       </div>
       <ConnectAgentDialog
         open={dialogOpen}
@@ -314,12 +318,34 @@ function LocalFolders({ status, onConnect }: { status: LocalComputerStatus; onCo
   );
 }
 
-function LocalService({ status, onRefresh }: { status: LocalComputerStatus; onRefresh: () => Promise<void> }) {
+function LocalService({
+  status,
+  updateStatus,
+  onRefresh,
+}: {
+  status: LocalComputerStatus;
+  updateStatus: DesktopUpdateStatus | null;
+  onRefresh: () => Promise<void>;
+}) {
   const bridge = desktopBridge();
   const { toast } = useToast();
   const [busy, setBusy] = useState("");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [setupCode, setSetupCode] = useState("");
   const server = status.managed_server;
+
+  const checkForUpdates = async () => {
+    if (!bridge) return;
+    setCheckingUpdate(true);
+    try {
+      await bridge.CheckForUpdates();
+    } catch (nextError) {
+      toast({ title: "No se pudo comprobar la actualización", description: errorMessage(nextError), tone: "danger" });
+    } finally {
+      setCheckingUpdate(false);
+      await onRefresh();
+    }
+  };
 
   const operate = async (operation: "install" | "start" | "stop" | "backup" | "upgrade") => {
     if (!bridge) return;
@@ -363,6 +389,23 @@ function LocalService({ status, onRefresh }: { status: LocalComputerStatus; onRe
         </dl>
         {status.runtime_path ? <div className="local-runtime-path"><span>EJECUTABLE</span><code>{status.runtime_path}</code></div> : null}
         {status.runtime_error ? <div className="local-inline-alert" role="alert">{status.runtime_error}</div> : null}
+      </section>
+      <section className="local-section local-primary-section local-update-section">
+        <header>
+          <div><span>PACT DESKTOP</span><h2>Actualizaciones de la aplicación</h2></div>
+          <StatusChip tone={updateStatus?.configured ? "active" : "warning"}>{updateStatus?.configured ? "Firmadas" : "Desarrollo"}</StatusChip>
+        </header>
+        <dl className="local-runtime-facts">
+          <div><dt>Versión</dt><dd><code>{updateStatus?.current_version || "—"}</code></dd></div>
+          <div><dt>Compilación</dt><dd><code>{updateStatus?.commit || "—"}</code></dd></div>
+          <div><dt>Estado</dt><dd>{updateStatus?.state || "—"}</dd></div>
+          <div><dt>Canal</dt><dd>Estable</dd></div>
+        </dl>
+        {updateStatus?.error && updateStatus.current_version !== "dev" ? <div className="local-inline-alert" role="alert">{updateStatus.error}</div> : null}
+        <div className="local-server-actions">
+          <Button variant="secondary" loading={checkingUpdate} disabled={!updateStatus?.configured} onClick={() => void checkForUpdates()}>Buscar actualizaciones</Button>
+          <small>PACT verifica la descarga con checksum y firma Ed25519 antes de reemplazar la aplicación.</small>
+        </div>
       </section>
       <section className="local-section local-primary-section local-server-section">
         <header>

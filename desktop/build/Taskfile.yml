@@ -1,0 +1,49 @@
+version: '3'
+
+tasks:
+  go:mod:tidy:
+    internal: true
+    run: once
+    cmds:
+      - go mod tidy
+
+  generate:bindings:
+    internal: true
+    run: once
+    deps:
+      - task: go:mod:tidy
+    cmds:
+      - wails3 generate bindings -d ../web/src/generated/desktop-bindings -clean=true -ts -i
+
+  generate:icons:
+    internal: true
+    run: once
+    dir: build
+    sources:
+      - appicon.png
+    generates:
+      - darwin/icons.icns
+      - windows/icon.ico
+    cmds:
+      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+
+  build:frontend:
+    internal: true
+    run: once
+    deps:
+      - task: generate:bindings
+    cmds:
+      - node ../web/scripts/build-desktop-helper.mjs
+      - npm --prefix ../web run build:desktop
+
+  dev:frontend:
+    deps:
+      - task: generate:bindings
+    cmds:
+      - node ../web/scripts/build-desktop-helper.mjs
+      - npm --prefix ../web run dev:desktop -- --port {{.VITE_PORT}} --strictPort
+
+  update:build-assets:
+    dir: build
+    cmds:
+      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .

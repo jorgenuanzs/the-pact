@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.15.1"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.15.1",
+			"CompanyName": "Nuanzs",
+			"FileDescription": "Live coordination and shared context for people and AI agents.",
+			"LegalCopyright": "Copyright © 2026 Nuanzs",
+			"ProductName": "PACT",
+			"Comments": "PACT Desktop"
+		}
+	}
+}

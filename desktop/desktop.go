@@ -14,13 +14,14 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type Desktop struct {
-	mu      sync.Mutex
-	ctx     context.Context
-	streams map[string]context.CancelFunc
+	mu          sync.Mutex
+	app         *application.App
+	streams     map[string]context.CancelFunc
+	updateError string
 }
 
 type DesktopStatus struct {
@@ -52,14 +53,20 @@ func NewDesktop() *Desktop {
 	return &Desktop{streams: make(map[string]context.CancelFunc)}
 }
 
-func (d *Desktop) Startup(ctx context.Context) {
+func (d *Desktop) attachApplication(app *application.App) {
 	d.mu.Lock()
-	d.ctx = ctx
+	d.app = app
 	d.mu.Unlock()
+	if err := d.configureUpdater(); err != nil {
+		d.mu.Lock()
+		d.updateError = err.Error()
+		d.mu.Unlock()
+	}
 }
 
-func (d *Desktop) Shutdown(context.Context) {
+func (d *Desktop) ServiceShutdown() error {
 	d.stopAllStreams()
+	return nil
 }
 
 func (d *Desktop) Status() DesktopStatus {
@@ -107,8 +114,8 @@ func (d *Desktop) BeginDeviceLogin(serverURL string) (DeviceLogin, error) {
 	if err != nil {
 		return DeviceLogin{}, err
 	}
-	if appContext := d.appContext(); appContext != nil {
-		runtime.BrowserOpenURL(appContext, verificationURL)
+	if app := d.application(); app != nil {
+		_ = app.Browser.OpenURL(verificationURL)
 	}
 	interval := authorization.IntervalSeconds
 	if interval < 1 {
@@ -163,12 +170,11 @@ func (d *Desktop) OpenExternalURL(address string) error {
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
 		return errors.New("external URL must be an absolute safe HTTP or HTTPS URL")
 	}
-	ctx := d.appContext()
-	if ctx == nil {
+	app := d.application()
+	if app == nil {
 		return errors.New("desktop window is not ready")
 	}
-	runtime.BrowserOpenURL(ctx, parsed.String())
-	return nil
+	return app.Browser.OpenURL(parsed.String())
 }
 
 func (d *Desktop) Disconnect(localOnly bool) error {
@@ -189,10 +195,10 @@ func (d *Desktop) Disconnect(localOnly bool) error {
 	return userconfig.Delete()
 }
 
-func (d *Desktop) appContext() context.Context {
+func (d *Desktop) application() *application.App {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.ctx
+	return d.app
 }
 
 func desktopDeviceName() string {

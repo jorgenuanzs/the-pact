@@ -63,7 +63,7 @@ jobs:
             desktop/go.sum
       - name: Install Wails
         shell: bash
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
@@ -85,14 +85,18 @@ jobs:
       - name: Build macOS application
         if: runner.os == 'macOS'
         working-directory: desktop
-        run: wails build -clean -ldflags="-extldflags '-framework UniformTypeIdentifiers'"
+        env:
+          GOARCH: arm64
+        run: wails3 package GOOS=darwin
       - name: Archive macOS application
         if: runner.os == 'macOS'
         run: ditto -c -k --sequesterRsrc --keepParent desktop/build/bin/PACT.app desktop/build/bin/PACT-macOS-arm64.zip
       - name: Build Windows installer
         if: runner.os == 'Windows'
         working-directory: desktop
-        run: wails build -clean -nsis -installscope user
+        env:
+          GOARCH: amd64
+        run: wails3 package GOOS=windows INSTALL_SCOPE=user
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}

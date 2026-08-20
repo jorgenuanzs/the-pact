@@ -62,6 +62,7 @@ The current implementation includes:
 - isolated Git worktrees provisioned for coordinated tasks;
 - a live web backoffice for projects, active work, and recent events;
 - a native Wails desktop client for securely connecting macOS and Windows to a remote Pact Server;
+- signed in-app Desktop updates with checksum and pinned Ed25519 verification;
 - native CLI releases for Windows, macOS, and Linux on `amd64` and `arm64`;
 - Docker Compose development and production deployment examples.
 
@@ -192,7 +193,9 @@ make desktop-build
 ```
 
 The macOS output is `desktop/build/bin/PACT.app`. The dedicated Desktop CI
-workflow also creates a Windows NSIS installer. See
+workflow also creates a Windows NSIS installer. Stable distribution additionally
+requires Apple Developer ID notarization and Windows Authenticode; update
+archives carry a separate Ed25519 signature verified inside PACT. See
 [`desktop/README.md`](desktop/README.md) for architecture, development, and
 distribution notes. The same application can connect to an existing team
 server or manage a local PACT Server and PostgreSQL installation. Docker

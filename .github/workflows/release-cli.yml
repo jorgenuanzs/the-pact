@@ -141,7 +141,7 @@ jobs:
             desktop/go.sum
       - name: Install Wails
         shell: bash
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
@@ -153,14 +153,41 @@ jobs:
         run: npm ci
       - name: Apply product version
         shell: bash
-        run: node scripts/set-desktop-version.mjs "${GITHUB_REF_NAME}"
+        run: |
+          node scripts/set-desktop-version.mjs "${GITHUB_REF_NAME}"
+          (cd desktop/build && wails3 update build-assets -name PACT -binaryname PACT -config config.yml -dir .)
+      - name: Require trusted signing for stable Desktop releases
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            exit 0
+          fi
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            required=(MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID)
+          else
+            required=(WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD)
+          fi
+          for name in "${required[@]}"; do
+            [[ -n "${!name:-}" ]] || { echo "Stable Desktop release requires secret ${name}" >&2; exit 1; }
+          done
       - name: Build macOS application
         if: runner.os == 'macOS'
         working-directory: desktop
-        env:
-          PACT_VERSION: ${{ github.ref_name }}
-          PACT_COMMIT: ${{ github.sha }}
-        run: wails build -clean -platform darwin/arm64 -ldflags="-extldflags '-framework UniformTypeIdentifiers'"
+        shell: bash
+        run: |
+          export PACT_VERSION="${GITHUB_REF_NAME#v}"
+          export PACT_COMMIT="${GITHUB_SHA}"
+          export GOARCH=arm64
+          wails3 package GOOS=darwin
       - name: Sign, notarize, and archive macOS application
         if: runner.os == 'macOS'
         shell: bash
@@ -190,26 +217,25 @@ jobs:
             security list-keychains -d user -s "${KEYCHAIN}" login.keychain-db
             codesign --force --deep --options runtime --timestamp --sign "${MACOS_SIGNING_IDENTITY}" "${APP}"
             codesign --verify --deep --strict --verbose=2 "${APP}"
-            if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
-              ditto -c -k --sequesterRsrc --keepParent "${APP}" "${RUNNER_TEMP}/PACT-notarize.zip"
-              xcrun notarytool submit "${RUNNER_TEMP}/PACT-notarize.zip" --apple-id "${APPLE_ID}" --password "${APPLE_APP_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait
-              xcrun stapler staple "${APP}"
-              xcrun stapler validate "${APP}"
-            else
-              echo "Apple notarization secrets are absent; publishing a signed but non-notarized preview."
-            fi
+            [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]] || { echo "Apple notarization secrets are incomplete" >&2; exit 1; }
+            ditto -c -k --sequesterRsrc --keepParent "${APP}" "${RUNNER_TEMP}/PACT-notarize.zip"
+            xcrun notarytool submit "${RUNNER_TEMP}/PACT-notarize.zip" --apple-id "${APPLE_ID}" --password "${APPLE_APP_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait
+            xcrun stapler staple "${APP}"
+            xcrun stapler validate "${APP}"
           else
             echo "Apple signing secrets are absent; publishing an unsigned Desktop preview."
           fi
           ditto -c -k --sequesterRsrc --keepParent "${APP}" desktop/build/bin/PACT-macOS-arm64.zip
+          ditto -c -k --sequesterRsrc --keepParent "${APP}" desktop/build/bin/PACT-darwin-arm64.zip
       - name: Build Windows installer
         if: runner.os == 'Windows'
         working-directory: desktop
         shell: pwsh
-        env:
-          PACT_VERSION: ${{ github.ref_name }}
-          PACT_COMMIT: ${{ github.sha }}
-        run: wails build -clean -platform windows/amd64 -nsis -installscope user
+        run: |
+          $env:PACT_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
+          $env:PACT_COMMIT = $env:GITHUB_SHA
+          $env:GOARCH = "amd64"
+          wails3 package GOOS=windows INSTALL_SCOPE=user
       - name: Sign and normalize Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -229,7 +255,7 @@ jobs:
               Select-Object -First 1
             if (-not $signtool) { throw "signtool.exe was not found" }
             & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $certificate /p $env:WINDOWS_CERTIFICATE_PASSWORD $binary
-            Push-Location "desktop/build/windows/installer"
+            Push-Location "desktop/build/windows/nsis"
             try {
               & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DARG_WAILS_AMD64_BINARY=..\..\bin\PACT.exe" "/DWAILS_INSTALL_SCOPE=user" "/DREQUEST_EXECUTION_LEVEL=user" project.nsi
             } finally {
@@ -248,12 +274,15 @@ jobs:
           if ($installer.FullName -ne (Join-Path (Get-Location) $destination)) {
             Copy-Item $installer.FullName $destination -Force
           }
+          Compress-Archive -Path $binary -DestinationPath "desktop/build/bin/PACT-windows-amd64.zip" -Force
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: |
             desktop/build/bin/PACT-macOS-arm64.zip
+            desktop/build/bin/PACT-darwin-arm64.zip
             desktop/build/bin/PACT-Windows-amd64-installer.exe
+            desktop/build/bin/PACT-windows-amd64.zip
           if-no-files-found: error
 
   publish-server:
@@ -300,6 +329,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: actions/download-artifact@v8
         with:
           pattern: pact-cli-*
@@ -310,11 +343,19 @@ jobs:
           pattern: PACT-*
           path: dist
           merge-multiple: true
+      - name: Sign native update artifacts
+        env:
+          PACT_UPDATER_PRIVATE_KEY: ${{ secrets.PACT_UPDATER_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "${PACT_UPDATER_PRIVATE_KEY:-}" ]] || { echo "PACT_UPDATER_PRIVATE_KEY is required for every Desktop release" >&2; exit 1; }
+          go run ./cmd/pact-sign-update -file dist/PACT-darwin-arm64.zip
+          go run ./cmd/pact-sign-update -file dist/PACT-windows-amd64.zip
       - name: Assemble release bundle
         env:
           PACT_VERSION: ${{ github.ref_name }}
           PACT_COMMIT: ${{ github.sha }}
-          PACT_DESKTOP_CHANNEL: ${{ (secrets.MACOS_CERTIFICATE != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.WINDOWS_CERTIFICATE != '') && 'signed' || 'preview' }}
+          PACT_DESKTOP_CHANNEL: ${{ (secrets.MACOS_CERTIFICATE != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' && secrets.PACT_UPDATER_PRIVATE_KEY != '') && 'signed' || 'preview' }}
         run: |
           cp scripts/install.sh dist/install-pact.sh
           cp scripts/install-windows.ps1 dist/install-pact.ps1

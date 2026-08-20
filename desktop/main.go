@@ -5,9 +5,7 @@ import (
 	"io/fs"
 	"log"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // desktopAssets are produced from the same React application used by Pact
@@ -23,6 +21,10 @@ var desktopAssets embed.FS
 //go:embed all:localhelper
 var localHelperAssets embed.FS
 
+func init() {
+	application.RegisterEvent[DesktopStreamMessage](desktopStreamEvent)
+}
+
 func main() {
 	assets, err := fs.Sub(desktopAssets, "frontend/dist")
 	if err != nil {
@@ -30,20 +32,34 @@ func main() {
 	}
 
 	desktop := NewDesktop()
-	err = wails.Run(&options.App{
-		Title:                    "PACT",
-		Width:                    1440,
-		Height:                   900,
-		MinWidth:                 980,
-		MinHeight:                680,
-		WindowStartState:         options.Maximised,
-		BackgroundColour:         &options.RGBA{R: 246, G: 247, B: 244, A: 255},
-		EnableDefaultContextMenu: false,
-		AssetServer:              &assetserver.Options{Assets: assets},
-		OnStartup:                desktop.Startup,
-		OnShutdown:               desktop.Shutdown,
-		Bind:                     []interface{}{desktop},
+	app := application.New(application.Options{
+		Name:        "PACT",
+		Description: "Live coordination and shared context for people and AI agents.",
+		Services: []application.Service{
+			application.NewService(desktop),
+		},
+		Assets: application.AssetOptions{
+			Handler:        application.AssetFileServerFS(assets),
+			DisableLogging: true,
+		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
 	})
+	desktop.attachApplication(app)
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:                       "main",
+		Title:                      "PACT",
+		Width:                      1440,
+		Height:                     900,
+		MinWidth:                   980,
+		MinHeight:                  680,
+		StartState:                 application.WindowStateMaximised,
+		BackgroundColour:           application.NewRGB(246, 247, 244),
+		DefaultContextMenuDisabled: true,
+		URL:                        "/",
+	})
+	err = app.Run()
 	if err != nil {
 		log.Fatal(err)
 	}
