@@ -100,7 +100,13 @@ func TestConnectLocalAgentWritesProjectScopedCodexConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated Codex configuration: %v", err)
 	}
-	if !strings.Contains(string(content), result.RuntimePath) || !strings.Contains(string(content), `"mcp"`) {
+	expectedRuntimePath := result.RuntimePath
+	if filepath.Separator == '\\' {
+		// TOML string literals escape Windows path separators. Compare against
+		// the serialized value instead of the filesystem representation.
+		expectedRuntimePath = strings.ReplaceAll(expectedRuntimePath, `\`, `\\`)
+	}
+	if !strings.Contains(string(content), expectedRuntimePath) || !strings.Contains(string(content), `"mcp"`) {
 		t.Fatalf("generated configuration does not reference PACT runtime: %s", content)
 	}
 
