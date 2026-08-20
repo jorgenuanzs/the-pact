@@ -8,10 +8,15 @@ import type { Workspace } from "@/api/types";
 import { ToastProvider } from "@/components/ui";
 import { useAuth } from "@/features/auth";
 import { useControlDirectory } from "@/features/workspaces/queries";
+import { desktopBridge, isDesktopRuntime, type DesktopBridge } from "@/platform/desktop";
 
 import { ControlShell } from "./ControlShell";
 
 vi.mock("@/features/auth", () => ({ useAuth: vi.fn() }));
+vi.mock("@/platform/desktop", () => ({
+  desktopBridge: vi.fn(() => null),
+  isDesktopRuntime: vi.fn(() => false),
+}));
 vi.mock("@/realtime/useWorkspaceDirectoryEvents", () => ({ useWorkspaceDirectoryEvents: vi.fn() }));
 vi.mock("@/features/workspaces/queries", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/workspaces/queries")>();
@@ -28,6 +33,8 @@ const workspace: Workspace = {
 
 const mockedUseAuth = vi.mocked(useAuth);
 const mockedUseControlDirectory = vi.mocked(useControlDirectory);
+const mockedDesktopBridge = vi.mocked(desktopBridge);
+const mockedIsDesktopRuntime = vi.mocked(isDesktopRuntime);
 
 function renderShell(path: string, workspaces: Workspace[]) {
   const queryClient = new QueryClient({
@@ -64,6 +71,8 @@ function renderShell(path: string, workspaces: Workspace[]) {
 }
 
 beforeEach(() => {
+  mockedDesktopBridge.mockReturnValue(null);
+  mockedIsDesktopRuntime.mockReturnValue(false);
   mockedUseAuth.mockReturnValue({
     principal: { id: "owner-1", display_name: "Jorge", organization_role: "owner" },
     logout: vi.fn(async () => undefined),
@@ -104,5 +113,26 @@ describe("ControlShell", () => {
     expect(navigation).not.toHaveAttribute("data-mobile-open");
     expect(trigger).toHaveFocus();
     expect(document.body).not.toHaveClass("pact-scroll-lock");
+  });
+
+  it("abre la administración sensible del servidor en el navegador desde Desktop", async () => {
+    const user = userEvent.setup();
+    const openExternalURL = vi.fn(async () => undefined);
+    mockedIsDesktopRuntime.mockReturnValue(true);
+    mockedDesktopBridge.mockReturnValue({
+      Status: vi.fn(async () => ({
+        configured: true,
+        connected: true,
+        server_url: "https://pact.example.com",
+        default_url: "",
+      })),
+      OpenExternalURL: openExternalURL,
+    } as unknown as DesktopBridge);
+    renderShell("/", []);
+
+    await user.click(screen.getByRole("button", { name: "Abrir menú de Jorge" }));
+    await user.click(screen.getByRole("menuitem", { name: /Acceso y seguridad/ }));
+
+    expect(openExternalURL).toHaveBeenCalledWith("https://pact.example.com/admin/organization/access");
   });
 });
