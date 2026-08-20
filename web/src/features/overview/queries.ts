@@ -185,19 +185,12 @@ export function mergeWorkspaceAccess(overviews: ProjectAccess[]): ProjectAccess 
   };
 }
 
-export function useWorkspaceAccess(projectIDs: string[]) {
-  const uniqueIDs = [...new Set(projectIDs.filter(Boolean))];
-  const queries = useQueries({
-    queries: uniqueIDs.map((projectID) => ({
-      queryKey: queryKeys.access(projectID),
-      queryFn: () => requestData<ProjectAccess>(`/v1/projects/${encodeURIComponent(projectID)}/access`),
-      refetchInterval: 5_000,
-    })),
+export function useWorkspaceAccess(workspaceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.workspaceAccess(workspaceID || "none"),
+    queryFn: () => requestData<ProjectAccess>(`/v1/workspaces/${encodeURIComponent(workspaceID!)}/access`),
+    enabled: Boolean(workspaceID),
+    refetchInterval: 5_000,
+    select: (access) => mergeWorkspaceAccess([access]),
   });
-  const access = queries.flatMap((query) => query.data ? [query.data] : []);
-  return {
-    data: mergeWorkspaceAccess(access),
-    isPending: uniqueIDs.length > 0 && queries.some((query) => query.isPending),
-    error: queries.find((query) => query.error)?.error,
-  };
 }

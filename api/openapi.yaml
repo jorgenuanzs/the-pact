@@ -1180,6 +1180,38 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/access:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags:
+        - Access
+        - Workspaces
+      operationId: getWorkspaceAccess
+      summary: Lista el acceso efectivo y los agentes conocidos de un workspace
+      description: |
+        Funciona aunque el workspace todavía no tenga repositorios. Incluye a
+        propietarios y administradores de la organización, membresías directas
+        del workspace y acceso heredado desde cualquiera de sus repositorios.
+        Los agentes solo aparecen cuando tienen historial de sesión dentro del
+        workspace; `connected` representa una sesión activa y reciente.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Usuarios con acceso y agentes asociados al workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceAccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/projects/{project_id}/access:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -5385,6 +5417,73 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/ProjectAccess"
+    WorkspaceAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/WorkspaceAccess"
+    WorkspaceAccess:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, members, agents, generated_at]
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceMember"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectAgent"
+        generated_at:
+          type: string
+          format: date-time
+    WorkspaceMember:
+      type: object
+      additionalProperties: false
+      required:
+        - principal_id
+        - display_name
+        - principal_type
+        - status
+        - organization_role
+        - effective_role
+        - access_source
+        - bootstrap
+      properties:
+        principal_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        principal_type:
+          type: string
+          enum: [human, service]
+        status:
+          type: string
+          enum: [active, disabled]
+        organization_role:
+          type: string
+          enum: [owner, admin, member]
+        workspace_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        project_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        effective_role:
+          type: string
+          enum: [owner, maintainer, contributor, viewer]
+        access_source:
+          type: string
+          enum: [organization, workspace, project]
+        bootstrap:
+          type: boolean
     ProjectAccess:
       type: object
       additionalProperties: false

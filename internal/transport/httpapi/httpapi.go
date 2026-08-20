@@ -123,9 +123,11 @@ type ContextPackService interface {
 
 type AccessService interface {
 	RequireProjectRole(context.Context, access.Principal, string, string) error
+	RequireWorkspaceRole(context.Context, access.Principal, string, string) error
 	VisibleProjectIDs(context.Context, access.Principal) (map[string]struct{}, error)
 	CanCreateProject(access.Principal) bool
 	GetProjectAccess(context.Context, access.Principal, string) (access.ProjectAccess, error)
+	GetWorkspaceAccess(context.Context, access.Principal, string) (access.WorkspaceAccess, error)
 	CreateInvitation(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
 	RevokeInvitation(context.Context, access.Principal, string) error
 	GrantProjectOwner(context.Context, access.Principal, string) error
@@ -304,6 +306,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/workspaces/events/stream", api.requireAuth(http.HandlerFunc(api.handleWorkspaceDirectoryStream)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleGetWorkspace)))
 	mux.Handle("PATCH /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleUpdateWorkspace)))
+	mux.Handle("GET /v1/workspaces/{workspaceID}/access", api.requireAuth(http.HandlerFunc(api.handleWorkspaceAccess)))
 	mux.Handle("PUT /v1/workspaces/{workspaceID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspaceProject)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListResources))))
 	mux.Handle("POST /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleCreateResource))))
@@ -365,6 +368,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/workspaces", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch))
+	mux.Handle("/v1/workspaces/{workspaceID}/access", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut))
 	mux.Handle("/v1/admin/users", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/admin/users/{principalID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete))
@@ -1408,6 +1412,17 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleProjectAccess(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	roster, err := a.access.GetProjectAccess(r.Context(), principal, r.PathValue("projectID"))
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": roster})
+}
+
+func (a *API) handleWorkspaceAccess(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	roster, err := a.access.GetWorkspaceAccess(r.Context(), principal, r.PathValue("workspaceID"))
 	if err != nil {
 		a.writeDomainError(w, r, err)
 		return

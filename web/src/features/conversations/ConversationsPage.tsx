@@ -23,7 +23,7 @@ export function ConversationsPage() {
   const [search, setSearch] = useSearchParams();
   const rooms = useRooms(workspace?.id);
   const participants = useParticipants(workspace?.id);
-  const access = useWorkspaceAccess(workspaceProjects.map((item) => item.id));
+  const access = useWorkspaceAccess(workspace?.id);
   const [createOpen, setCreateOpen] = useState(false);
   const [reply, setReply] = useState<RoomMessage | null>(null);
   const selectedRoom = rooms.data?.find((room) => room.id === search.get("room")) || rooms.data?.find((room) => room.managed_default) || rooms.data?.[0];
@@ -53,7 +53,7 @@ export function ConversationsPage() {
   }, [messages.data, search]);
 
   if (!workspace) return <ErrorState title="Workspace no encontrado" />;
-  if (rooms.isPending || (workspaceProjects.length > 0 && access.isPending)) return <LoadingState label="Cargando conversaciones" />;
+  if (rooms.isPending || access.isPending) return <LoadingState label="Cargando conversaciones" />;
 
   const send = async (body: string, mentionActorIDs: string[]) => {
     try {

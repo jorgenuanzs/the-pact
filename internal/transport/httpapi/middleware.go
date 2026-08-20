@@ -97,31 +97,15 @@ func (a *API) requireProjectRole(minimum string, next http.Handler) http.Handler
 func (a *API) requireWorkspaceRole(minimum string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		principal, ok := principalFromContext(r.Context())
-		if !ok || a.access == nil || a.workspaces == nil {
+		if !ok || a.access == nil {
 			a.writeDomainError(w, r, access.ErrUnauthorized)
 			return
 		}
-		workspace, err := a.workspaces.Get(r.Context(), r.PathValue("workspaceID"))
-		if err != nil {
+		if err := a.access.RequireWorkspaceRole(r.Context(), principal, r.PathValue("workspaceID"), minimum); err != nil {
 			a.writeDomainError(w, r, err)
 			return
 		}
-		if a.access.CanCreateProject(principal) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		for _, project := range workspace.Projects {
-			err = a.access.RequireProjectRole(r.Context(), principal, project.ID, minimum)
-			if err == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if err != access.ErrForbidden && err != access.ErrNotFound {
-				a.writeDomainError(w, r, err)
-				return
-			}
-		}
-		a.writeDomainError(w, r, access.ErrForbidden)
+		next.ServeHTTP(w, r)
 	})
 }
 
