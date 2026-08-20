@@ -160,7 +160,6 @@ jobs:
         env:
           PACT_VERSION: ${{ github.ref_name }}
           PACT_COMMIT: ${{ github.sha }}
-          PACT_BUILD_DATE: ${{ github.event.repository.updated_at }}
         run: wails build -clean -platform darwin/arm64 -ldflags="-extldflags '-framework UniformTypeIdentifiers'"
       - name: Sign, notarize, and archive macOS application
         if: runner.os == 'macOS'
@@ -210,7 +209,6 @@ jobs:
         env:
           PACT_VERSION: ${{ github.ref_name }}
           PACT_COMMIT: ${{ github.sha }}
-          PACT_BUILD_DATE: ${{ github.event.repository.updated_at }}
         run: wails build -clean -platform windows/amd64 -nsis -installscope user
       - name: Sign and normalize Windows installer
         if: runner.os == 'Windows'
@@ -316,7 +314,6 @@ jobs:
         env:
           PACT_VERSION: ${{ github.ref_name }}
           PACT_COMMIT: ${{ github.sha }}
-          PACT_BUILD_DATE: ${{ github.event.repository.updated_at }}
           PACT_DESKTOP_CHANNEL: ${{ (secrets.MACOS_CERTIFICATE != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.WINDOWS_CERTIFICATE != '') && 'signed' || 'preview' }}
         run: |
           cp scripts/install.sh dist/install-pact.sh
