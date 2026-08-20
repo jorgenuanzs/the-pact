@@ -36,6 +36,7 @@ type fakeAccessService struct {
 	require            func(context.Context, access.Principal, string, string) error
 	visible            func(context.Context, access.Principal) (map[string]struct{}, error)
 	projectAccess      func(context.Context, access.Principal, string) (access.ProjectAccess, error)
+	workspaceAccess    func(context.Context, access.Principal, string) (access.WorkspaceAccess, error)
 	register           func(context.Context, authn.InvitationRegistrationInput, authn.SessionMetadata) (authn.CreatedInvitationSession, error)
 	createInvite       func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
 	authenticateWeb    func(context.Context, string) (authn.WebSession, error)
@@ -125,6 +126,13 @@ func (f fakeAccessService) RequireProjectRole(ctx context.Context, principal acc
 	return nil
 }
 
+func (f fakeAccessService) RequireWorkspaceRole(ctx context.Context, principal access.Principal, workspaceID, role string) error {
+	if f.require != nil {
+		return f.require(ctx, principal, workspaceID, role)
+	}
+	return nil
+}
+
 func (f fakeAccessService) VisibleProjectIDs(ctx context.Context, principal access.Principal) (map[string]struct{}, error) {
 	if f.visible != nil {
 		return f.visible(ctx, principal)
@@ -137,6 +145,13 @@ func (f fakeAccessService) GetProjectAccess(ctx context.Context, principal acces
 		return f.projectAccess(ctx, principal, projectID)
 	}
 	return access.ProjectAccess{ProjectID: projectID, Members: []access.ProjectMember{}, Agents: []access.ProjectAgent{}}, nil
+}
+
+func (f fakeAccessService) GetWorkspaceAccess(ctx context.Context, principal access.Principal, workspaceID string) (access.WorkspaceAccess, error) {
+	if f.workspaceAccess != nil {
+		return f.workspaceAccess(ctx, principal, workspaceID)
+	}
+	return access.WorkspaceAccess{WorkspaceID: workspaceID, Members: []access.WorkspaceMember{}, Agents: []access.ProjectAgent{}}, nil
 }
 
 func (fakeAccessService) CanCreateProject(access.Principal) bool { return true }
@@ -1234,6 +1249,37 @@ func TestProjectAccessReturnsMembersAndOwnedAgents(t *testing.T) {
 	}
 	if response.Header().Get("Cache-Control") != "no-store" ||
 		!strings.Contains(response.Body.String(), `"sponsor_display_name":"Jorge"`) {
+		t.Fatalf("headers/body = %#v / %s", response.Header(), response.Body.String())
+	}
+}
+
+func TestWorkspaceAccessReturnsAdministratorsWithoutProjects(t *testing.T) {
+	const workspaceID = "018f784a-68c1-7b0f-8f2a-cfc255f99e4d"
+	called := false
+	handler := testHandlerWithAccess(t, fakeProjectService{}, fakeAccessService{
+		workspaceAccess: func(_ context.Context, principal access.Principal, receivedWorkspaceID string) (access.WorkspaceAccess, error) {
+			called = true
+			if principal.ID != access.BootstrapPrincipalID || receivedWorkspaceID != workspaceID {
+				t.Fatalf("GetWorkspaceAccess(principal=%q, workspace=%q)", principal.ID, receivedWorkspaceID)
+			}
+			return access.WorkspaceAccess{
+				WorkspaceID: workspaceID,
+				Members: []access.WorkspaceMember{{
+					PrincipalID: access.BootstrapPrincipalID, DisplayName: "Jorge", EffectiveRole: "owner", AccessSource: "organization",
+				}},
+				Agents: []access.ProjectAgent{},
+			}, nil
+		},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, "/v1/workspaces/"+workspaceID+"/access", ""))
+
+	if response.Code != http.StatusOK || !called {
+		t.Fatalf("status = %d, called = %v, body = %s", response.Code, called, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(response.Body.String(), `"display_name":"Jorge"`) ||
+		!strings.Contains(response.Body.String(), `"agents":[]`) {
 		t.Fatalf("headers/body = %#v / %s", response.Header(), response.Body.String())
 	}
 }

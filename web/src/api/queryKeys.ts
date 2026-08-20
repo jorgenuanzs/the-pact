@@ -7,6 +7,7 @@ export const queryKeys = {
   github: ["github"] as const,
   overview: (projectID: string) => ["projects", projectID, "overview"] as const,
   access: (projectID: string) => ["projects", projectID, "access"] as const,
+  workspaceAccess: (workspaceID: string) => ["workspaces", workspaceID, "access"] as const,
   repositories: (projectID: string) => ["projects", projectID, "repositories"] as const,
   availableRepositories: (projectID: string) => ["github", "repositories", projectID] as const,
   context: (workspaceID: string) => ["workspaces", workspaceID, "context"] as const,

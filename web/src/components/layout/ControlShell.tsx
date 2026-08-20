@@ -42,7 +42,7 @@ export function ControlShell() {
   const selectedWorkspaceProjects = workspaceProjects(workspace, directory.projects);
   const project = projectForWorkspace(workspace, directory.projects);
   const stream = useWorkspaceEvents(selectedWorkspaceProjects.map((item) => item.id));
-  const access = useWorkspaceAccess(selectedWorkspaceProjects.map((item) => item.id));
+  const access = useWorkspaceAccess(workspace?.id);
   const principal = directory.principal || auth.principal || undefined;
   const organizationMode = location.pathname.startsWith("/organization/");
   const localMode = location.pathname === "/local" || location.pathname.startsWith("/local/");

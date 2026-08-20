@@ -47,6 +47,58 @@ func (r *PostgresRepository) ProjectRole(
 	return role, nil
 }
 
+func (r *PostgresRepository) WorkspaceRole(
+	ctx context.Context,
+	organizationID string,
+	principalID string,
+	workspaceID string,
+) (string, error) {
+	var role string
+	err := r.pool.QueryRow(ctx, `
+		WITH candidate_roles AS (
+			SELECT member.role
+			FROM identity.workspace_members AS member
+			JOIN identity.workspaces AS workspace
+			  ON workspace.organization_id = member.organization_id
+			 AND workspace.id = member.workspace_id
+			WHERE member.organization_id = $1
+			  AND member.principal_id = $2
+			  AND member.workspace_id = $3
+			  AND workspace.status <> 'archived'
+			UNION ALL
+			SELECT membership.role
+			FROM identity.project_memberships AS membership
+			JOIN identity.workspace_projects AS relation
+			  ON relation.organization_id = membership.organization_id
+			 AND relation.project_id = membership.project_id
+			JOIN identity.workspaces AS workspace
+			  ON workspace.organization_id = relation.organization_id
+			 AND workspace.id = relation.workspace_id
+			WHERE membership.organization_id = $1
+			  AND membership.principal_id = $2
+			  AND relation.workspace_id = $3
+			  AND workspace.status <> 'archived'
+		)
+		SELECT role
+		FROM candidate_roles
+		ORDER BY CASE role
+			WHEN 'owner' THEN 4
+			WHEN 'maintainer' THEN 3
+			WHEN 'contributor' THEN 2
+			WHEN 'viewer' THEN 1
+			ELSE 0
+		END DESC
+		LIMIT 1
+	`, organizationID, principalID, workspaceID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrForbidden
+	}
+	if err != nil {
+		return "", fmt.Errorf("read workspace membership: %w", err)
+	}
+	return role, nil
+}
+
 func (r *PostgresRepository) VisibleProjectIDs(
 	ctx context.Context,
 	organizationID string,
@@ -295,6 +347,292 @@ func (r *PostgresRepository) GetProjectAccess(
 
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectAccess{}, fmt.Errorf("commit project access snapshot: %w", err)
+	}
+	return result, nil
+}
+
+func (r *PostgresRepository) GetWorkspaceAccess(
+	ctx context.Context,
+	organizationID string,
+	workspaceID string,
+	now time.Time,
+	freshAfter time.Time,
+) (WorkspaceAccess, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+	if err != nil {
+		return WorkspaceAccess{}, fmt.Errorf("begin workspace access snapshot: %w", err)
+	}
+	defer rollback(tx)
+
+	var workspaceExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM identity.workspaces
+			WHERE organization_id = $1 AND id = $2 AND status <> 'archived'
+		)
+	`, organizationID, workspaceID).Scan(&workspaceExists); err != nil {
+		return WorkspaceAccess{}, fmt.Errorf("verify access workspace: %w", err)
+	}
+	if !workspaceExists {
+		return WorkspaceAccess{}, ErrNotFound
+	}
+
+	result := WorkspaceAccess{
+		WorkspaceID: workspaceID,
+		Members:     make([]WorkspaceMember, 0),
+		Agents:      make([]ProjectAgent, 0),
+		GeneratedAt: now,
+	}
+
+	members, err := tx.Query(ctx, `
+		SELECT principal.id,
+		       actor.display_name,
+		       principal.principal_type,
+		       actor.status,
+		       organization_membership.role,
+		       COALESCE(workspace_membership.role, ''),
+		       COALESCE(project_membership.role, ''),
+		       CASE
+		           WHEN organization_membership.role IN ('owner', 'admin') THEN 'owner'
+		           WHEN CASE workspace_membership.role
+		                    WHEN 'owner' THEN 4 WHEN 'maintainer' THEN 3
+		                    WHEN 'contributor' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+		                END >= CASE project_membership.role
+		                    WHEN 'owner' THEN 4 WHEN 'maintainer' THEN 3
+		                    WHEN 'contributor' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+		                END THEN workspace_membership.role
+		           ELSE project_membership.role
+		       END AS effective_role,
+		       CASE
+		           WHEN organization_membership.role IN ('owner', 'admin') THEN 'organization'
+		           WHEN workspace_membership.workspace_id IS NOT NULL THEN 'workspace'
+		           ELSE 'project'
+		       END AS access_source,
+		       COALESCE((actor.attributes->>'bootstrap')::boolean, false)
+		FROM identity.organization_memberships AS organization_membership
+		JOIN identity.principals AS principal
+		  ON principal.organization_id = organization_membership.organization_id
+		 AND principal.id = organization_membership.principal_id
+		JOIN identity.actors AS actor
+		  ON actor.organization_id = principal.organization_id
+		 AND actor.id = principal.id
+		LEFT JOIN identity.workspace_members AS workspace_membership
+		  ON workspace_membership.organization_id = principal.organization_id
+		 AND workspace_membership.principal_id = principal.id
+		 AND workspace_membership.workspace_id = $2
+		LEFT JOIN LATERAL (
+			SELECT membership.role
+			FROM identity.project_memberships AS membership
+			JOIN identity.workspace_projects AS relation
+			  ON relation.organization_id = membership.organization_id
+			 AND relation.project_id = membership.project_id
+			WHERE membership.organization_id = principal.organization_id
+			  AND membership.principal_id = principal.id
+			  AND relation.workspace_id = $2
+			ORDER BY CASE membership.role
+				WHEN 'owner' THEN 4
+				WHEN 'maintainer' THEN 3
+				WHEN 'contributor' THEN 2
+				WHEN 'viewer' THEN 1
+				ELSE 0
+			END DESC
+			LIMIT 1
+		) AS project_membership ON true
+		WHERE organization_membership.organization_id = $1
+		  AND actor.status <> 'retired'
+		  AND (
+		      organization_membership.role IN ('owner', 'admin')
+		      OR workspace_membership.workspace_id IS NOT NULL
+		      OR project_membership.role IS NOT NULL
+		  )
+		ORDER BY
+		  CASE
+		      WHEN organization_membership.role = 'owner' THEN 1
+		      WHEN organization_membership.role = 'admin' THEN 2
+		      WHEN workspace_membership.role = 'owner' THEN 3
+		      WHEN workspace_membership.role = 'maintainer' THEN 4
+		      WHEN project_membership.role = 'owner' THEN 5
+		      WHEN project_membership.role = 'maintainer' THEN 6
+		      ELSE 7
+		  END,
+		  lower(actor.display_name),
+		  principal.id
+	`, organizationID, workspaceID)
+	if err != nil {
+		return WorkspaceAccess{}, fmt.Errorf("list workspace members: %w", err)
+	}
+	for members.Next() {
+		var member WorkspaceMember
+		if err := members.Scan(
+			&member.PrincipalID,
+			&member.DisplayName,
+			&member.PrincipalType,
+			&member.Status,
+			&member.OrganizationRole,
+			&member.WorkspaceRole,
+			&member.ProjectRole,
+			&member.EffectiveRole,
+			&member.AccessSource,
+			&member.Bootstrap,
+		); err != nil {
+			members.Close()
+			return WorkspaceAccess{}, fmt.Errorf("read workspace member: %w", err)
+		}
+		result.Members = append(result.Members, member)
+	}
+	if err := members.Err(); err != nil {
+		members.Close()
+		return WorkspaceAccess{}, fmt.Errorf("iterate workspace members: %w", err)
+	}
+	members.Close()
+
+	agents, err := tx.Query(ctx, `
+		WITH workspace_sessions AS (
+			SELECT session.*
+			FROM identity.sessions AS session
+			JOIN identity.workspace_projects AS relation
+			  ON relation.organization_id = session.organization_id
+			 AND relation.project_id = session.project_id
+			WHERE session.organization_id = $1
+			  AND relation.workspace_id = $2
+		), session_stats AS (
+			SELECT session.actor_id,
+			       count(*) AS session_count,
+			       count(*) FILTER (
+			           WHERE session.status = 'active'
+			             AND session.expires_at > $3
+			             AND session.last_seen_at >= $4
+			       ) AS active_sessions
+			FROM workspace_sessions AS session
+			GROUP BY session.actor_id
+		), latest_sessions AS (
+			SELECT DISTINCT ON (session.actor_id)
+			       session.actor_id,
+			       session.client_type,
+			       session.node_id,
+			       session.last_seen_at
+			FROM workspace_sessions AS session
+			ORDER BY session.actor_id, session.last_seen_at DESC, session.started_at DESC
+		)
+		SELECT agent.id,
+		       agent_actor.display_name,
+		       agent.agent_type,
+		       agent_actor.status,
+		       agent.sponsor_principal_id,
+		       sponsor_actor.display_name,
+		       COALESCE(
+		           CASE
+		               WHEN sponsor_organization.role IN ('owner', 'admin') THEN 'owner'
+		               WHEN CASE sponsor_workspace.role
+		                        WHEN 'owner' THEN 4 WHEN 'maintainer' THEN 3
+		                        WHEN 'contributor' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+		                    END >= CASE sponsor_project.role
+		                        WHEN 'owner' THEN 4 WHEN 'maintainer' THEN 3
+		                        WHEN 'contributor' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+		                    END THEN sponsor_workspace.role
+		               ELSE sponsor_project.role
+		           END,
+		           ''
+		       ) AS sponsor_effective_role,
+		       (
+		           agent_actor.status = 'active'
+		           AND sponsor_actor.status = 'active'
+		           AND (
+		               sponsor_organization.role IN ('owner', 'admin')
+		               OR sponsor_workspace.workspace_id IS NOT NULL
+		               OR sponsor_project.role IS NOT NULL
+		           )
+		       ) AS access_active,
+		       session_stats.active_sessions,
+		       session_stats.session_count,
+		       latest_session.client_type,
+		       COALESCE(node.name, ''),
+		       latest_session.last_seen_at
+		FROM identity.agents AS agent
+		JOIN identity.actors AS agent_actor
+		  ON agent_actor.organization_id = agent.organization_id
+		 AND agent_actor.id = agent.id
+		JOIN identity.principals AS sponsor
+		  ON sponsor.organization_id = agent.organization_id
+		 AND sponsor.id = agent.sponsor_principal_id
+		JOIN identity.actors AS sponsor_actor
+		  ON sponsor_actor.organization_id = sponsor.organization_id
+		 AND sponsor_actor.id = sponsor.id
+		LEFT JOIN identity.organization_memberships AS sponsor_organization
+		  ON sponsor_organization.organization_id = sponsor.organization_id
+		 AND sponsor_organization.principal_id = sponsor.id
+		LEFT JOIN identity.workspace_members AS sponsor_workspace
+		  ON sponsor_workspace.organization_id = sponsor.organization_id
+		 AND sponsor_workspace.principal_id = sponsor.id
+		 AND sponsor_workspace.workspace_id = $2
+		LEFT JOIN LATERAL (
+			SELECT membership.role
+			FROM identity.project_memberships AS membership
+			JOIN identity.workspace_projects AS relation
+			  ON relation.organization_id = membership.organization_id
+			 AND relation.project_id = membership.project_id
+			WHERE membership.organization_id = sponsor.organization_id
+			  AND membership.principal_id = sponsor.id
+			  AND relation.workspace_id = $2
+			ORDER BY CASE membership.role
+				WHEN 'owner' THEN 4
+				WHEN 'maintainer' THEN 3
+				WHEN 'contributor' THEN 2
+				WHEN 'viewer' THEN 1
+				ELSE 0
+			END DESC
+			LIMIT 1
+		) AS sponsor_project ON true
+		JOIN session_stats ON session_stats.actor_id = agent.id
+		JOIN latest_sessions AS latest_session ON latest_session.actor_id = agent.id
+		LEFT JOIN identity.nodes AS node
+		  ON node.organization_id = agent.organization_id
+		 AND node.id = latest_session.node_id
+		WHERE agent.organization_id = $1
+		  AND agent_actor.status <> 'retired'
+		ORDER BY (session_stats.active_sessions > 0) DESC,
+		         latest_session.last_seen_at DESC,
+		         lower(agent_actor.display_name),
+		         agent.id
+	`, organizationID, workspaceID, now, freshAfter)
+	if err != nil {
+		return WorkspaceAccess{}, fmt.Errorf("list workspace agents: %w", err)
+	}
+	for agents.Next() {
+		var agent ProjectAgent
+		if err := agents.Scan(
+			&agent.AgentID,
+			&agent.DisplayName,
+			&agent.AgentType,
+			&agent.Status,
+			&agent.SponsorPrincipalID,
+			&agent.SponsorDisplayName,
+			&agent.SponsorEffectiveRole,
+			&agent.AccessActive,
+			&agent.ActiveSessions,
+			&agent.SessionCount,
+			&agent.LastClientType,
+			&agent.LastNodeName,
+			&agent.LastSeenAt,
+		); err != nil {
+			agents.Close()
+			return WorkspaceAccess{}, fmt.Errorf("read workspace agent: %w", err)
+		}
+		agent.Connected = agent.ActiveSessions > 0
+		result.Agents = append(result.Agents, agent)
+	}
+	if err := agents.Err(); err != nil {
+		agents.Close()
+		return WorkspaceAccess{}, fmt.Errorf("iterate workspace agents: %w", err)
+	}
+	agents.Close()
+
+	if err := tx.Commit(ctx); err != nil {
+		return WorkspaceAccess{}, fmt.Errorf("commit workspace access snapshot: %w", err)
 	}
 	return result, nil
 }

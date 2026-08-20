@@ -45,6 +45,30 @@ type ProjectAccess struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 }
 
+// WorkspaceAccess is the effective access roster for a workspace. It remains
+// valid before the workspace has any repositories: organization owners and
+// administrators always have access, while direct workspace and inherited
+// project memberships are included when present.
+type WorkspaceAccess struct {
+	WorkspaceID string            `json:"workspace_id"`
+	Members     []WorkspaceMember `json:"members"`
+	Agents      []ProjectAgent    `json:"agents"`
+	GeneratedAt time.Time         `json:"generated_at"`
+}
+
+type WorkspaceMember struct {
+	PrincipalID      string `json:"principal_id"`
+	DisplayName      string `json:"display_name"`
+	PrincipalType    string `json:"principal_type"`
+	Status           string `json:"status"`
+	OrganizationRole string `json:"organization_role"`
+	WorkspaceRole    string `json:"workspace_role,omitempty"`
+	ProjectRole      string `json:"project_role,omitempty"`
+	EffectiveRole    string `json:"effective_role"`
+	AccessSource     string `json:"access_source"`
+	Bootstrap        bool   `json:"bootstrap"`
+}
+
 type ProjectMember struct {
 	PrincipalID      string `json:"principal_id"`
 	DisplayName      string `json:"display_name"`

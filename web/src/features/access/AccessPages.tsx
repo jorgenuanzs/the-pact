@@ -36,9 +36,11 @@ function AccessTable({ entries, agents = false }: { entries: Array<Record<string
 }
 
 export function PeoplePage() {
-  const { workspace, workspaceProjects } = useWorkspace(); const access = useWorkspaceAccess(workspaceProjects.map((item) => item.id));
-  if (!workspace || !workspaceProjects.length) return <ErrorState title="Workspace sin unidad operativa" />;
+  const { workspace } = useWorkspace();
+  const access = useWorkspaceAccess(workspace?.id);
+  if (!workspace) return <ErrorState title="Workspace no encontrado" />;
   if (access.isPending) return <LoadingState label="Cargando usuarios y agentes" />;
+  if (access.error) return <ErrorState title="No se pudo cargar el acceso" description={(access.error as Error).message} />;
   const members = actorList(access.data?.members); const agents = actorList(access.data?.agents);
   return <Page kicker="GESTIÓN" title="Usuarios y agentes" description={`Quién tiene acceso a ${workspace.name} y qué agentes dependen de cada usuario.`}><section className="stacked-sections"><section><header className="section-heading"><h2>Usuarios</h2><span>{members.length}</span></header><AccessTable entries={members} /></section><section><header className="section-heading"><h2>Agentes</h2><span>{agents.length}</span></header><AccessTable entries={agents} agents /></section></section></Page>;
 }

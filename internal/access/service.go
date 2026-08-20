@@ -18,8 +18,10 @@ const (
 
 type Repository interface {
 	ProjectRole(context.Context, string, string, string) (string, error)
+	WorkspaceRole(context.Context, string, string, string) (string, error)
 	VisibleProjectIDs(context.Context, string, string) (map[string]struct{}, error)
 	GetProjectAccess(context.Context, string, string, time.Time, time.Time) (ProjectAccess, error)
+	GetWorkspaceAccess(context.Context, string, string, time.Time, time.Time) (WorkspaceAccess, error)
 	CreateInvitation(context.Context, string, Principal, string, CreateInvitationInput, [sha256.Size]byte) (Invitation, error)
 	RevokeInvitation(context.Context, string, Principal, string) error
 	GrantProjectOwner(context.Context, string, string, string) error
@@ -60,6 +62,27 @@ func (s *Service) RequireProjectRole(ctx context.Context, principal Principal, p
 	return nil
 }
 
+func (s *Service) WorkspaceRole(ctx context.Context, principal Principal, workspaceID string) (string, error) {
+	if principal.OrganizationID != s.organizationID {
+		return "", ErrForbidden
+	}
+	if principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin" {
+		return "owner", nil
+	}
+	return s.repository.WorkspaceRole(ctx, s.organizationID, principal.ID, workspaceID)
+}
+
+func (s *Service) RequireWorkspaceRole(ctx context.Context, principal Principal, workspaceID, minimum string) error {
+	actual, err := s.WorkspaceRole(ctx, principal, workspaceID)
+	if err != nil {
+		return err
+	}
+	if projectRoleRank(actual) < projectRoleRank(minimum) {
+		return ErrForbidden
+	}
+	return nil
+}
+
 func (s *Service) VisibleProjectIDs(ctx context.Context, principal Principal) (map[string]struct{}, error) {
 	if principal.OrganizationRole == "owner" || principal.OrganizationRole == "admin" {
 		return nil, nil
@@ -82,6 +105,18 @@ func (s *Service) GetProjectAccess(
 	}
 	now := s.now().UTC()
 	return s.repository.GetProjectAccess(ctx, s.organizationID, projectID, now, now.Add(-30*time.Second))
+}
+
+func (s *Service) GetWorkspaceAccess(
+	ctx context.Context,
+	principal Principal,
+	workspaceID string,
+) (WorkspaceAccess, error) {
+	if err := s.RequireWorkspaceRole(ctx, principal, workspaceID, "viewer"); err != nil {
+		return WorkspaceAccess{}, err
+	}
+	now := s.now().UTC()
+	return s.repository.GetWorkspaceAccess(ctx, s.organizationID, workspaceID, now, now.Add(-30*time.Second))
 }
 
 func (s *Service) CreateInvitation(

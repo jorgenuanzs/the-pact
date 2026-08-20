@@ -31,7 +31,7 @@ export function WorkspaceOverviewPage() {
   const context = useWorkspaceContext(workspace?.id);
   const repositories = useWorkspaceRepositories(projectIDs);
   const rooms = useRooms(workspace?.id);
-  const access = useWorkspaceAccess(projectIDs);
+  const access = useWorkspaceAccess(workspace?.id);
 
   if (!workspace) return <ErrorState title="Workspace no encontrado" description="Puede que ya no tengas acceso a este workspace." />;
   if (overview.isPending && workspaceProjects.length) return <LoadingState label={`Cargando ${workspace.name}`} />;

@@ -17,6 +17,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/useradmin"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
@@ -103,6 +104,23 @@ func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
 	}
 
 	authorization := access.NewService(organizationID, access.NewPostgresRepository(pool))
+	emptyWorkspace, err := workspaces.NewService(
+		organizationID,
+		workspaces.NewPostgresRepository(pool),
+	).Create(ctx, "empty-workspace-"+suffix, workspaces.CreateInput{
+		Name: "Empty workspace " + suffix,
+		Slug: "empty-workspace-" + suffix,
+	})
+	if err != nil {
+		t.Fatalf("create empty workspace: %v", err)
+	}
+	emptyRoster, err := authorization.GetWorkspaceAccess(ctx, owner.Principal, emptyWorkspace.Workspace.ID)
+	if err != nil {
+		t.Fatalf("get empty workspace access: %v", err)
+	}
+	if len(emptyRoster.Members) != 1 || emptyRoster.Members[0].PrincipalID != owner.Principal.ID || len(emptyRoster.Agents) != 0 {
+		t.Fatalf("empty workspace access = %#v", emptyRoster)
+	}
 	created, err := authorization.CreateInvitation(ctx, owner.Principal, projectResult.Project.ID, access.CreateInvitationInput{
 		Email: "collaborator-" + suffix + "@example.com", Role: "contributor", ExpiresAfter: time.Hour,
 	})
