@@ -58,6 +58,8 @@ describe("API client", () => {
       StopLocalServer: vi.fn(),
       BackupLocalServer: vi.fn(),
       UpgradeLocalServer: vi.fn(),
+      UpdateStatus: vi.fn(),
+      CheckForUpdates: vi.fn(),
       APIRequest,
       StartWorkspaceDirectoryStream: vi.fn(),
       StopWorkspaceDirectoryStream: vi.fn(),

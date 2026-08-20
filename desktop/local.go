@@ -21,7 +21,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/localserver"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const localStateSchemaVersion = 1
@@ -142,15 +142,17 @@ func (d *Desktop) LocalComputerStatus() LocalComputerStatus {
 }
 
 func (d *Desktop) SelectLocalProjectFolder() (LocalFolderInspection, error) {
-	ctx := d.appContext()
-	if ctx == nil {
+	app := d.application()
+	if app == nil {
 		return LocalFolderInspection{}, errors.New("desktop window is not ready")
 	}
-	selected, err := wailsruntime.OpenDirectoryDialog(ctx, wailsruntime.OpenDialogOptions{
+	selected, err := app.Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
 		Title:                "Selecciona una carpeta Git conectada a PACT",
+		CanChooseDirectories: true,
+		CanChooseFiles:       false,
 		CanCreateDirectories: false,
 		ResolvesAliases:      true,
-	})
+	}).PromptForSingleSelection()
 	if err != nil {
 		return LocalFolderInspection{}, fmt.Errorf("select project folder: %w", err)
 	}

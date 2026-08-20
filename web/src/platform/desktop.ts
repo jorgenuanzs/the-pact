@@ -1,4 +1,7 @@
 import type { PactEvent, Principal } from "@/api/types";
+import { Events, System } from "@wailsio/runtime";
+
+import * as NativeDesktop from "@/generated/desktop-bindings/github.com/jorgenuanzs/the-pact/desktop/desktop";
 
 export interface DesktopStatus {
   configured: boolean;
@@ -23,6 +26,14 @@ export interface DesktopDeviceLoginResult {
   connected: boolean;
   principal?: Principal;
   expires_at?: string;
+}
+
+export interface DesktopUpdateStatus {
+  configured: boolean;
+  current_version: string;
+  commit: string;
+  state: string;
+  error?: string;
 }
 
 export interface LocalClientStatus {
@@ -149,6 +160,8 @@ export interface DesktopBridge {
   StopLocalServer(): Promise<LocalServerStatus>;
   BackupLocalServer(): Promise<string>;
   UpgradeLocalServer(image: string): Promise<LocalServerUpgradeResult>;
+  UpdateStatus(): Promise<DesktopUpdateStatus>;
+  CheckForUpdates(): Promise<DesktopUpdateStatus>;
   APIRequest(input: DesktopAPIRequest): Promise<DesktopAPIResponse>;
   StartWorkspaceDirectoryStream(): Promise<string>;
   StopWorkspaceDirectoryStream(subscriptionID: string): Promise<void>;
@@ -170,7 +183,8 @@ declare global {
 export const DESKTOP_STREAM_EVENT = "pact:desktop-project-stream";
 
 export function desktopBridge(): DesktopBridge | null {
-  return window.go?.main?.Desktop ?? null;
+  if (window.go?.main?.Desktop) return window.go.main.Desktop;
+  return System.IsDesktop() ? NativeDesktop as unknown as DesktopBridge : null;
 }
 
 export function isDesktopRuntime(): boolean {
@@ -178,5 +192,7 @@ export function isDesktopRuntime(): boolean {
 }
 
 export function onDesktopStreamMessage(listener: (message: DesktopStreamMessage) => void): () => void {
-  return window.runtime?.EventsOn(DESKTOP_STREAM_EVENT, listener) ?? (() => undefined);
+  if (window.runtime?.EventsOn) return window.runtime.EventsOn(DESKTOP_STREAM_EVENT, listener);
+  if (!System.IsDesktop()) return () => undefined;
+  return Events.On(DESKTOP_STREAM_EVENT, (event) => listener(event.data as DesktopStreamMessage));
 }

@@ -8,8 +8,12 @@ if (!match) {
 }
 
 const version = `${match[1]}.${match[2]}.${match[3]}`;
-const path = resolve("desktop/wails.json");
-const config = JSON.parse(readFileSync(path, "utf8"));
-config.info = { ...config.info, productVersion: version };
-writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+const path = resolve("desktop/build/config.yml");
+const config = readFileSync(path, "utf8");
+const versionLine = /^(\s*version:\s*)"[^"]+"(\s*#.*)?$/m;
+if (!versionLine.test(config)) {
+  throw new Error(`Could not update info.version in ${path}`);
+}
+const updated = config.replace(versionLine, `$1"${version}"$2`);
+writeFileSync(path, updated);
 console.log(`PACT Desktop product version: ${version}`);

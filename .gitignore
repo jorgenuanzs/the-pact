@@ -30,6 +30,9 @@ desktop/frontend/dist/*
 desktop/frontend/wailsjs/
 desktop/frontend/package.json.md5
 desktop/build/bin/
+desktop/.task/
+desktop/build/darwin/icons.icns
+desktop/build/windows/icon.ico
 desktop/localhelper/pact-local
 desktop/localhelper/pact-local.exe
 

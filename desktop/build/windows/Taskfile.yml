@@ -1,0 +1,54 @@
+version: '3'
+
+includes:
+  common: ../Taskfile.yml
+
+tasks:
+  build:
+    deps:
+      - task: common:build:frontend
+      - task: common:generate:icons
+    cmds:
+      - task: generate:syso
+        vars:
+          ARCH: '{{.ARCH}}'
+      - >-
+        go build
+        {{if ne .DEV "true"}}-tags production -trimpath -ldflags="-w -s -H windowsgui -X main.currentVersion={{.DESKTOP_VERSION}} -X main.currentCommit={{.DESKTOP_COMMIT}}"{{else}}-gcflags=all="-l"{{end}}
+        -buildvcs=false
+        -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
+      - cmd: powershell Remove-Item *.syso
+        platforms: [windows]
+      - cmd: rm -f *.syso
+        platforms: [linux, darwin]
+    env:
+      GOOS: windows
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CGO_ENABLED: 0
+
+  generate:syso:
+    dir: build
+    cmds:
+      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_{{.ARCH}}.syso
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+
+  package:
+    deps:
+      - task: build
+    dir: build/windows/nsis
+    preconditions:
+      - sh: '[ "{{.INSTALL_SCOPE | default "user"}}" = "user" ] || [ "{{.INSTALL_SCOPE | default "user"}}" = "machine" ]'
+        msg: "INSTALL_SCOPE must be user or machine"
+    cmds:
+      - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
+      - >-
+        makensis
+        {{if eq (.INSTALL_SCOPE | default "user") "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user{{end}}
+        -DARG_WAILS_AMD64_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe"
+        project.nsi
+
+  run:
+    platforms: [windows]
+    cmds:
+      - '"{{.BIN_DIR}}/{{.APP_NAME}}.exe"'

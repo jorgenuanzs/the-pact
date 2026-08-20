@@ -61,12 +61,19 @@ function installBridge(): DesktopBridge {
     StopLocalServer: vi.fn(),
     BackupLocalServer: vi.fn(),
     UpgradeLocalServer: vi.fn(),
+    UpdateStatus: vi.fn().mockResolvedValue({
+      configured: true,
+      current_version: "0.16.0",
+      commit: "abcdef0",
+      state: "idle",
+    }),
+    CheckForUpdates: vi.fn(),
   };
   window.go = { main: { Desktop: bridge } };
   return bridge;
 }
 
-function renderPage(view: "overview" | "agents" = "overview") {
+function renderPage(view: "overview" | "agents" | "service" = "overview") {
   return render(
     <MemoryRouter>
       <ToastProvider>
@@ -130,5 +137,15 @@ describe("LocalComputerPage", () => {
       project_root: "/projects/footfall",
     });
     expect(await screen.findByText("Cliente conectado")).toBeInTheDocument();
+  });
+
+  it("permite comprobar una actualización firmada desde la aplicación", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderPage("service");
+
+    await user.click(await screen.findByRole("button", { name: "Buscar actualizaciones" }));
+
+    expect(bridge.CheckForUpdates).toHaveBeenCalledOnce();
   });
 });

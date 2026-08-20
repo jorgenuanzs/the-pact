@@ -23,7 +23,10 @@ PACT Desktop supports remote and local PACT Servers:
 - install and operate a private local PACT Server with PostgreSQL + pgvector
   through Docker Compose;
 - start, stop, back up, and upgrade that local server without requiring a
-  separate CLI installation.
+  separate CLI installation;
+- check for Desktop updates in the application, verify both SHA-256 and a
+  pinned Ed25519 signature, install atomically, and restart into the new
+  version.
 
 The CLI, the bundled local runtime, and Desktop share the per-user PACT device
 configuration. No credential is written into a project checkout. Desktop keeps
@@ -43,7 +46,7 @@ Requirements:
 - Go as declared in `go.mod`;
 - Node.js and npm;
 - the platform requirements from the Wails documentation;
-- Wails v2.13.0.
+- Wails v3.0.0-beta.11 (pinned by the build and release workflows).
 
 From the repository root:
 
@@ -70,7 +73,29 @@ installer is built by CI with per-user installation scope. Desktop packages
 must be built on their target operating system because Wails uses the native
 WebView and packaging toolchain.
 
-The release workflow can sign and notarize macOS packages and Authenticode-sign
-Windows packages when the repository signing secrets are configured. Until
-then, release manifests identify Desktop packages as previews rather than
-claiming a verified signature.
+The first updater-capable package must still be installed manually. Every
+subsequent stable package can be installed from **This computer → Local
+runtime → Desktop updates**.
+
+## Release trust and signing
+
+PACT uses two independent signature layers:
+
+1. the operating system trusts the application through Apple Developer ID +
+   notarization on macOS and Authenticode on Windows;
+2. PACT Desktop trusts update bytes through a pinned Ed25519 public key. The
+   release publishes a detached `.sig` for each native update archive and the
+   application requires both that signature and `checksums.txt`.
+
+Stable Desktop releases fail closed unless every platform credential exists.
+GitHub Actions expects these repository secrets:
+
+- `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`,
+  `MACOS_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`;
+- `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD`;
+- `PACT_UPDATER_PRIVATE_KEY`, containing the base64-encoded PKCS#8 Ed25519
+  private key whose public half is pinned in `update.go`.
+
+The private keys never enter the repository. Preview tags may omit the
+operating-system certificates, but update archives always require the Ed25519
+release signature. The stable updater ignores prereleases.

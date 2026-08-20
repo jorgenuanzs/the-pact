@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const desktopStreamEvent = "pact:desktop-project-stream"
@@ -322,8 +321,8 @@ func (d *Desktop) emitStream(message DesktopStreamMessage) {
 			message.Stream = "project"
 		}
 	}
-	if ctx := d.appContext(); ctx != nil {
-		runtime.EventsEmit(ctx, desktopStreamEvent, message)
+	if app := d.application(); app != nil {
+		app.Event.Emit(desktopStreamEvent, message)
 	}
 }
 

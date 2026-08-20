@@ -15,13 +15,9 @@ BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 HOST_OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 HOST_ARCH_RAW := $(shell uname -m)
 HOST_ARCH := $(if $(filter arm64 aarch64,$(HOST_ARCH_RAW)),arm64,amd64)
-WAILS_VERSION ?= v2.13.0
-WAILS ?= $(shell go env GOPATH 2>/dev/null)/bin/wails
+WAILS_VERSION ?= v3.0.0-beta.11
+WAILS ?= $(shell go env GOPATH 2>/dev/null)/bin/wails3
 DESKTOP_GO_CACHE ?= /tmp/pact-desktop-go-cache
-DESKTOP_BUILD_FLAGS :=
-ifeq ($(HOST_OS),darwin)
-DESKTOP_BUILD_FLAGS += -ldflags="-extldflags '-framework UniformTypeIdentifiers'"
-endif
 
 .PHONY: init cli dev ui-install ui-dev ui-build ui-test desktop-install desktop-dev desktop-test desktop-build down logs ps migrate test-ui test-release-classifier test test-race test-integration build verify doctor
 .PHONY: docker-builder docker-audit docker-clean-stale docker-clean
@@ -70,7 +66,7 @@ ui-test:
 
 desktop-install:
 	@command -v go >/dev/null 2>&1 || { echo "Go is required to build PACT Desktop."; exit 1; }
-	@go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
+	@go install github.com/wailsapp/wails/v3/cmd/wails3@$(WAILS_VERSION)
 
 desktop-dev:
 	@test -x "$(WAILS)" || { echo "Wails is missing. Run make desktop-install."; exit 1; }
@@ -78,7 +74,7 @@ desktop-dev:
 
 desktop-test:
 	@$(NPM) run build:desktop
-	@node web/scripts/build-desktop-helper.mjs
+	@GOCACHE="$(DESKTOP_GO_CACHE)" node web/scripts/build-desktop-helper.mjs
 	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" go test ./...
 	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" go vet ./...
 	@$(NPM) run typecheck
@@ -86,7 +82,7 @@ desktop-test:
 
 desktop-build:
 	@test -x "$(WAILS)" || { echo "Wails is missing. Run make desktop-install."; exit 1; }
-	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" "$(WAILS)" build -clean $(DESKTOP_BUILD_FLAGS)
+	@cd desktop && PACT_VERSION="$(VERSION)" PACT_COMMIT="$(COMMIT)" GOARCH="$(HOST_ARCH)" GOCACHE="$(DESKTOP_GO_CACHE)" "$(WAILS)" package INSTALL_SCOPE=user
 
 down:
 	@PACT_DB_PASSWORD=not-used $(COMPOSE) down
