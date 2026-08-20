@@ -10,7 +10,7 @@ import { MentionInbox } from "@/features/conversations/MentionInbox";
 import { projectForWorkspace } from "@/api/viewModels";
 import { useWorkspaceAccess } from "@/features/overview/queries";
 import { canManage, workspaceColorKey } from "@/lib/format";
-import { isDesktopRuntime } from "@/platform/desktop";
+import { desktopBridge, isDesktopRuntime } from "@/platform/desktop";
 import { useWorkspaceEvents } from "@/realtime/useProjectEvents";
 import { useWorkspaceDirectoryEvents } from "@/realtime/useWorkspaceDirectoryEvents";
 import { useControlDirectory, workspaceProjects } from "@/features/workspaces/queries";
@@ -46,6 +46,7 @@ export function ControlShell() {
   const principal = directory.principal || auth.principal || undefined;
   const organizationMode = location.pathname.startsWith("/organization/");
   const localMode = location.pathname === "/local" || location.pathname.startsWith("/local/");
+  const desktopMode = isDesktopRuntime();
 
   useEffect(() => {
     if (directory.isPending) return;
@@ -113,13 +114,33 @@ export function ControlShell() {
     };
   }, [mobileNavigationOpen]);
 
+  const openOrganizationAccess = useCallback(async () => {
+    const bridge = desktopBridge();
+    if (!bridge) {
+      navigate("/organization/access");
+      return;
+    }
+
+    try {
+      const status = await bridge.Status();
+      if (!status.server_url) throw new Error("PACT Desktop no tiene un servidor conectado.");
+      await bridge.OpenExternalURL(new URL("/admin/organization/access", status.server_url).toString());
+    } catch (error) {
+      toast({
+        title: "No se pudo abrir Acceso y seguridad",
+        description: error instanceof Error ? error.message : "Abre la administración desde el navegador.",
+        tone: "danger",
+      });
+    }
+  }, [navigate, toast]);
+
   const accountItems = useMemo(() => [
     ...(canManage(principal?.organization_role) ? [{
       id: "access",
       label: "Acceso y seguridad",
-      description: "Personas, permisos e invitaciones",
+      description: desktopMode ? "Abrir administración web" : "Personas, permisos e invitaciones",
       icon: <Icon name="access" />,
-      onSelect: (): void => { navigate("/organization/access"); },
+      onSelect: (): void => { void openOrganizationAccess(); },
     }] : []),
     {
       id: "logout",
@@ -129,7 +150,7 @@ export function ControlShell() {
       tone: "danger" as const,
       onSelect: (): void => { void auth.logout(); },
     },
-  ], [auth, navigate, principal?.organization_role]);
+  ], [auth, desktopMode, openOrganizationAccess, principal?.organization_role]);
 
   if (directory.isPending) return <LoadingState label="Preparando PACT Control" />;
   if (directory.error) return <ErrorState title="No se pudo cargar PACT Control" description={(directory.error as Error).message} actionLabel="Reintentar" onAction={() => void refreshDirectory()} />;
@@ -182,7 +203,7 @@ export function ControlShell() {
             }}
           />
           <div className="global-rail-actions">
-            {isDesktopRuntime() ? (
+            {desktopMode ? (
               <button
                 type="button"
                 className="global-local-button"
