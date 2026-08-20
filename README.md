@@ -731,9 +731,10 @@ CI runs the complete suite on Windows, macOS, and Linux and cross-compiles both
 Windows architectures. A release is smoke-tested by installing its published
 artifact on clean runners before the workflow succeeds.
 
-Production operations do not require keeping a local build or this terminal
-open. `./scripts/deploy-production.sh` dispatches the protected production
-workflow. `./scripts/publish-desktop.sh patch` creates the next stable tag and
+Production operations do not require keeping a local build, a GitHub CLI
+session, or this terminal open. `./scripts/deploy-production.sh` pushes an
+auditable deployment tag that starts the protected production workflow.
+`./scripts/publish-desktop.sh patch` creates the next stable tag and
 the existing release workflow builds and publishes Desktop, CLI, and PACT
 Server in GitHub Actions. Both commands reject dirty, detached, or unsynchronized
 working trees. Use `minor`, `major`, or an explicit `vX.Y.Z` when a patch bump is

@@ -54,6 +54,7 @@ jobs:
         run: |
           bash -n scripts/deploy-production.sh scripts/publish-desktop.sh scripts/publish-desktop_test.sh
           bash scripts/publish-desktop_test.sh
+          grep -q 'deploy-production-\*' .github/workflows/deploy-production.yml
           PACT_DEPLOY_LOCAL=true PACT_DEPLOY_DRY_RUN=true ./deploy/oci-shared/deploy.sh
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'

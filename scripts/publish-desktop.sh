@@ -50,6 +50,18 @@ version_is_greater() {
   ((candidate_patch > current_patch))
 }
 
+github_repository() {
+  local remote_url repository
+  remote_url="$(git -C "${project_dir}" remote get-url origin)"
+  case "${remote_url}" in
+    https://github.com/*) repository="${remote_url#https://github.com/}" ;;
+    git@github.com:*) repository="${remote_url#git@github.com:}" ;;
+    ssh://git@github.com/*) repository="${remote_url#ssh://git@github.com/}" ;;
+    *) fail "origin must point to a GitHub repository" ;;
+  esac
+  printf '%s\n' "${repository%.git}"
+}
+
 latest_stable_tag() {
   local candidate
   while IFS= read -r candidate; do
@@ -79,7 +91,7 @@ main() {
     shift
   done
 
-  for command_name in gh git; do
+  for command_name in git; do
     command -v "${command_name}" >/dev/null 2>&1 || fail "missing required command: ${command_name}"
   done
 
@@ -87,7 +99,6 @@ main() {
   [[ -z "$(git -C "${project_dir}" status --porcelain)" ]] || fail "the working tree has uncommitted changes; commit and push them first"
   [[ "$(git -C "${project_dir}" branch --show-current)" == "${branch}" ]] || fail "switch to ${branch} before publishing"
 
-  gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated; run: gh auth login"
   git -C "${project_dir}" fetch --quiet --tags origin "${branch}"
 
   local local_revision remote_revision latest version
@@ -125,7 +136,7 @@ main() {
   fi
 
   local repository
-  repository="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+  repository="$(github_repository)"
   printf 'Release queued. It will continue in GitHub Actions:\n'
   printf 'https://github.com/%s/actions/workflows/release-cli.yml\n' "${repository}"
 }
