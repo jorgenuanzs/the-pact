@@ -17,9 +17,10 @@ type principalKey struct{}
 type authenticationKey struct{}
 
 type requestAuthentication struct {
-	Kind   string
-	Web    *authn.WebSession
-	Device *authn.DevicePrincipal
+	Kind       string
+	Credential string
+	Web        *authn.WebSession
+	Device     *authn.DevicePrincipal
 }
 
 func (a *API) requireAuth(next http.Handler) http.Handler {
@@ -46,7 +47,7 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 				}
 			}
 			principal = session.Principal
-			authentication = requestAuthentication{Kind: "web", Web: &session}
+			authentication = requestAuthentication{Kind: "web", Credential: cookie.Value, Web: &session}
 		} else {
 			scheme, credential, found := strings.Cut(r.Header.Get("Authorization"), " ")
 			if !found || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(credential) == "" {
@@ -61,7 +62,7 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 				return
 			}
 			principal = device.Principal
-			authentication = requestAuthentication{Kind: "device", Device: &device}
+			authentication = requestAuthentication{Kind: "device", Credential: credential, Device: &device}
 		}
 		ctx := context.WithValue(r.Context(), principalKey{}, principal)
 		ctx = context.WithValue(ctx, authenticationKey{}, authentication)

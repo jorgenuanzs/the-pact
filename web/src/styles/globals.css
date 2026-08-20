@@ -1,0 +1,54 @@
+#root {
+  min-height: 100dvh;
+}
+
+a {
+  color: var(--pact-color-info);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+code,
+kbd,
+samp,
+.pact-mono {
+  font-family: var(--pact-font-mono);
+}
+
+.pact-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.pact-section-label {
+  margin: 0;
+  color: var(--pact-color-text-tertiary);
+  font-family: var(--pact-font-mono);
+  font-size: var(--pact-text-label);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pact-page-title {
+  margin: 0;
+  font-size: var(--pact-text-view);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.app-failure { display: grid; min-height: 100dvh; padding: 32px; place-items: center; color: var(--color-ink); background: var(--color-canvas); }
+.app-failure > div { width: min(520px, 100%); padding: 28px; background: #fff; border: 1px solid var(--color-border); border-top: 3px solid var(--pact-color-danger); border-radius: var(--pact-radius-panel); }
+.app-failure > div > span { color: var(--pact-color-danger); font-family: var(--font-mono); font-size: var(--pact-text-label); font-weight: 700; letter-spacing: .14em; }
+.app-failure h1 { margin: 10px 0 7px; font-size: var(--pact-text-view); }
+.app-failure p { margin: 0; color: var(--color-text-muted); font-size: var(--pact-text-body); line-height: 1.5; }
+.app-failure > div > div { display: flex; margin-top: 20px; gap: 8px; }
+.app-failure button { height: var(--pact-control-height-md); padding: 0 12px; color: #fff; background: var(--color-ink); border: 1px solid var(--color-ink); border-radius: var(--pact-radius-control); font-size: var(--pact-text-table); font-weight: 500; cursor: pointer; }
+.app-failure button + button { color: var(--color-ink); background: #fff; border-color: var(--pact-color-border-strong); }

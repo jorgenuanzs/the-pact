@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #e8e8e4; }
+  * { box-sizing: border-box; }
+  a { color: #2f6b46; }
+  a:hover { color: #16211a; }
+</style>
+</helmet>
+
+<section style="padding: 56px 56px 60px; display: flex; flex-direction: column; gap: 34px; font-family: 'Instrument Sans', system-ui, sans-serif; color: #16211a;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6b6b64;">Turno 6 · Pantallas auxiliares y estados</div>
+    <div style="font-size: 15px; max-width: 800px; color: #33332e;">Acceso, autorización de dispositivos, invitaciones y todos los estados que no son «datos cargados»: vacío, sin permiso, reconectando, error, carga. Marca de corchetes y acento lima; el acento sigue el color del Workspace cuando aplica.</div>
+  </div>
+
+  <!-- ══ Acceso ══ -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Acceso</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+
+      <!-- 6a Login -->
+      <div id="6a" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6a</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Iniciar sesión</span>
+        </div>
+        <div data-screen-label="6a Login" style="width: 620px; height: 460px; border: 1px solid #d4d3cb; border-radius: 10px; overflow: hidden; display: grid; grid-template-columns: 232px 1fr;">
+          <div style="background: #16211a; padding: 22px 20px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 3px; height: 22px;">
+                <span style="width: 7px; height: 20px; border: 2.5px solid #eef2ef; border-right: 0; border-radius: 3px 0 0 3px;"></span>
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #c9ee4d;"></span>
+                <span style="width: 7px; height: 20px; border: 2.5px solid #eef2ef; border-left: 0; border-radius: 0 3px 3px 0;"></span>
+              </div>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; letter-spacing: 0.16em; color: #eef2ef;">PACT</span>
+            </div>
+            <div style="font-size: 12.5px; color: #97a49b; line-height: 1.5;">Capa de coordinación y contexto compartido para equipos con personas y agentes de IA.</div>
+            <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #7ee081;"></span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #97a49b;">pact.nuanzs.com</span>
+              </div>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #5f6e64;">SERVIDOR ALCANZABLE · v0.9.4</span>
+            </div>
+          </div>
+          <div style="background: #fbfbfa; padding: 30px 28px; display: flex; flex-direction: column; gap: 16px;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <h1 style="margin: 0; font-size: 19px; font-weight: 600;">Entrar</h1>
+              <span style="font-size: 12.5px; color: #5a655e;">Usa tu cuenta de la organización Nuanzs.</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <label style="font-size: 12px; color: #35403a;">Correo</label>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px;">jorge@nuanzs.com</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <label style="font-size: 12px; color: #35403a;">Contraseña</label>
+              <div style="border: 1.5px solid #16211a; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px; letter-spacing: 0.18em; color: #35403a;">••••••••••</div>
+              <span style="font-size: 11.5px; color: #2f6b46; cursor: pointer;">Olvidé mi contraseña</span>
+            </div>
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 13px; font-weight: 500; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 10px 14px; cursor: pointer;">Entrar</button>
+            <div style="margin-top: auto; font-size: 11.5px; color: #8a938c; line-height: 1.45;">Las CLI y los clientes de IA no usan esta contraseña: se autorizan como dispositivo con su propia credencial revocable.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6b Autorizar dispositivo -->
+      <div id="6b" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6b</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Autorizar dispositivo</span>
+          <span style="font-size: 12.5px; color: #6b6b64;">Flujo F: <span style="font-family: 'JetBrains Mono', monospace;">pact login</span></span>
+        </div>
+        <div data-screen-label="6b Autorizar dispositivo" style="width: 520px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid #e6e7e3; display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 15px; font-weight: 600;">Autorizar un dispositivo</span>
+            <span style="font-size: 12.5px; color: #5a655e;">Compara el código con el que muestra tu terminal antes de continuar.</span>
+          </div>
+          <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+            <div style="display: flex; justify-content: center; gap: 8px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.14em; background: #f2f3f0; border: 1px solid #dcded8; border-radius: 8px; padding: 10px 16px;">XKCD</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.14em; background: #f2f3f0; border: 1px solid #dcded8; border-radius: 8px; padding: 10px 16px;">7F2Q</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; font-size: 12.5px; border: 1px solid #e6e7e3; border-radius: 8px; padding: 14px; background: #fff;">
+              <span style="color: #8a938c;">Cliente</span><span>codex-cli 1.4</span>
+              <span style="color: #8a938c;">Dispositivo</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">mbp-jorge · macOS 15.2</span>
+              <span style="color: #8a938c;">Solicitado desde</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">190.44.12.8 · Santiago</span>
+              <span style="color: #8a938c;">Permisos</span><span>Sesiones, intents y scopes en los Workspaces que ya puedes ver</span>
+              <span style="color: #8a938c;">Expira</span><span>en 4 min 12 s</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; background: #fffdf6; border: 1px solid #e3ddc6; border-radius: 8px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px;">OJO</span>
+              <span style="font-size: 12px; color: #6b6459;">Si no iniciaste este acceso, recházalo. Nunca escribas tu contraseña en una CLI.</span>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button style="font-family: 'Instrument Sans', sans-serif; font-size: 13px; font-weight: 500; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 9px 16px; cursor: pointer;">Autorizar dispositivo</button>
+              <button style="font-family: 'Instrument Sans', sans-serif; font-size: 13px; color: #8a2f22; background: #fff; border: 1px solid #e3b7ae; border-radius: 7px; padding: 9px 16px; cursor: pointer;">Rechazar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6c Dispositivo autorizado -->
+      <div id="6c" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6c</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Dispositivo autorizado</span>
+        </div>
+        <div data-screen-label="6c Dispositivo autorizado" style="width: 400px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; padding: 22px; display: flex; flex-direction: column; gap: 12px;">
+          <span style="width: 30px; height: 30px; border-radius: 8px; background: #e8f5ec; border: 1px solid #c3e2ce; color: #235c3b; font-size: 15px; display: flex; align-items: center; justify-content: center;">✓</span>
+          <span style="font-size: 15px; font-weight: 600;">codex-cli quedó autorizado</span>
+          <span style="font-size: 12.5px; color: #5a655e; line-height: 1.5;">La terminal ya recibió su credencial de dispositivo. Puedes cerrar esta pestaña; la CLI continúa sola.</span>
+          <div style="display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 12px; padding-top: 4px; border-top: 1px solid #eff0ed;">
+            <span style="color: #8a938c;">Dispositivo</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">mbp-jorge · dev_9f21</span>
+            <span style="color: #8a938c;">Revocable en</span><span>Acceso → Sesiones y dispositivos</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Invitaciones ══ -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Invitaciones</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+
+      <!-- 6d Nueva invitación -->
+      <div id="6d" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6d</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Nueva invitación</span>
+          <span style="font-size: 12.5px; color: #6b6b64;">Diálogo en Nuanzs → Acceso y seguridad</span>
+        </div>
+        <div data-screen-label="6d Nueva invitación" style="width: 500px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+          <div style="padding: 15px 20px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: center;">
+            <span style="font-size: 15px; font-weight: 600;">Invitar a una persona</span>
+            <span style="margin-left: auto; font-size: 15px; color: #8a938c; cursor: pointer;">✕</span>
+          </div>
+          <div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <label style="font-size: 12px; color: #35403a;">Correo</label>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px;">valentina@nuanzs.com</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 12px; color: #35403a;">Rol en Nuanzs</label>
+                <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px; display: flex; align-items: center;">Miembro <span style="margin-left: auto; font-size: 9px; color: #8a938c;">▾</span></div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 12px; color: #35403a;">Expira</label>
+                <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px; display: flex; align-items: center;">7 días <span style="margin-left: auto; font-size: 9px; color: #8a938c;">▾</span></div>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 12px; color: #35403a;">Workspace inicial (opcional)</label>
+                <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+                  <span style="width: 16px; height: 16px; border-radius: 4px; background: #c9ee4d; color: #16211a; font-family: 'JetBrains Mono', monospace; font-size: 8.5px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</span>
+                  Footfall <span style="margin-left: auto; font-size: 9px; color: #8a938c;">▾</span>
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="font-size: 12px; color: #35403a;">Rol en el Workspace</label>
+                <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-size: 13px; display: flex; align-items: center;">Colaboradora <span style="margin-left: auto; font-size: 9px; color: #8a938c;">▾</span></div>
+              </div>
+            </div>
+            <span style="font-size: 11.5px; color: #8a938c; line-height: 1.45;">Propietarios y administradores ven todos los Workspaces; los permisos directos solo aplican a miembros.</span>
+          </div>
+          <div style="padding: 13px 20px; border-top: 1px solid #e6e7e3; background: #f8f9f7; display: flex; gap: 10px; justify-content: flex-end;">
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 8px 14px; cursor: pointer;">Cancelar</button>
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; font-weight: 500; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 8px 14px; cursor: pointer;">Crear invitación</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6e Invitación creada -->
+      <div id="6e" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6e</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Invitación creada</span>
+          <span style="font-size: 12.5px; color: #6b6b64;">URL de un solo uso</span>
+        </div>
+        <div data-screen-label="6e Invitación creada" style="width: 500px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+          <div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="width: 26px; height: 26px; border-radius: 7px; background: #e8f5ec; border: 1px solid #c3e2ce; color: #235c3b; font-size: 13px; display: flex; align-items: center; justify-content: center;">✓</span>
+              <span style="font-size: 15px; font-weight: 600;">Invitación creada para valentina@nuanzs.com</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 12px; color: #35403a;">Enlace de un solo uso</label>
+              <div style="display: flex; gap: 8px;">
+                <div style="flex: 1; min-width: 0; border: 1px solid #dcded8; border-radius: 7px; background: #f2f3f0; padding: 9px 11px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">https://pact.nuanzs.com/invite/8f31c2a94d7e5b06</div>
+                <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; font-weight: 500; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 9px 14px; cursor: pointer; white-space: nowrap;">Copiar</button>
+              </div>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; background: #fffdf6; border: 1px solid #e3ddc6; border-radius: 8px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px;">ÚNICA VEZ</span>
+              <span style="font-size: 12px; color: #6b6459; line-height: 1.45;">Este enlace no se vuelve a mostrar. Si se pierde, revoca la invitación y crea otra. Caduca el 24 de agosto.</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; font-size: 12px; padding-top: 4px; border-top: 1px solid #eff0ed;">
+              <span style="color: #8a938c;">Rol en Nuanzs</span><span>Miembro</span>
+              <span style="color: #8a938c;">Acceso inicial</span><span>Footfall · Colaboradora</span>
+            </div>
+          </div>
+          <div style="padding: 13px 20px; border-top: 1px solid #e6e7e3; background: #f8f9f7; display: flex; justify-content: flex-end;">
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 8px 14px; cursor: pointer;">Listo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Estados ══ -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Estados de sistema y vacíos</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+
+      <!-- 6f GitHub desconectado -->
+      <div id="6f" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6f</span>
+          <span style="font-size: 13.5px; font-weight: 600;">GitHub no conectado</span>
+          <span style="font-size: 12.5px; color: #6b6b64;">Vacío de Código</span>
+        </div>
+        <div data-screen-label="6f GitHub no conectado" style="width: 620px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; padding: 26px 24px; display: flex; flex-direction: column; gap: 18px;">
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <span style="font-size: 16px; font-weight: 600;">Footfall aún no tiene repositorios</span>
+            <span style="font-size: 12.5px; color: #5a655e; max-width: 460px; line-height: 1.5;">La instalación de GitHub es de la organización Nuanzs. Una vez conectada, cada Workspace vincula solo los repositorios que necesita.</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0; border: 1px solid #e6e7e3; border-radius: 8px; overflow: hidden;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #fff;">
+              <span style="width: 20px; height: 20px; border-radius: 50%; background: #16211a; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">1</span>
+              <span style="font-size: 12.5px;">Conectar GitHub para la organización Nuanzs</span>
+              <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 12px; font-weight: 500; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 6px 12px; cursor: pointer;">Conectar GitHub</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid #eff0ed; background: #fbfbfa;">
+              <span style="width: 20px; height: 20px; border-radius: 50%; background: #ecedea; color: #8a938c; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</span>
+              <span style="font-size: 12.5px; color: #8a938c;">Autorizar repositorios en GitHub</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid #eff0ed; background: #fbfbfa;">
+              <span style="width: 20px; height: 20px; border-radius: 50%; background: #ecedea; color: #8a938c; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">3</span>
+              <span style="font-size: 12.5px; color: #8a938c;">Vincular uno o más repositorios a Footfall</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid #eff0ed; background: #fbfbfa;">
+              <span style="width: 20px; height: 20px; border-radius: 50%; background: #ecedea; color: #8a938c; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">4</span>
+              <span style="font-size: 12.5px; color: #8a938c;">Elegir el repositorio principal</span>
+            </div>
+          </div>
+          <span style="font-size: 11.5px; color: #8a938c;">Solo los propietarios y administradores de Nuanzs pueden completar el paso 1.</span>
+        </div>
+      </div>
+
+      <!-- 6g Conversación vacía -->
+      <div id="6g" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6g</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Sala vacía</span>
+        </div>
+        <div data-screen-label="6g Sala vacía" style="width: 480px; height: 300px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; display: flex; flex-direction: column;">
+          <div style="padding: 12px 18px; border-bottom: 1px solid #e6e7e3; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 14px; font-weight: 600;">#client-feedback</span>
+            <span style="font-size: 11.5px; color: #5a655e;">Sala de Footfall · 3 participantes</span>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; text-align: center;">
+            <span style="font-size: 13.5px; font-weight: 600;">Todavía no hay mensajes</span>
+            <span style="font-size: 12.5px; color: #5a655e; max-width: 300px; line-height: 1.5;">Escribe el primer mensaje. Lo que se converse aquí no se convierte en conocimiento durable hasta que alguien lo registre en Contexto.</span>
+          </div>
+          <div style="padding: 12px 18px; border-top: 1px solid #e6e7e3;">
+            <div style="border: 1px solid #dcded8; border-radius: 8px; background: #fff; padding: 9px 12px; font-size: 12.5px; color: #8a938c;">Escribe un mensaje o usa @ para mencionar…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6h Reconectando -->
+      <div id="6h" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6h</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Reconectando y datos rancios</span>
+        </div>
+        <div data-screen-label="6h Reconectando" style="width: 480px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 16px; background: #fff8e6; border-bottom: 1px solid #f0dda0;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: #d99e0b;"></span>
+            <span style="font-size: 12.5px; color: #6b6459;"><span style="font-weight: 600;">Reconectando con Pact Server…</span> los datos mostrados son de hace 2 min.</span>
+            <span style="margin-left: auto; font-size: 12px; color: #8a6a12; cursor: pointer;">Reintentar</span>
+          </div>
+          <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: grid; grid-template-columns: 110px 1fr 90px; align-items: center; font-size: 12.5px; opacity: 0.55;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #ecedea; color: #8a938c; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+              <span>Filtros de tráfico por zona</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a6a12;">◷ 2 min</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 110px 1fr 90px; align-items: center; font-size: 12.5px; opacity: 0.55;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 50%; background: #ecedea; color: #8a938c; font-size: 9px; display: flex; align-items: center; justify-content: center;">M</span>María</div>
+              <span>Contrato de filtros con el panel</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a6a12;">◷ 2 min</span>
+            </div>
+            <span style="font-size: 11.5px; color: #8a938c;">Los latidos se congelan y se marcan con ◷ mientras no haya stream. Nada se reordena solo.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6i Sin permiso -->
+      <div id="6i" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6i</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Sin permiso</span>
+        </div>
+        <div data-screen-label="6i Sin permiso" style="width: 400px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; padding: 22px; display: flex; flex-direction: column; gap: 10px;">
+          <span style="width: 28px; height: 28px; border-radius: 8px; background: #f1f2ef; border: 1px solid #dcded8; color: #5a655e; font-size: 13px; display: flex; align-items: center; justify-content: center;">⚿</span>
+          <span style="font-size: 14.5px; font-weight: 600;">No tienes acceso a Data Platform</span>
+          <span style="font-size: 12.5px; color: #5a655e; line-height: 1.5;">Tu rol en Nuanzs es Miembro, así que el acceso se otorga por Workspace. Pide acceso a un propietario o al mantenedor del Workspace.</span>
+          <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 8px 13px; cursor: pointer; width: fit-content;">Solicitar acceso</button>
+        </div>
+      </div>
+
+      <!-- 6j Carga -->
+      <div id="6j" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6j</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Carga y sin resultados</span>
+        </div>
+        <div style="display: flex; gap: 16px;">
+          <div data-screen-label="6j Skeleton" style="width: 400px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: grid; grid-template-columns: 118px 1fr 100px 64px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: #8a938c; padding-bottom: 7px; border-bottom: 1px solid #16211a;">
+              <span>ACTOR</span><span>OBJETIVO</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <div style="display: grid; grid-template-columns: 118px 1fr 100px 64px; gap: 10px; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #e9eae6;"></span><span style="height: 9px; width: 56px; border-radius: 4px; background: #e9eae6;"></span></div>
+                <span style="height: 9px; width: 84%; border-radius: 4px; background: #e9eae6;"></span>
+                <span style="height: 16px; width: 64px; border-radius: 5px; background: #e9eae6;"></span>
+                <span style="height: 9px; width: 34px; border-radius: 4px; background: #e9eae6; margin-left: auto;"></span>
+              </div>
+              <div style="display: grid; grid-template-columns: 118px 1fr 100px 64px; gap: 10px; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #eef0ec;"></span><span style="height: 9px; width: 44px; border-radius: 4px; background: #eef0ec;"></span></div>
+                <span style="height: 9px; width: 66%; border-radius: 4px; background: #eef0ec;"></span>
+                <span style="height: 16px; width: 64px; border-radius: 5px; background: #eef0ec;"></span>
+                <span style="height: 9px; width: 34px; border-radius: 4px; background: #eef0ec; margin-left: auto;"></span>
+              </div>
+              <div style="display: grid; grid-template-columns: 118px 1fr 100px 64px; gap: 10px; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #f3f4f1;"></span><span style="height: 9px; width: 52px; border-radius: 4px; background: #f3f4f1;"></span></div>
+                <span style="height: 9px; width: 74%; border-radius: 4px; background: #f3f4f1;"></span>
+                <span style="height: 16px; width: 64px; border-radius: 5px; background: #f3f4f1;"></span>
+                <span style="height: 9px; width: 34px; border-radius: 4px; background: #f3f4f1; margin-left: auto;"></span>
+              </div>
+            </div>
+          </div>
+          <div data-screen-label="6j Sin resultados" style="width: 320px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="font-size: 11.5px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 4px 9px;">Bloqueados</span>
+              <span style="font-size: 11.5px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 4px 9px;">footfall-infra</span>
+              <span style="font-size: 11.5px; color: #8a6a12; background: #fdf1d4; border: 1px solid #e5d5a8; border-radius: 999px; padding: 4px 9px;">△ Con colisión</span>
+            </div>
+            <div style="padding: 22px 0 10px; display: flex; flex-direction: column; gap: 7px; align-items: center; text-align: center;">
+              <span style="font-size: 13px; font-weight: 600;">Ningún intent coincide</span>
+              <span style="font-size: 12px; color: #5a655e; line-height: 1.5;">No hay trabajo bloqueado con colisión en footfall-infra ahora mismo.</span>
+              <span style="font-size: 12px; color: #2f6b46; cursor: pointer;">Quitar filtros</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6k Error de servidor -->
+      <div id="6k" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6k</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Servidor no disponible</span>
+        </div>
+        <div data-screen-label="6k Servidor caído" style="width: 440px; border: 1px solid #eecdc6; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+          <div style="padding: 11px 16px; background: #fbeae7; border-bottom: 1px solid #f3d8d2; display: flex; align-items: center; gap: 9px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a2f22; border: 1px solid #e3b7ae; border-radius: 4px; padding: 1px 6px;">SIN CONEXIÓN</span>
+            <span style="font-size: 12.5px; color: #8a2f22; font-weight: 600;">Pact Server no responde</span>
+          </div>
+          <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <span style="font-size: 12.5px; color: #35403a; line-height: 1.5;">No se puede leer el estado de Footfall. Las reservas de scope y los worktrees locales no se ven afectados: siguen vigentes en el servidor cuando vuelva.</span>
+            <div style="display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 12px; padding: 11px 12px; background: #f8f9f7; border: 1px solid #e6e7e3; border-radius: 7px;">
+              <span style="color: #8a938c;">Servidor</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">pact.nuanzs.com</span>
+              <span style="color: #8a938c;">Último contacto</span><span>14:03:22 · hace 4 min</span>
+              <span style="color: #8a938c;">Error</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">SSE 503 · upstream_unavailable</span>
+            </div>
+            <div style="display: flex; gap: 9px;">
+              <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; font-weight: 500; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 8px 13px; cursor: pointer;">Reintentar</button>
+              <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 8px 13px; cursor: pointer;">Copiar diagnóstico</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6l Confirmación destructiva -->
+      <div id="6l" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 9px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">6l</span>
+          <span style="font-size: 13.5px; font-weight: 600;">Confirmación destructiva</span>
+        </div>
+        <div data-screen-label="6l Confirmación destructiva" style="width: 440px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+          <div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;">
+            <span style="font-size: 15px; font-weight: 600;">Revocar el dispositivo de Kimi</span>
+            <span style="font-size: 12.5px; color: #35403a; line-height: 1.5;">La sesión MCP se cierra de inmediato y el agente deja de enviar latidos. Sus reservas de scope se liberan al vencer el arriendo, en 6 min.</span>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <span style="font-size: 12px; color: #35403a;">Escribe <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600;">dev_1a05</span> para confirmar</span>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 9px 11px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8a938c;">dev_</div>
+            </div>
+            <span style="font-size: 11.5px; color: #8a938c;">Revocar un dispositivo no desactiva la cuenta de Daniel ni borra su historial.</span>
+          </div>
+          <div style="padding: 13px 18px; border-top: 1px solid #e6e7e3; background: #f8f9f7; display: flex; gap: 10px; justify-content: flex-end;">
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 8px 14px; cursor: pointer;">Cancelar</button>
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12.5px; font-weight: 500; color: #fff; background: #8a2f22; border: 0; border-radius: 7px; padding: 8px 14px; cursor: pointer; opacity: 0.5;">Revocar dispositivo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</x-dc>
+</body>
+</html>

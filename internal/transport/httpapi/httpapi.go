@@ -31,6 +31,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
+	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/publicui"
 	"github.com/jorgenuanzs/the-pact/internal/useradmin"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -69,6 +70,7 @@ type WorkspaceService interface {
 	Create(context.Context, string, workspaces.CreateInput) (workspaces.CreateResult, error)
 	Get(context.Context, string) (workspaces.Workspace, error)
 	List(context.Context) ([]workspaces.Workspace, error)
+	Update(context.Context, string, workspaces.UpdateInput) (workspaces.Workspace, error)
 	AttachProject(context.Context, string, string) (workspaces.Workspace, error)
 }
 
@@ -185,32 +187,36 @@ type Config struct {
 	StreamShutdown           <-chan struct{}
 	StreamPollInterval       time.Duration
 	StreamHeartbeatEvery     time.Duration
+	StreamAuthorizationEvery time.Duration
+	streamAuthorizationTicks <-chan time.Time
 }
 
 type API struct {
-	logger               *slog.Logger
-	organizationID       string
-	build                buildinfo.Info
-	readiness            ReadinessCheck
-	projects             ProjectService
-	repositorySync       RepositorySyncService
-	projectRepositories  ProjectRepositoryService
-	githubApp            GitHubAppService
-	workspaces           WorkspaceService
-	knowledge            KnowledgeService
-	rooms                RoomService
-	agentSessions        AgentSessionService
-	coordination         CoordinationService
-	handoffs             HandoffService
-	contextPacks         ContextPackService
-	authentication       AuthenticationService
-	access               AccessService
-	userAdmin            UserAdminService
-	backoffice           backoffice.Reader
-	events               eventlog.Reader
-	streamShutdown       <-chan struct{}
-	streamPollInterval   time.Duration
-	streamHeartbeatEvery time.Duration
+	logger                   *slog.Logger
+	organizationID           string
+	build                    buildinfo.Info
+	readiness                ReadinessCheck
+	projects                 ProjectService
+	repositorySync           RepositorySyncService
+	projectRepositories      ProjectRepositoryService
+	githubApp                GitHubAppService
+	workspaces               WorkspaceService
+	knowledge                KnowledgeService
+	rooms                    RoomService
+	agentSessions            AgentSessionService
+	coordination             CoordinationService
+	handoffs                 HandoffService
+	contextPacks             ContextPackService
+	authentication           AuthenticationService
+	access                   AccessService
+	userAdmin                UserAdminService
+	backoffice               backoffice.Reader
+	events                   eventlog.Reader
+	streamShutdown           <-chan struct{}
+	streamPollInterval       time.Duration
+	streamHeartbeatEvery     time.Duration
+	streamAuthorizationEvery time.Duration
+	streamAuthorizationTicks <-chan time.Time
 }
 
 func New(cfg Config) http.Handler {
@@ -223,35 +229,44 @@ func New(cfg Config) http.Handler {
 	if cfg.StreamHeartbeatEvery <= 0 {
 		cfg.StreamHeartbeatEvery = 15 * time.Second
 	}
+	if cfg.StreamAuthorizationEvery <= 0 {
+		cfg.StreamAuthorizationEvery = 15 * time.Second
+	}
 
 	api := &API{
-		logger:               cfg.Logger,
-		organizationID:       cfg.OrganizationID,
-		build:                cfg.Build,
-		readiness:            cfg.Readiness,
-		projects:             cfg.ProjectService,
-		repositorySync:       cfg.RepositorySyncService,
-		projectRepositories:  cfg.ProjectRepositoryService,
-		githubApp:            cfg.GitHubAppService,
-		workspaces:           cfg.WorkspaceService,
-		knowledge:            cfg.KnowledgeService,
-		rooms:                cfg.RoomService,
-		agentSessions:        cfg.AgentSessionService,
-		coordination:         cfg.CoordinationService,
-		handoffs:             cfg.HandoffService,
-		contextPacks:         cfg.ContextPackService,
-		authentication:       cfg.AuthenticationService,
-		access:               cfg.AccessService,
-		userAdmin:            cfg.UserAdminService,
-		backoffice:           cfg.BackofficeReader,
-		events:               cfg.EventReader,
-		streamShutdown:       cfg.StreamShutdown,
-		streamPollInterval:   cfg.StreamPollInterval,
-		streamHeartbeatEvery: cfg.StreamHeartbeatEvery,
+		logger:                   cfg.Logger,
+		organizationID:           cfg.OrganizationID,
+		build:                    cfg.Build,
+		readiness:                cfg.Readiness,
+		projects:                 cfg.ProjectService,
+		repositorySync:           cfg.RepositorySyncService,
+		projectRepositories:      cfg.ProjectRepositoryService,
+		githubApp:                cfg.GitHubAppService,
+		workspaces:               cfg.WorkspaceService,
+		knowledge:                cfg.KnowledgeService,
+		rooms:                    cfg.RoomService,
+		agentSessions:            cfg.AgentSessionService,
+		coordination:             cfg.CoordinationService,
+		handoffs:                 cfg.HandoffService,
+		contextPacks:             cfg.ContextPackService,
+		authentication:           cfg.AuthenticationService,
+		access:                   cfg.AccessService,
+		userAdmin:                cfg.UserAdminService,
+		backoffice:               cfg.BackofficeReader,
+		events:                   cfg.EventReader,
+		streamShutdown:           cfg.StreamShutdown,
+		streamPollInterval:       cfg.StreamPollInterval,
+		streamHeartbeatEvery:     cfg.StreamHeartbeatEvery,
+		streamAuthorizationEvery: cfg.StreamAuthorizationEvery,
+		streamAuthorizationTicks: cfg.streamAuthorizationTicks,
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", api.handleAdminRedirect)
+	mux.Handle("GET /{$}", publicui.Handler())
+	mux.Handle("GET /assets/", publicui.Handler())
+	mux.Handle("GET /favicon.svg", publicui.Handler())
+	mux.Handle("GET /robots.txt", publicui.Handler())
+	mux.Handle("GET /sitemap.xml", publicui.Handler())
 	mux.HandleFunc("GET /livez", api.handleLive)
 	mux.HandleFunc("GET /readyz", api.handleReady)
 	mux.HandleFunc("GET /version", api.handleVersion)
@@ -286,6 +301,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleListWorkspaces)))
 	mux.Handle("POST /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleCreateWorkspace)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleGetWorkspace)))
+	mux.Handle("PATCH /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleUpdateWorkspace)))
 	mux.Handle("PUT /v1/workspaces/{workspaceID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspaceProject)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListResources))))
 	mux.Handle("POST /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleCreateResource))))
@@ -345,7 +361,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/admin/", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
-	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch))
 	mux.Handle("/v1/workspaces/{workspaceID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut))
 	mux.Handle("/v1/admin/users", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/admin/users/{principalID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete))
@@ -559,6 +575,33 @@ func (a *API) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": filtered[0]})
+}
+
+func (a *API) handleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if a.workspaces == nil {
+		a.writeDomainError(w, r, errors.New("workspace service is not configured"))
+		return
+	}
+	if a.access == nil || !a.access.CanCreateProject(principal) {
+		a.writeDomainError(w, r, access.ErrForbidden)
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	var input workspaces.UpdateInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	workspace, err := a.workspaces.Update(r.Context(), r.PathValue("workspaceID"), input)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": workspace})
 }
 
 func (a *API) handleAttachWorkspaceProject(w http.ResponseWriter, r *http.Request) {
@@ -1665,6 +1708,41 @@ func (a *API) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	order := strings.TrimSpace(r.URL.Query().Get("order"))
+	if order != "" && order != "asc" && order != "desc" {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_order", "Invalid event order", "order must be asc or desc")
+		return
+	}
+	if order == "desc" {
+		before, err := optionalEventCursor(r.URL.Query().Get("before"))
+		if err != nil {
+			writeProblem(w, r, http.StatusBadRequest, "invalid_cursor", "Invalid event cursor", err.Error())
+			return
+		}
+		_, limit, err := eventPage(r)
+		if err != nil {
+			writeProblem(w, r, http.StatusBadRequest, "invalid_cursor", "Invalid event cursor", err.Error())
+			return
+		}
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if len(query) > 200 {
+			writeProblem(w, r, http.StatusBadRequest, "invalid_query", "Invalid event search", "q must not exceed 200 characters")
+			return
+		}
+		history, ok := a.events.(eventlog.HistoryReader)
+		if !ok {
+			a.writeDomainError(w, r, errors.New("reverse event history is not configured"))
+			return
+		}
+		events, err := history.ListRecent(r.Context(), a.organizationID, projectID, before, limit+1, query)
+		if err != nil {
+			a.writeDomainError(w, r, err)
+			return
+		}
+		writeEventPage(w, events, limit)
+		return
+	}
+
 	after, limit, err := eventPage(r)
 	if err != nil {
 		writeProblem(w, r, http.StatusBadRequest, "invalid_cursor", "Invalid event cursor", err.Error())
@@ -1676,7 +1754,10 @@ func (a *API) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		a.writeDomainError(w, r, err)
 		return
 	}
+	writeEventPage(w, events, limit)
+}
 
+func writeEventPage(w http.ResponseWriter, events []eventlog.Event, limit int) {
 	hasMore := len(events) > limit
 	if hasMore {
 		events = events[:limit]
@@ -1742,8 +1823,59 @@ func newEventResponse(event eventlog.Event) eventResponse {
 	}
 }
 
+func (a *API) revalidateStreamAuthorization(
+	ctx context.Context,
+	authentication requestAuthentication,
+	projectID string,
+) error {
+	if a.authentication == nil || a.access == nil || strings.TrimSpace(authentication.Credential) == "" {
+		return authn.ErrUnauthorized
+	}
+
+	var principal access.Principal
+	switch authentication.Kind {
+	case "web":
+		if authentication.Web == nil {
+			return authn.ErrUnauthorized
+		}
+		session, err := a.authentication.AuthenticateWeb(ctx, authentication.Credential)
+		if err != nil {
+			return err
+		}
+		if session.ID != authentication.Web.ID ||
+			session.Principal.ID != authentication.Web.Principal.ID ||
+			session.Principal.OrganizationID != authentication.Web.Principal.OrganizationID {
+			return authn.ErrUnauthorized
+		}
+		principal = session.Principal
+	case "device":
+		if authentication.Device == nil {
+			return authn.ErrUnauthorized
+		}
+		device, err := a.authentication.AuthenticateDevice(ctx, authentication.Credential)
+		if err != nil {
+			return err
+		}
+		if device.CredentialID != authentication.Device.CredentialID ||
+			device.Principal.ID != authentication.Device.Principal.ID ||
+			device.Principal.OrganizationID != authentication.Device.Principal.OrganizationID {
+			return authn.ErrUnauthorized
+		}
+		principal = device.Principal
+	default:
+		return authn.ErrUnauthorized
+	}
+
+	return a.access.RequireProjectRole(ctx, principal, projectID, "viewer")
+}
+
 func (a *API) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
+	authentication, ok := authenticationFromContext(r.Context())
+	if !ok {
+		a.writeDomainError(w, r, authn.ErrUnauthorized)
+		return
+	}
 	if _, err := a.projects.Get(r.Context(), projectID); err != nil {
 		a.writeDomainError(w, r, err)
 		return
@@ -1792,12 +1924,44 @@ func (a *API) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	defer poll.Stop()
 	heartbeat := time.NewTicker(a.streamHeartbeatEvery)
 	defer heartbeat.Stop()
+	authorizationTicks := a.streamAuthorizationTicks
+	var authorization *time.Ticker
+	if authorizationTicks == nil {
+		authorization = time.NewTicker(a.streamAuthorizationEvery)
+		authorizationTicks = authorization.C
+		defer authorization.Stop()
+	}
+
+	revalidateAuthorization := func() bool {
+		if authErr := a.revalidateStreamAuthorization(r.Context(), authentication, projectID); authErr != nil {
+			a.logger.InfoContext(
+				r.Context(),
+				"event stream authorization is no longer valid",
+				"authentication_kind", authentication.Kind,
+				"project_id", projectID,
+				"error", authErr,
+			)
+			return false
+		}
+		return true
+	}
+	checkAuthorization := func() bool {
+		select {
+		case <-authorizationTicks:
+			return revalidateAuthorization()
+		default:
+			return true
+		}
+	}
 
 	for {
 		select {
 		case <-a.streamShutdown:
 			return
 		default:
+		}
+		if !checkAuthorization() {
+			return
 		}
 
 		events, listErr := a.events.List(r.Context(), a.organizationID, projectID, after, 100)
@@ -1807,6 +1971,9 @@ func (a *API) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, event := range events {
+			if !checkAuthorization() {
+				return
+			}
 			if !refreshWriteDeadline() {
 				return
 			}
@@ -1836,6 +2003,10 @@ func (a *API) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-a.streamShutdown:
 			return
+		case <-authorizationTicks:
+			if !revalidateAuthorization() {
+				return
+			}
 		case <-poll.C:
 		case <-heartbeat.C:
 			if !refreshWriteDeadline() {
@@ -2144,6 +2315,18 @@ func parseCursor(raw string) (int64, error) {
 		return 0, errors.New("after and Last-Event-ID must be non-negative event cursors")
 	}
 	return cursor, nil
+}
+
+func optionalEventCursor(raw string) (*int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	cursor, err := parseCursor(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &cursor, nil
 }
 
 func hasJSONContentType(value string) bool {

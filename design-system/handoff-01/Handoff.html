@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PACT Control · Handoff de diseño</title>
+<link rel="icon" href="marca/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="marca/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="marca/apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: #e8e8e4; font-family: 'Instrument Sans', system-ui, sans-serif; color: #16211a; }
+  main { max-width: 860px; margin: 0 auto; background: #fbfbfa; padding: 56px 64px 72px; }
+  h1 { font-size: 27px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+  h2 { font-size: 17px; font-weight: 600; margin: 38px 0 10px; padding-bottom: 7px; border-bottom: 1px solid #dcded8; }
+  h3 { font-size: 14px; font-weight: 600; margin: 22px 0 6px; }
+  p, li { font-size: 14px; line-height: 1.62; color: #26312b; text-wrap: pretty; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+  code { background: #f2f3f0; border: 1px solid #e4e6e1; border-radius: 4px; padding: 1px 5px; }
+  pre { font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; background: #f2f3f0; border: 1px solid #e4e6e1; border-radius: 8px; padding: 14px 16px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 4px; }
+  th { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #8a938c; text-align: left; font-weight: 400; padding: 0 8px 7px 0; border-bottom: 1px solid #16211a; }
+  td { font-size: 13px; padding: 9px 8px 9px 0; border-bottom: 1px solid #eaebe7; vertical-align: top; }
+  .lead { font-size: 15.5px; line-height: 1.6; color: #35403a; }
+  .meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; color: #8a938c; text-transform: uppercase; }
+  .nota { background: #fffdf6; border: 1px solid #e3ddc6; border-radius: 8px; padding: 13px 15px; font-size: 13.5px; line-height: 1.55; }
+  a { color: #2f6b46; }
+  @media print { body { background: #fff; } main { padding: 0; max-width: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header style="display:flex; align-items:center; gap:14px; margin-bottom:22px;">
+    <svg viewBox="0 0 48 40" width="46" height="38" aria-label="PACT">
+      <path d="M17 5.5 H8.5 V34.5 H17" fill="none" stroke="#16211A" stroke-width="5" stroke-linecap="square"/>
+      <path d="M31 5.5 H39.5 V34.5 H31" fill="none" stroke="#16211A" stroke-width="5" stroke-linecap="square"/>
+      <circle cx="24" cy="20" r="5" fill="#C9EE4D"/>
+    </svg>
+    <div>
+      <div class="meta">Handoff de diseño · agosto 2026</div>
+      <h1>PACT Control</h1>
+    </div>
+  </header>
+
+  <p class="lead">PACT Control es el plano de control web de PACT: la capa de coordinación y memoria compartida de proyectos donde trabajan personas y varios agentes de IA al mismo tiempo. Git sigue siendo la fuente de verdad del código; PACT responde quién está trabajando, sobre qué, con qué alcance reservado, en qué rama y worktree, y qué conocimiento quedó acordado.</p>
+
+  <h2>1. El cambio conceptual central</h2>
+  <p>La jerarquía anterior (<span class="mono">Organization → Workspace → Project → Repository</span>) desapareció. El nivel «Project» no existe visualmente: duplicaba el nombre del producto y dejaba dos vistas de resumen compitiendo. La jerarquía del diseño es:</p>
+  <pre>Organization  ·  Nuanzs
+  └── Workspace  ·  Footfall, Magi, Cost Control, Customer Portal, Data Platform
+        ├── Repository  ·  nuanzs/footfall-web, footfall-api, footfall-infra
+        │     └── Intent  ·  trabajo declarado por una persona o un agente
+        │           ├── Scope   ·  repositorio, ruta o archivo reservado
+        │           └── Worktree ·  checkout local aislado
+        ├── Conversaciones · salas del equipo
+        ├── Contexto durable · decisiones, requisitos, riesgos, preguntas, evidencias
+        └── Personas, agentes, sesiones, accesos, integraciones</pre>
+  <p>Un Workspace es el entorno vivo de un proyecto completo: reúne su código, su gente, sus agentes, su trabajo, sus conversaciones, su conocimiento y sus accesos. Los repositorios son partes técnicas de ese Workspace, no proyectos separados.</p>
+  <div class="nota"><strong>Consecuencia en la interfaz:</strong> se eliminó la sección PROYECTOS del sidebar, el breadcrumb <span class="mono">FOOTFALL / FOOTFALL-API</span> y la fila de pestañas horizontales. Existe un solo Resumen (el del Workspace) y una sola entrada de Configuración.</div>
+
+  <h2>2. Arquitectura de navegación</h2>
+  <p>Tres zonas fijas, de izquierda a derecha:</p>
+  <table>
+    <tr><th style="width:130px">Zona</th><th style="width:80px">Ancho</th><th>Contenido</th></tr>
+    <tr><td><strong>Rail global</strong></td><td class="mono">64</td><td>Marca, Inicio, Menciones, un tile por Workspace con su letra y su color, explorador (⌘) cuando hay muchos, administración de la organización y cuenta. El tile activo lleva barra lateral de acento; los avisos van como badge, la actividad viva como punto verde.</td></tr>
+    <tr><td><strong>Sidebar del Workspace</strong></td><td class="mono">256</td><td>Nombre, descripción, selector de color, búsqueda y la navegación interna agrupada: GENERAL (Resumen) · OPERACIÓN (Trabajo en vivo, Actividad) · COLABORACIÓN (Conversaciones, Contexto) · CÓDIGO (Repositorios y su lista) · GESTIÓN (Personas y agentes, Acceso, Configuración). Al pie, el estado del stream SSE.</td></tr>
+    <tr><td><strong>Panel principal</strong></td><td class="mono">resto</td><td>La sección seleccionada. Seleccionar un repositorio abre su detalle sin salir del Workspace. Las filas de trabajo abren un drawer de 640 px sobre el panel.</td></tr>
+  </table>
+  <p>Con un solo Workspace, PACT lo abre tras el login, el rail se reduce a marca + un tile y no aparece ninguna pantalla intermedia. La complejidad organizacional aparece sola cuando hay más de uno: entonces el explorador con búsqueda reemplaza el crecimiento infinito de iconos.</p>
+
+  <h2>3. Principios que gobiernan las pantallas</h2>
+  <ul>
+    <li><strong>Vivo y durable se ven distinto.</strong> Presencia y latidos usan punto sólido y tiempo relativo en monoespaciado; el conocimiento aceptado y la auditoría usan fecha y estado de ciclo de vida, sin punto.</li>
+    <li><strong>Una acción primaria por vista.</strong> Lo secundario es contorno; lo destructivo vive separado, en zona de riesgo, y pide confirmación escrita.</li>
+    <li><strong>El estado nunca depende solo del color:</strong> siempre color + palabra + icono o forma. Por eso el color de marca puede cambiarlo el usuario sin romper la semántica.</li>
+    <li><strong>Denso pero legible:</strong> filas de 40 px, tablas en lugar de tarjetas KPI, sin ningún número convertido en métrica decorativa.</li>
+    <li><strong>Sin falsas afordancias:</strong> el conocimiento, los handoffs y los Context Packs se leen en la web; los crean los agentes por MCP. Mencionar a un agente no lo ejecuta: la mención es un ítem de bandeja con estado.</li>
+    <li><strong>Desambiguación multirrepo:</strong> ningún scope se muestra suelto. Siempre <span class="mono">footfall-api · backend/internal/reports</span>.</li>
+  </ul>
+
+  <h2>4. Pantallas entregadas</h2>
+  <p>Todo el prototipo navegable vive en <code>pantallas/PACT Control v2.dc.html</code>. Se abre en el navegador; el sidebar cambia de sección y las filas abren drawers.</p>
+  <table>
+    <tr><th style="width:190px">Vista</th><th>Qué responde</th></tr>
+    <tr><td><strong>Resumen</strong></td><td>Franja de atención (colisión de scope, sesión sin latido, repositorio sin verificar), presencia «Ahora», tabla de trabajo activo, repositorios, contexto por revisar y actividad en vivo.</td></tr>
+    <tr><td><strong>Trabajo en vivo</strong></td><td>Filtros y tabla densa de intents con actor, objetivo, repositorio·scope, rama/worktree, estado y latido. Cada fila abre el drawer: criterios de éxito, scopes con modo y vencimiento, worktree, revisión base y observada, resumen durable, handoff, Context Pack y eventos.</td></tr>
+    <tr><td><strong>Colisión de scope</strong></td><td>Estado dentro del drawer de Claude: dueño del scope, tipo de reserva, vencimiento, si hubo override y salto a los dos intents.</td></tr>
+    <tr><td><strong>Agente stale</strong></td><td>Kimi sin heartbeat: estado observado desconocido, reserva que sigue viva y acceso a la sesión.</td></tr>
+    <tr><td><strong>Conversaciones</strong></td><td>Salas del Workspace, identidad humana vs. agente, respuestas referenciadas, menciones con estado pendiente y compositor con selección explícita de @.</td></tr>
+    <tr><td><strong>Contexto</strong></td><td>Registros por tipo y estado de ciclo de vida, con autor, fecha y evidencias; columna de solo lectura para handoffs y Context Packs.</td></tr>
+    <tr><td><strong>Repositorios y detalle</strong></td><td>Instalación de GitHub a nivel de organización, rol y propósito por repositorio, rama y commit, sincronización, intents y avisos. El detalle muestra estado Git observado, intents y scopes reservados.</td></tr>
+    <tr><td><strong>Personas y agentes · Acceso</strong></td><td>Roles del Workspace y su origen (global por rol de organización vs. permiso directo), sesiones y dispositivos con revocación, y la frontera explícita con la administración de Nuanzs.</td></tr>
+    <tr><td><strong>Actividad</strong></td><td>Timeline auditable con filtros; resumen legible primero, identificadores técnicos después.</td></tr>
+    <tr><td><strong>Configuración</strong></td><td>General, integraciones y zona de riesgo separada.</td></tr>
+  </table>
+  <p>Las pantallas auxiliares están en <code>pantallas/PACT Pantallas auxiliares.dc.html</code>: login con estado del servidor, autorización de dispositivo con código corto y su confirmación, creación de invitación y enlace de un solo uso, GitHub no conectado en cuatro pasos, sala vacía, reconexión con datos rancios, sin permiso, skeleton de carga, sin resultados, servidor caído y confirmación destructiva.</p>
+
+  <h2>5. Sistema de diseño</h2>
+  <p>Tokens y componentes en <code>pantallas/PACT Design System.dc.html</code>.</p>
+  <h3>Color</h3>
+  <ul>
+    <li>Tinta <code>#16211A</code>; textos <code>#35403A</code> / <code>#5A655E</code> / <code>#8A938C</code>; sidebar <code>#F2F3F0</code>; lienzo <code>#FBFBFA</code>; borde <code>#E6E7E3</code>.</li>
+    <li>Semánticos fijos: activo <code>#3F8F5A</code>, aviso <code>#D99E0B</code>, error <code>#8A2F22</code>, informativo <code>#1D4E6B</code>.</li>
+    <li>Acento por Workspace, elegido por el usuario: lima, cian, cobalto, naranja, terracota, malva. Pinta marca, tile, selección e identidad de agente; nunca un estado.</li>
+  </ul>
+  <h3>Tipografía y métrica</h3>
+  <ul>
+    <li>Instrument Sans para interfaz: 21 título de vista · 15 panel · 14 sección · 13 cuerpo · 12.5 tabla · 11.5 ayuda.</li>
+    <li>JetBrains Mono solo para ramas, commits, rutas, identificadores, códigos y tiempos relativos; y para etiquetas de columna en 10 px con 0.1em.</li>
+    <li>Ritmo de 8 (4/8/12/16/24/32), radios 4 chip · 6 nav · 7 control · 10 panel, bordes de 1 px y sombra solo en drawer y diálogos.</li>
+  </ul>
+  <h3>Componentes</h3>
+  <p>Shell de tres zonas, tile de Workspace, ítem de navegación y su hijo repositorio, campo de búsqueda, cabecera compacta, tabla con encabezado fijo y cuatro estados de fila, drawer, chips de estado de trabajo y de ciclo de vida del conocimiento, avatares (persona redonda, agente cuadrado) y stacks, chips de presencia, banners de atención, filas de evento, registro, recurso y repositorio, botones en cuatro niveles y tres tamaños, campos con foco y error, casillas y conmutadores, menús, tooltips, toasts, diálogos destructivos, skeletons, vacíos, sin permiso y reconexión.</p>
+
+  <h2>6. Marca y favicon</h2>
+  <p>La marca son dos corchetes con un punto vivo al centro: el trabajo declarado entre límites explícitos. Los corchetes van siempre en tinta o blanco; el punto toma el color del Workspace activo. Todo en <code>marca/</code>:</p>
+  <ul>
+    <li><strong>SVG:</strong> marca, marca inversa, monocromas tinta y blanco, lockup en tres versiones, icono de app y <code>favicon.svg</code>.</li>
+    <li><strong>PNG:</strong> icono de app 1024/512/256/64, <code>apple-touch-icon.png</code> 180, favicons 48/32/16 y marca suelta 512/128 con fondo transparente.</li>
+    <li><strong>ICO:</strong> <code>favicon.ico</code> con 16, 32 y 48 px en un solo archivo.</li>
+  </ul>
+  <pre>&lt;link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48"&gt;
+&lt;link rel="icon" href="/favicon.svg" type="image/svg+xml"&gt;
+&lt;link rel="apple-touch-icon" href="/apple-touch-icon.png"&gt;</pre>
+  <p>Aire mínimo: el ancho de un corchete. Tamaño mínimo: 16 px la marca, 88 px el lockup. Reglas completas en <code>marca/USO.md</code>.</p>
+
+  <h2>7. Accesibilidad y comportamiento por ancho</h2>
+  <ul>
+    <li>Contraste AA como mínimo; ningún significado transmitido solo por color; etiquetas de lector de pantalla en puntos de estado, avatares, contadores y señales vivas.</li>
+    <li>Foco visible de 2 px, orden de tabulación por columnas, todas las acciones primarias alcanzables por teclado, diálogos con foco atrapado y cierre con Esc.</li>
+    <li>Las llegadas en vivo no roban el foco ni reordenan la vista; al perder el stream los latidos se congelan y se marcan con ◷ sobre fondo de aviso.</li>
+    <li>1440: tres zonas completas. 1280: sidebar 224 y la tabla oculta rama/worktree. 1024: sidebar en cajón sobre el panel, rail permanece. Móvil: rail como barra inferior, filas en dos líneas, drawer a pantalla completa, conversaciones en pantallas sucesivas. Actor, objetivo, estado y señal de atención nunca se ocultan.</li>
+  </ul>
+
+  <h2>8. Decisiones abiertas para el equipo</h2>
+  <ul>
+    <li><strong>Tasks vs. Intents:</strong> el diseño solo muestra Intents. Cuando entren Issues de GitHub o Linear habrá que decidir si viven como pestaña aparte de Trabajo en vivo o como origen opcional de un Intent.</li>
+    <li><strong>Resolver una colisión:</strong> el prototipo ofrece «solicitar liberación» y navegar a ambos intents. Si el backend permitirá forzar override desde la web, falta definir quién puede y qué registro de auditoría deja.</li>
+    <li><strong>Edición de conocimiento en la web:</strong> hoy es solo lectura porque los Records los crean los agentes por MCP. Si se habilita edición humana, el ciclo de vida (propuesto → aceptado → en disputa) necesita su propio formulario.</li>
+    <li><strong>Color por Workspace:</strong> queda por confirmar si es preferencia personal o atributo compartido del Workspace, y si un Workspace archivado pierde su acento.</li>
+    <li><strong>Vencimiento de reservas:</strong> el prototipo asume arriendo de 60 min renovado con cada latido y liberación automática al vencer; conviene verificarlo contra el servidor.</li>
+  </ul>
+
+  <h2>9. Contenido del paquete</h2>
+  <pre>handoff/
+  Handoff.html                       este documento
+  LEEME.md                           índice y cómo abrir los archivos
+  marca/                             SVG, PNG, favicon.ico y USO.md
+  pantallas/
+    PACT Control v2.dc.html          prototipo navegable (pantallas finales)
+    PACT Pantallas auxiliares.dc.html  login, dispositivo, invitaciones y estados
+    PACT Design System.dc.html       tokens y componentes
+    PACT Paletas y logo.dc.html      exploración de color y marcas
+    PACT Exploraciones iniciales.dc.html  primeras direcciones visuales
+    support.js                       runtime necesario para abrir los .dc.html</pre>
+  <p style="color:#5a655e; font-size:13px; margin-top:26px;">Datos de ejemplo: organización Nuanzs; Workspace Footfall con <span class="mono">nuanzs/footfall-web</span>, <span class="mono">footfall-api</span> y <span class="mono">footfall-infra</span>; personas Jorge, María y Daniel; agentes Codex, Claude y Kimi. Toda la interfaz está en español neutro.</p>
+</main>
+</body>
+</html>

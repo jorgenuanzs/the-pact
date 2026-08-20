@@ -1,0 +1,23 @@
+.pact-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pact-space-4);
+}
+
+.pact-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pact-space-2);
+}
+
+.pact-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pact-scroll-lock {
+  overflow: hidden;
+}

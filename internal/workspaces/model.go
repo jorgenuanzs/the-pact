@@ -11,6 +11,7 @@ type Workspace struct {
 	Name           string     `json:"name"`
 	Slug           string     `json:"slug"`
 	Description    string     `json:"description"`
+	Color          string     `json:"color"`
 	Status         string     `json:"status"`
 	Projects       []Project  `json:"projects"`
 	Version        int64      `json:"version"`
@@ -31,7 +32,14 @@ type CreateInput struct {
 	Name        string   `json:"name"`
 	Slug        string   `json:"slug"`
 	Description string   `json:"description,omitempty"`
+	Color       string   `json:"color,omitempty"`
 	ProjectIDs  []string `json:"project_ids,omitempty"`
+}
+
+type UpdateInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
 }
 
 type CreateResult struct {

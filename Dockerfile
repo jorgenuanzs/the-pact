@@ -1,6 +1,28 @@
 # syntax=docker/dockerfile:1.7
 
-FROM golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS source
+FROM node:24.16.0-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a AS web-dependencies
+
+WORKDIR /src/web
+
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+FROM web-dependencies AS web-source
+
+COPY web/ ./
+
+FROM web-source AS web-test
+
+RUN npm run typecheck \
+    && npm test \
+    && touch /tmp/pact-web-tests-passed
+
+FROM web-source AS web-build
+
+RUN npm run build
+
+FROM golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS go-source
 
 LABEL io.pact.project="the-pact"
 
@@ -13,9 +35,16 @@ RUN go mod download
 
 COPY . .
 
+FROM go-source AS source
+
+COPY --from=web-build /src/internal/transport/httpapi/adminui/dist ./internal/transport/httpapi/adminui/dist
+COPY --from=web-build /src/internal/transport/httpapi/publicui/dist ./internal/transport/httpapi/publicui/dist
+
 FROM source AS test
 
 ARG GO_TEST_FLAGS
+
+COPY --from=web-test /tmp/pact-web-tests-passed /tmp/pact-web-tests-passed
 
 RUN unformatted="$(find . -type f -name '*.go' -exec gofmt -l {} +)" \
     && test -z "${unformatted}" \
@@ -26,6 +55,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go test ${GO_TEST_FLAGS} ./...
+
+FROM source AS test-ui
+
+COPY --from=web-test /tmp/pact-web-tests-passed /tmp/pact-web-tests-passed
+
+RUN unformatted="$(find internal/transport/httpapi/adminui internal/transport/httpapi/publicui -type f -name '*.go' -exec gofmt -l {} +)" \
+    && test -z "${unformatted}" \
+    || { printf 'Unformatted Admin UI Go files:\n%s\n' "${unformatted}"; exit 1; }
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+	go vet ./internal/transport/httpapi/adminui ./internal/transport/httpapi/publicui \
+	&& go test ./internal/transport/httpapi/adminui ./internal/transport/httpapi/publicui
 
 FROM source AS build
 
@@ -44,7 +85,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -o /out/pact-server \
       ./cmd/pact-server
 
-FROM source AS cli-build
+FROM go-source AS cli-build
 
 ARG VERSION=dev
 ARG COMMIT=unknown

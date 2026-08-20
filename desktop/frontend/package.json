@@ -1,0 +1,11 @@
+{
+  "name": "@pact/desktop-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "install:shared": "npm --prefix ../../web ci",
+    "prepare:helper": "node ../../web/scripts/build-desktop-helper.mjs",
+    "build": "npm run prepare:helper && npm --prefix ../../web run build:desktop",
+    "dev": "npm run prepare:helper && npm --prefix ../../web run dev:desktop"
+  }
+}

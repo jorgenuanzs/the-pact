@@ -52,10 +52,10 @@ func (r *PostgresRepository) Create(
 
 	var workspaceID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO identity.workspaces (organization_id, name, slug, description)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO identity.workspaces (organization_id, name, slug, description, settings)
+		VALUES ($1, $2, $3, $4, jsonb_build_object('color', $5::text))
 		RETURNING id
-	`, organizationID, input.Name, input.Slug, input.Description).Scan(&workspaceID)
+	`, organizationID, input.Name, input.Slug, input.Description, input.Color).Scan(&workspaceID)
 	if err != nil {
 		return CreateResult{}, mapWriteError(err)
 	}
@@ -97,12 +97,13 @@ func (r *PostgresRepository) Get(ctx context.Context, organizationID, reference 
 
 func (r *PostgresRepository) List(ctx context.Context, organizationID string) ([]Workspace, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, organization_id, name, slug, description, status, version,
+		SELECT id, organization_id, name, slug, description,
+		       COALESCE(settings->>'color', $2), status, version,
 		       created_at, updated_at, archived_at
 		FROM identity.workspaces
 		WHERE organization_id = $1
 		ORDER BY status, lower(name), id
-	`, organizationID)
+	`, organizationID, DefaultColor)
 	if err != nil {
 		return nil, fmt.Errorf("list workspaces: %w", err)
 	}
@@ -124,6 +125,25 @@ func (r *PostgresRepository) List(ctx context.Context, organizationID string) ([
 		return nil, fmt.Errorf("list workspaces: %w", err)
 	}
 	return result, nil
+}
+
+func (r *PostgresRepository) Update(ctx context.Context, organizationID, reference string, input UpdateInput) (Workspace, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE identity.workspaces
+		SET name = $3,
+		    description = $4,
+		    settings = jsonb_set(settings, '{color}', to_jsonb($5::text), true),
+		    version = version + 1,
+		    updated_at = transaction_timestamp()
+		WHERE organization_id = $1 AND (id::text = $2 OR slug = $2)
+	`, organizationID, reference, input.Name, input.Description, input.Color)
+	if err != nil {
+		return Workspace{}, fmt.Errorf("update workspace: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return Workspace{}, ErrNotFound
+	}
+	return loadWorkspace(ctx, r.pool, organizationID, reference)
 }
 
 func (r *PostgresRepository) AttachProject(ctx context.Context, organizationID, workspaceID, projectID string) (Workspace, error) {
@@ -155,11 +175,12 @@ type database interface {
 
 func loadWorkspace(ctx context.Context, db database, organizationID, reference string) (Workspace, error) {
 	workspace, err := scanWorkspace(db.QueryRow(ctx, `
-		SELECT id, organization_id, name, slug, description, status, version,
+		SELECT id, organization_id, name, slug, description,
+		       COALESCE(settings->>'color', $3), status, version,
 		       created_at, updated_at, archived_at
 		FROM identity.workspaces
 		WHERE organization_id = $1 AND (id::text = $2 OR slug = $2)
-	`, organizationID, reference))
+	`, organizationID, reference, DefaultColor))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Workspace{}, ErrNotFound
 	}
@@ -287,7 +308,7 @@ func scanWorkspace(row rowScanner) (Workspace, error) {
 	var workspace Workspace
 	err := row.Scan(
 		&workspace.ID, &workspace.OrganizationID, &workspace.Name, &workspace.Slug,
-		&workspace.Description, &workspace.Status, &workspace.Version,
+		&workspace.Description, &workspace.Color, &workspace.Status, &workspace.Version,
 		&workspace.CreatedAt, &workspace.UpdatedAt, &workspace.ArchivedAt,
 	)
 	if workspace.Projects == nil {

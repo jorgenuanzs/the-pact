@@ -1,0 +1,141 @@
+name: pact
+
+x-pact-environment: &pact-environment
+  PACT_DATABASE_URL: postgres://pact:${PACT_DB_PASSWORD}@postgres:5432/pact?sslmode=disable
+  PACT_DATABASE_TIMEOUT: 5s
+  PACT_DATABASE_STATEMENT_TIMEOUT: 15s
+  PACT_DATABASE_LOCK_TIMEOUT: 5s
+  PACT_PUBLIC_URL: ${PACT_PUBLIC_URL}
+  PACT_SETUP_TOKEN: ${PACT_SETUP_TOKEN:-}
+  PACT_LOCAL_ORGANIZATION_ID: ${PACT_LOCAL_ORGANIZATION_ID:-00000000-0000-4000-8000-000000000001}
+  PACT_LOG_LEVEL: ${PACT_LOG_LEVEL:-info}
+  PACT_SHUTDOWN_TIMEOUT: 15s
+  PACT_GITHUB_API_URL: ${PACT_GITHUB_API_URL:-https://api.github.com}
+  PACT_GITHUB_WEB_URL: ${PACT_GITHUB_WEB_URL:-https://github.com}
+  PACT_GITHUB_APP_ID: ${PACT_GITHUB_APP_ID:-}
+  PACT_GITHUB_APP_SLUG: ${PACT_GITHUB_APP_SLUG:-}
+  PACT_GITHUB_APP_CLIENT_ID: ${PACT_GITHUB_APP_CLIENT_ID:-}
+  PACT_GITHUB_APP_CLIENT_SECRET: ${PACT_GITHUB_APP_CLIENT_SECRET:-}
+  PACT_GITHUB_APP_PRIVATE_KEY_BASE64: ${PACT_GITHUB_APP_PRIVATE_KEY_BASE64:-}
+  PACT_GITHUB_APP_WEBHOOK_SECRET: ${PACT_GITHUB_APP_WEBHOOK_SECRET:-}
+  PACT_GITHUB_TIMEOUT: ${PACT_GITHUB_TIMEOUT:-10s}
+  PACT_GITHUB_SYNC_INTERVAL: ${PACT_GITHUB_SYNC_INTERVAL:-0s}
+
+x-pact-container: &pact-container
+  image: ${PACT_SERVER_IMAGE}
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pact
+      POSTGRES_USER: pact
+      POSTGRES_PASSWORD: ${PACT_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: --data-checksums
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pact -d pact"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    stop_grace_period: 45s
+
+  migrate:
+    <<: *pact-container
+    restart: "no"
+    command: ["migrate", "up"]
+    environment: *pact-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - private
+    healthcheck:
+      disable: true
+
+  pact-server:
+    <<: *pact-container
+    restart: unless-stopped
+    command: ["serve"]
+    environment:
+      <<: *pact-environment
+      PACT_HTTP_ADDRESS: 0.0.0.0:8080
+      PACT_RUN_MIGRATIONS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - 127.0.0.1:${PACT_HTTP_PORT:-8080}:8080
+    networks:
+      - private
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 20s
+
+  backup:
+    image: pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while true; do
+          timestamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          temporary="/backups/pact-$${timestamp}.dump.partial"
+          final="/backups/pact-$${timestamp}.dump"
+          pg_dump --host=postgres --username=pact --dbname=pact --format=custom --file="$${temporary}"
+          mv "$${temporary}" "$${final}"
+          find /backups -type f -name 'pact-*.dump' -mtime +$${PACT_BACKUP_RETENTION_DAYS} -delete
+          sleep 86400
+        done
+    environment:
+      PGPASSWORD: ${PACT_DB_PASSWORD}
+      PACT_BACKUP_RETENTION_DAYS: ${PACT_BACKUP_RETENTION_DAYS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres-backups:/backups
+    networks:
+      - private
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:
+  postgres-backups:
+
+networks:
+  private:
+    internal: true
+  edge:

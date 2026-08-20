@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #e8e8e4; }
+  * { box-sizing: border-box; }
+  a { color: #2f6b46; }
+  a:hover { color: #16211a; }
+</style>
+</helmet>
+
+<section style="padding: 56px 56px 40px; display: flex; flex-direction: column; gap: 30px; font-family: 'Instrument Sans', system-ui, sans-serif; color: #17170f;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6b6b64;">Turno 5 · Más paletas y más marcas</div>
+    <div style="font-size: 15px; max-width: 780px; color: #33332e;">Seis paletas nuevas — azules, rojos, naranjas — y seis marcas más. Cada tarjeta avisa cuándo el acento choca con un color semántico: si la marca es roja o ámbar, el error y el aviso necesitan icono y texto siempre, no solo color.</div>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+
+    <!-- 5a -->
+    <div id="5a" style="width: 460px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fff; overflow: hidden;">
+      <div style="padding: 11px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #0e1a2c; color: #6aa6ff; padding: 2px 7px; border-radius: 4px;">5a</span>
+        <span style="font-size: 13.5px; font-weight: 600;">Azul cobalto</span>
+        <span style="font-size: 12px; color: #6b6b64;">Frío y corporativo.</span>
+      </div>
+      <div style="padding: 12px 14px; display: flex; gap: 6px;">
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #0e1a2c;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #3c6ee0;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #eef1f6; border: 1px solid #dcdfe6;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #fafbfd; border: 1px solid #dcdfe6;"></span>
+      </div>
+      <div style="margin: 0 14px 12px; border: 1px solid #dcdfe6; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 44px 1fr; background: #fafbfd;">
+        <div style="background: #0e1a2c; display: flex; flex-direction: column; align-items: center; padding: 9px 0; gap: 7px;">
+          <div style="width: 16px; height: 16px; border: 2px solid #3c6ee0; border-radius: 3px;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #3c6ee0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #1b2a42; border: 1px solid #2b3d59; color: #a9b8ce; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 10px 13px; border-bottom: 1px solid #e6e9ee; display: flex; align-items: center;">
+            <span style="font-size: 14px; font-weight: 600; color: #0e1a2c;">Footfall</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5b6675;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo</span>
+          </div>
+          <div style="padding: 10px 13px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; font-size: 12px;">
+            <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #3c6ee0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+            <span style="color: #33404f; padding-right: 8px;">Filtros por zona</span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px; width: fit-content;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 0 14px 12px; font-size: 11.5px; color: #6b6b64;">Ojo: el azul también marca «pregunta abierta» en Contexto. Habría que cambiar ese estado a gris.</div>
+    </div>
+
+    <!-- 5b -->
+    <div id="5b" style="width: 460px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fff; overflow: hidden;">
+      <div style="padding: 11px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #131a34; color: #f09a4a; padding: 2px 7px; border-radius: 4px;">5b</span>
+        <span style="font-size: 13.5px; font-weight: 600;">Azul noche · naranja</span>
+        <span style="font-size: 12px; color: #6b6b64;">Complementario, alto contraste.</span>
+      </div>
+      <div style="padding: 12px 14px; display: flex; gap: 6px;">
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #131a34;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #ee8a3c;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #f0f0f4; border: 1px solid #dcdde4;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #fbfbfd; border: 1px solid #dcdde4;"></span>
+      </div>
+      <div style="margin: 0 14px 12px; border: 1px solid #dcdde4; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 44px 1fr; background: #fbfbfd;">
+        <div style="background: #131a34; display: flex; flex-direction: column; align-items: center; padding: 9px 0; gap: 7px;">
+          <div style="width: 16px; height: 16px; border: 2px solid #ee8a3c; border-radius: 3px;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #ee8a3c; color: #131a34; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #212a49; border: 1px solid #333c5e; color: #aab1c8; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 10px 13px; border-bottom: 1px solid #e7e7ed; display: flex; align-items: center;">
+            <span style="font-size: 14px; font-weight: 600; color: #131a34;">Footfall</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5d6274;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo</span>
+          </div>
+          <div style="padding: 10px 13px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; font-size: 12px;">
+            <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #ee8a3c; color: #131a34; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+            <span style="color: #333a4d; padding-right: 8px;">Filtros por zona</span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px; width: fit-content;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 0 14px 12px; font-size: 11.5px; color: #6b6b64;">El naranja de marca obliga a subir el aviso a ámbar más oscuro con triángulo.</div>
+    </div>
+
+    <!-- 5c -->
+    <div id="5c" style="width: 460px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fff; overflow: hidden;">
+      <div style="padding: 11px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #1a1414; color: #e0645a; padding: 2px 7px; border-radius: 4px;">5c</span>
+        <span style="font-size: 13.5px; font-weight: 600;">Carbón · rojo bermellón</span>
+        <span style="font-size: 12px; color: #6b6b64;">Marca urgente, la más arriesgada.</span>
+      </div>
+      <div style="padding: 12px 14px; display: flex; gap: 6px;">
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #1a1414;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #cf4436;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #f2efee; border: 1px solid #e0dbda;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #fcfaf9; border: 1px solid #e0dbda;"></span>
+      </div>
+      <div style="margin: 0 14px 12px; border: 1px solid #e0dbda; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 44px 1fr; background: #fcfaf9;">
+        <div style="background: #1a1414; display: flex; flex-direction: column; align-items: center; padding: 9px 0; gap: 7px;">
+          <div style="width: 16px; height: 16px; border: 2px solid #cf4436; border-radius: 3px;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #cf4436; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #2a2020; border: 1px solid #3d2f2e; color: #c3b6b4; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 10px 13px; border-bottom: 1px solid #ebe6e5; display: flex; align-items: center;">
+            <span style="font-size: 14px; font-weight: 600; color: #1a1414;">Footfall</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6b625f;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo</span>
+          </div>
+          <div style="padding: 10px 13px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; font-size: 12px;">
+            <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #cf4436; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+            <span style="color: #3c3230; padding-right: 8px;">Filtros por zona</span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px; width: fit-content;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 0 14px 12px; font-size: 11.5px; color: #6b6b64;">Riesgo real: el rojo de marca compite con el error. Solo funciona si el error pasa a magenta oscuro con icono.</div>
+    </div>
+
+    <!-- 5d -->
+    <div id="5d" style="width: 460px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fff; overflow: hidden;">
+      <div style="padding: 11px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #241611; color: #f2a26a; padding: 2px 7px; border-radius: 4px;">5d</span>
+        <span style="font-size: 13.5px; font-weight: 600;">Ladrillo · terracota</span>
+        <span style="font-size: 12px; color: #6b6b64;">Cálida, artesanal, poco vista en herramientas técnicas.</span>
+      </div>
+      <div style="padding: 12px 14px; display: flex; gap: 6px;">
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #241611;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #d2683d;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #f3eee9; border: 1px solid #e1d9d2;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #fdfaf7; border: 1px solid #e1d9d2;"></span>
+      </div>
+      <div style="margin: 0 14px 12px; border: 1px solid #e1d9d2; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 44px 1fr; background: #fdfaf7;">
+        <div style="background: #241611; display: flex; flex-direction: column; align-items: center; padding: 9px 0; gap: 7px;">
+          <div style="width: 16px; height: 16px; border: 2px solid #d2683d; border-radius: 3px;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #d2683d; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #35231c; border: 1px solid #493228; color: #c8b8b0; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 10px 13px; border-bottom: 1px solid #ece5df; display: flex; align-items: center;">
+            <span style="font-size: 14px; font-weight: 600; color: #241611;">Footfall</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6d6058;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo</span>
+          </div>
+          <div style="padding: 10px 13px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; font-size: 12px;">
+            <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #d2683d; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+            <span style="color: #3f342d; padding-right: 8px;">Filtros por zona</span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px; width: fit-content;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 0 14px 12px; font-size: 11.5px; color: #6b6b64;">Mismo cuidado que 5b con el ámbar; el verde de «activo» gana mucho contraste.</div>
+    </div>
+
+    <!-- 5e -->
+    <div id="5e" style="width: 460px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fff; overflow: hidden;">
+      <div style="padding: 11px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #101820; color: #7fd8ff; padding: 2px 7px; border-radius: 4px;">5e</span>
+        <span style="font-size: 13.5px; font-weight: 600;">Acero · cian eléctrico</span>
+        <span style="font-size: 12px; color: #6b6b64;">Lectura de instrumento; el acento solo para señales vivas.</span>
+      </div>
+      <div style="padding: 12px 14px; display: flex; gap: 6px;">
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #101820;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #2ab4e8;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #eef1f2; border: 1px solid #dbdfe1;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #fafbfb; border: 1px solid #dbdfe1;"></span>
+      </div>
+      <div style="margin: 0 14px 12px; border: 1px solid #dbdfe1; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 44px 1fr; background: #fafbfb;">
+        <div style="background: #101820; display: flex; flex-direction: column; align-items: center; padding: 9px 0; gap: 7px;">
+          <div style="width: 16px; height: 16px; border: 2px solid #2ab4e8; border-radius: 3px;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #2ab4e8; color: #06202b; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #1c2831; border: 1px solid #2c3a45; color: #a7b5bd; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 10px 13px; border-bottom: 1px solid #e6e9ea; display: flex; align-items: center;">
+            <span style="font-size: 14px; font-weight: 600; color: #101820;">Footfall</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5c666d;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #2ab4e8;"></span>SSE en vivo</span>
+          </div>
+          <div style="padding: 10px 13px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; font-size: 12px;">
+            <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #2ab4e8; color: #06202b; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+            <span style="color: #32404a; padding-right: 8px;">Filtros por zona</span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px; width: fit-content;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 0 14px 12px; font-size: 11.5px; color: #6b6b64;">El cian puede sustituir al verde como señal de «en vivo» y dejar el verde solo para estados.</div>
+    </div>
+
+    <!-- 5f -->
+    <div id="5f" style="width: 460px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fff; overflow: hidden;">
+      <div style="padding: 11px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #1c1420; color: #d9a3f0; padding: 2px 7px; border-radius: 4px;">5f</span>
+        <span style="font-size: 13.5px; font-weight: 600;">Ciruela · malva</span>
+        <span style="font-size: 12px; color: #6b6b64;">Ningún semántico ocupa este rango, así que no hay conflicto.</span>
+      </div>
+      <div style="padding: 12px 14px; display: flex; gap: 6px;">
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #1c1420;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #9b5fc0;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #f1eff3; border: 1px solid #dfdae3;"></span>
+        <span style="width: 44px; height: 22px; border-radius: 4px; background: #fbfafc; border: 1px solid #dfdae3;"></span>
+      </div>
+      <div style="margin: 0 14px 12px; border: 1px solid #dfdae3; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 44px 1fr; background: #fbfafc;">
+        <div style="background: #1c1420; display: flex; flex-direction: column; align-items: center; padding: 9px 0; gap: 7px;">
+          <div style="width: 16px; height: 16px; border: 2px solid #9b5fc0; border-radius: 3px;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #9b5fc0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">F</div>
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: #2a1f30; border: 1px solid #3b2c44; color: #bfb2c8; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 10px 13px; border-bottom: 1px solid #eae6ec; display: flex; align-items: center;">
+            <span style="font-size: 14px; font-weight: 600; color: #1c1420;">Footfall</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #665e6d;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo</span>
+          </div>
+          <div style="padding: 10px 13px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; font-size: 12px;">
+            <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #9b5fc0; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+            <span style="color: #3a3340; padding-right: 8px;">Filtros por zona</span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px; width: fit-content;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 0 14px 12px; font-size: 11.5px; color: #6b6b64;">La opción más segura si quieres identidad propia sin tocar el sistema semántico.</div>
+    </div>
+  </div>
+
+  <!-- ══ Marcas nuevas ══ -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Seis marcas más</h2>
+      <span style="font-size: 13px; color: #6b6b64; max-width: 720px;">Todas se leen a 16 px. Mostradas sobre tinta con acento neutro para que puedas combinarlas con cualquier paleta de arriba.</span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 18px;">
+
+      <div id="5g" style="width: 296px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">5g</span>
+          <span style="font-size: 13px; font-weight: 600;">Barras trenzadas</span>
+        </div>
+        <div style="padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="display: flex; align-items: flex-end; gap: 4px; height: 30px;">
+              <span style="width: 8px; height: 30px; background: #16211a; border-radius: 2px;"></span>
+              <span style="width: 8px; height: 20px; background: #c9ee4d; border-radius: 2px;"></span>
+              <span style="width: 8px; height: 26px; background: #16211a; border-radius: 2px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="display: flex; align-items: flex-end; gap: 4px; height: 26px;">
+              <span style="width: 7px; height: 26px; background: #fbfbfa; border-radius: 2px;"></span>
+              <span style="width: 7px; height: 17px; background: #c9ee4d; border-radius: 2px;"></span>
+              <span style="width: 7px; height: 22px; background: #fbfbfa; border-radius: 2px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Actores trabajando en paralelo, uno de ellos vivo.</span>
+        </div>
+      </div>
+
+      <div id="5h" style="width: 296px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">5h</span>
+          <span style="font-size: 13px; font-weight: 600;">Anillo abierto</span>
+        </div>
+        <div style="padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="width: 30px; height: 30px; border: 4px solid #16211a; border-radius: 50%; border-top-color: #c9ee4d;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="width: 26px; height: 26px; border: 4px solid #fbfbfa; border-radius: 50%; border-top-color: #c9ee4d;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Ciclo de coordinación con un tramo activo; sirve como spinner.</span>
+        </div>
+      </div>
+
+      <div id="5i" style="width: 296px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">5i</span>
+          <span style="font-size: 13px; font-weight: 600;">Rombo partido</span>
+        </div>
+        <div style="padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 13px;">
+            <div style="width: 26px; height: 26px; transform: rotate(45deg); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border-radius: 3px;">
+              <span style="background: #16211a;"></span><span style="background: #c9ee4d;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 13px;">
+            <div style="width: 23px; height: 23px; transform: rotate(45deg); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border-radius: 3px;">
+              <span style="background: #fbfbfa;"></span><span style="background: #c9ee4d;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Dos mitades de un mismo acuerdo. Muy reconocible en tamaño pequeño.</span>
+        </div>
+      </div>
+
+      <div id="5j" style="width: 296px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">5j</span>
+          <span style="font-size: 13px; font-weight: 600;">Latido</span>
+        </div>
+        <div style="padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="display: flex; align-items: center; gap: 0; height: 30px;">
+              <span style="width: 11px; height: 3px; background: #16211a;"></span>
+              <span style="width: 3px; height: 22px; background: #c9ee4d;"></span>
+              <span style="width: 3px; height: 30px; background: #16211a;"></span>
+              <span style="width: 11px; height: 3px; background: #16211a;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="display: flex; align-items: center; gap: 0; height: 26px;">
+              <span style="width: 10px; height: 3px; background: #fbfbfa;"></span>
+              <span style="width: 3px; height: 19px; background: #c9ee4d;"></span>
+              <span style="width: 3px; height: 26px; background: #fbfbfa;"></span>
+              <span style="width: 10px; height: 3px; background: #fbfbfa;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">El heartbeat, que es lo que PACT realmente vigila.</span>
+        </div>
+      </div>
+
+      <div id="5k" style="width: 296px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">5k</span>
+          <span style="font-size: 13px; font-weight: 600;">Monograma en caja</span>
+        </div>
+        <div style="padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="width: 30px; height: 30px; border-radius: 6px; background: #16211a; color: #c9ee4d; font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center;">P</div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="width: 26px; height: 26px; border-radius: 6px; background: #c9ee4d; color: #16211a; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center;">P</div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Lo más simple y consistente con los tiles de Workspace del rail.</span>
+        </div>
+      </div>
+
+      <div id="5l" style="width: 296px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">5l</span>
+          <span style="font-size: 13px; font-weight: 600;">Escalón</span>
+        </div>
+        <div style="padding: 20px 14px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="display: grid; grid-template-columns: 14px 14px; grid-template-rows: 14px 14px; gap: 2px;">
+              <span style="background: #16211a; border-radius: 2px;"></span>
+              <span></span>
+              <span style="background: #c9ee4d; border-radius: 2px;"></span>
+              <span style="background: #16211a; border-radius: 2px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="display: grid; grid-template-columns: 12px 12px; grid-template-rows: 12px 12px; gap: 2px;">
+              <span style="background: #fbfbfa; border-radius: 2px;"></span>
+              <span></span>
+              <span style="background: #c9ee4d; border-radius: 2px;"></span>
+              <span style="background: #fbfbfa; border-radius: 2px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa; font-size: 18px;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Handoff: el trabajo que pasa de una celda a la siguiente.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="padding: 56px 56px 40px; display: flex; flex-direction: column; gap: 32px; font-family: 'Instrument Sans', system-ui, sans-serif; color: #17170f;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6b6b64;">Turno 4 · Color y marca</div>
+    <div style="font-size: 15px; max-width: 760px; color: #33332e;">Cuatro paletas sobre el mismo fragmento de Footfall — rail, cabecera, alerta y dos filas de trabajo — y cuatro marcas geométricas. Los colores semánticos (verde, ámbar, rojo, azul) se mantienen en todas; lo que cambia es la tinta del shell y el acento de marca.</div>
+  </div>
+
+  <!-- ══════════ Paletas ══════════ -->
+  <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+
+    <!-- 4a -->
+    <div id="4a" style="display: flex; flex-direction: column; gap: 10px; width: 620px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 3px 8px; border-radius: 5px;">4a</span>
+        <span style="font-size: 14px; font-weight: 600;">Verde tinta · lima</span>
+        <span style="font-size: 13px; color: #6b6b64;">La actual. Máxima energía de marca.</span>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #16211a;" title="#16211a tinta"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #c9ee4d;" title="#c9ee4d lima"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #f2f3f0; border: 1px solid #dcded8;" title="#f2f3f0 sidebar"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #fbfbfa; border: 1px solid #dcded8;" title="#fbfbfa lienzo"></span>
+      </div>
+      <div style="border: 1px solid #d4d3cb; border-radius: 10px; overflow: hidden; background: #fbfbfa; display: grid; grid-template-columns: 52px 1fr;">
+        <div style="background: #16211a; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px;">
+          <div style="width: 18px; height: 18px; border: 2px solid #c9ee4d; border-radius: 3px;"></div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #c9ee4d; color: #16211a; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 6px;">F</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #22302a; border: 1px solid #33453b; color: #b9c3bd; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #22302a; border: 1px solid #33453b; color: #b9c3bd; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">C</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 15px; font-weight: 600; color: #16211a;">Footfall</span>
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #5a655e; margin-left: auto;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo · 5 actores</span>
+          </div>
+          <div style="margin: 12px 16px; border: 1px solid #e3ddc6; background: #fffdf6; border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px;">COLISIÓN</span>
+            <span style="font-size: 12px; color: #35403a;">Codex y Claude reclaman <span style="font-family: 'JetBrains Mono', monospace;">footfall-api · reports</span></span>
+            <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 11.5px; color: #fff; background: #16211a; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer;">Resolver</button>
+          </div>
+          <div style="padding: 0 16px 14px;">
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: #8a938c; padding-bottom: 6px; border-bottom: 1px solid #16211a;">
+              <span>ACTOR</span><span>OBJETIVO</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; border-bottom: 1px solid #eaebe7; font-size: 12px;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #c9ee4d; color: #16211a; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+              <span style="padding-right: 10px;">Filtros de tráfico por zona</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #235c3b;">12 s</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; font-size: 12px; background: #fffdf6;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #fdf1d4; color: #8a6a12; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</span>Claude</div>
+              <span style="padding-right: 10px;">Agregación del reporte</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #8a6a12; background: #fdf1d4; border: 1px solid #e5d5a8; border-radius: 5px; padding: 2px 7px;">▣ Bloqueado</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #5a655e;">40 s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4b -->
+    <div id="4b" style="display: flex; flex-direction: column; gap: 10px; width: 620px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; background: #101b24; color: #5fd3c4; padding: 3px 8px; border-radius: 5px;">4b</span>
+        <span style="font-size: 14px; font-weight: 600;">Azul pizarra · turquesa</span>
+        <span style="font-size: 13px; color: #6b6b64;">Más instrumental y frío; el acento no compite con el ámbar.</span>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #101b24;" title="#101b24"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #3fb8a8;" title="#3fb8a8"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #eff1f3; border: 1px solid #dbdfe3;" title="#eff1f3"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #fafbfc; border: 1px solid #dbdfe3;" title="#fafbfc"></span>
+      </div>
+      <div style="border: 1px solid #cdd3d8; border-radius: 10px; overflow: hidden; background: #fafbfc; display: grid; grid-template-columns: 52px 1fr;">
+        <div style="background: #101b24; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px;">
+          <div style="width: 18px; height: 18px; border: 2px solid #3fb8a8; border-radius: 3px;"></div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #3fb8a8; color: #06231f; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 6px;">F</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #1b2b36; border: 1px solid #2b3f4c; color: #aebdc7; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #1b2b36; border: 1px solid #2b3f4c; color: #aebdc7; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">C</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #e4e8ea; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 15px; font-weight: 600; color: #101b24;">Footfall</span>
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #566670; margin-left: auto;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #2f9c8b;"></span>SSE en vivo · 5 actores</span>
+          </div>
+          <div style="margin: 12px 16px; border: 1px solid #e3ddc6; background: #fffdf6; border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px;">COLISIÓN</span>
+            <span style="font-size: 12px; color: #33424c;">Codex y Claude reclaman <span style="font-family: 'JetBrains Mono', monospace;">footfall-api · reports</span></span>
+            <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 11.5px; color: #fff; background: #101b24; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer;">Resolver</button>
+          </div>
+          <div style="padding: 0 16px 14px;">
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: #7c8a94; padding-bottom: 6px; border-bottom: 1px solid #101b24;">
+              <span>ACTOR</span><span>OBJETIVO</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; border-bottom: 1px solid #e7eaec; font-size: 12px;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #3fb8a8; color: #06231f; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+              <span style="padding-right: 10px;">Filtros de tráfico por zona</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #1c5f52; background: #e4f4f0; border: 1px solid #bfe3dc; border-radius: 5px; padding: 2px 7px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #2f9c8b;"></span>Activo</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #1c5f52;">12 s</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; font-size: 12px; background: #fffdf6;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #fdf1d4; color: #8a6a12; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</span>Claude</div>
+              <span style="padding-right: 10px;">Agregación del reporte</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #8a6a12; background: #fdf1d4; border: 1px solid #e5d5a8; border-radius: 5px; padding: 2px 7px;">▣ Bloqueado</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #566670;">40 s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4c -->
+    <div id="4c" style="display: flex; flex-direction: column; gap: 10px; width: 620px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; background: #1c1c1a; color: #b9c94a; padding: 3px 8px; border-radius: 5px;">4c</span>
+        <span style="font-size: 14px; font-weight: 600;">Grafito · lima apagada</span>
+        <span style="font-size: 13px; color: #6b6b64;">Neutro puro y papel cálido; la lima baja a acento de trabajo, no de decoración.</span>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #1c1c1a;" title="#1c1c1a"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #a8bb3e;" title="#a8bb3e"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #f1f0ec; border: 1px solid #dedcd5;" title="#f1f0ec"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #fbfaf7; border: 1px solid #dedcd5;" title="#fbfaf7"></span>
+      </div>
+      <div style="border: 1px solid #d3d1c9; border-radius: 10px; overflow: hidden; background: #fbfaf7; display: grid; grid-template-columns: 52px 1fr;">
+        <div style="background: #1c1c1a; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px;">
+          <div style="width: 18px; height: 18px; border: 2px solid #a8bb3e; border-radius: 3px;"></div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #a8bb3e; color: #1c1c1a; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 6px;">F</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #2b2b28; border: 1px solid #3b3b36; color: #bdbcb5; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #2b2b28; border: 1px solid #3b3b36; color: #bdbcb5; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">C</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #e7e5df; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 15px; font-weight: 600; color: #1c1c1a;">Footfall</span>
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #66655e; margin-left: auto;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4f8f43;"></span>SSE en vivo · 5 actores</span>
+          </div>
+          <div style="margin: 12px 16px; border: 1px solid #e3ddc6; background: #fffdf5; border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px;">COLISIÓN</span>
+            <span style="font-size: 12px; color: #3a3a35;">Codex y Claude reclaman <span style="font-family: 'JetBrains Mono', monospace;">footfall-api · reports</span></span>
+            <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 11.5px; color: #fbfaf7; background: #1c1c1a; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer;">Resolver</button>
+          </div>
+          <div style="padding: 0 16px 14px;">
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: #8b8a82; padding-bottom: 6px; border-bottom: 1px solid #1c1c1a;">
+              <span>ACTOR</span><span>OBJETIVO</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; border-bottom: 1px solid #ebe9e3; font-size: 12px;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #a8bb3e; color: #1c1c1a; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+              <span style="padding-right: 10px;">Filtros de tráfico por zona</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #3d6b34; background: #eef3e4; border: 1px solid #d4e0bf; border-radius: 5px; padding: 2px 7px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #4f8f43;"></span>Activo</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #3d6b34;">12 s</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; font-size: 12px; background: #fffdf5;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #fdf1d4; color: #8a6a12; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</span>Claude</div>
+              <span style="padding-right: 10px;">Agregación del reporte</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #8a6a12; background: #fdf1d4; border: 1px solid #e5d5a8; border-radius: 5px; padding: 2px 7px;">▣ Bloqueado</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #66655e;">40 s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4d -->
+    <div id="4d" style="display: flex; flex-direction: column; gap: 10px; width: 620px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; background: #23201c; color: #e0a24a; padding: 3px 8px; border-radius: 5px;">4d</span>
+        <span style="font-size: 14px; font-weight: 600;">Sepia · cobre</span>
+        <span style="font-size: 13px; color: #6b6b64;">Cálida y sobria. Requiere reservar el ámbar semántico solo para avisos, con icono siempre.</span>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #23201c;" title="#23201c"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #c2793c;" title="#c2793c"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #f2efe9; border: 1px solid #e0dbd1;" title="#f2efe9"></span>
+        <span style="width: 46px; height: 22px; border-radius: 4px; background: #fcfaf6; border: 1px solid #e0dbd1;" title="#fcfaf6"></span>
+      </div>
+      <div style="border: 1px solid #d6d0c5; border-radius: 10px; overflow: hidden; background: #fcfaf6; display: grid; grid-template-columns: 52px 1fr;">
+        <div style="background: #23201c; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px;">
+          <div style="width: 18px; height: 18px; border: 2px solid #c2793c; border-radius: 3px;"></div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #c2793c; color: #fcfaf6; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 6px;">F</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #322d27; border: 1px solid #443c33; color: #c4bcb1; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">M</div>
+          <div style="width: 30px; height: 30px; border-radius: 8px; background: #322d27; border: 1px solid #443c33; color: #c4bcb1; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">C</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #e9e4db; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 15px; font-weight: 600; color: #23201c;">Footfall</span>
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #6b6459; margin-left: auto;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span>SSE en vivo · 5 actores</span>
+          </div>
+          <div style="margin: 12px 16px; border: 1px solid #e6cfc0; background: #fdf4ee; border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #9a5a22; border: 1px solid #e0bfa4; border-radius: 4px; padding: 1px 6px;">COLISIÓN</span>
+            <span style="font-size: 12px; color: #3d372f;">Codex y Claude reclaman <span style="font-family: 'JetBrains Mono', monospace;">footfall-api · reports</span></span>
+            <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 11.5px; color: #fcfaf6; background: #23201c; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer;">Resolver</button>
+          </div>
+          <div style="padding: 0 16px 14px;">
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: #8d867a; padding-bottom: 6px; border-bottom: 1px solid #23201c;">
+              <span>ACTOR</span><span>OBJETIVO</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; border-bottom: 1px solid #ece7de; font-size: 12px;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #c2793c; color: #fcfaf6; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</span>Codex</div>
+              <span style="padding-right: 10px;">Filtros de tráfico por zona</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 5px; padding: 2px 7px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Activo</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #235c3b;">12 s</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 120px 1fr 108px 60px; align-items: center; padding: 9px 0; font-size: 12px; background: #fdf4ee;">
+              <div style="display: flex; align-items: center; gap: 7px;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #f6e2d2; color: #9a5a22; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</span>Claude</div>
+              <span style="padding-right: 10px;">Agregación del reporte</span>
+              <span style="display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 11px; color: #9a5a22; background: #f9e8db; border: 1px solid #e6cfc0; border-radius: 5px; padding: 2px 7px;">▣ Bloqueado</span>
+              <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #6b6459;">40 s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ Marcas ══════════ -->
+  <div style="display: flex; flex-direction: column; gap: 16px; padding-top: 8px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Marca</h2>
+      <span style="font-size: 13px; color: #6b6b64; max-width: 720px;">Cuatro marcas construidas solo con geometría, legibles a 16 px en el rail. Cada una en positivo, sobre tinta y como icono suelto. El acento mostrado es el de <a href="#4a">4a</a>; funciona igual con cualquier paleta.</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+
+      <!-- 4e -->
+      <div id="4e" style="width: 300px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">4e</span>
+          <span style="font-size: 13px; font-weight: 600;">Cuadrado abierto</span>
+        </div>
+        <div style="padding: 22px 14px; display: flex; flex-direction: column; gap: 18px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="width: 30px; height: 30px; border: 3px solid #16211a; border-radius: 4px; border-right-color: transparent;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="width: 26px; height: 26px; border: 3px solid #c9ee4d; border-radius: 4px; border-right-color: transparent;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">La actual, depurada: el corte sugiere un acuerdo abierto.</span>
+        </div>
+      </div>
+
+      <!-- 4f -->
+      <div id="4f" style="width: 300px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">4f</span>
+          <span style="font-size: 13px; font-weight: 600;">Dos cuadrados</span>
+        </div>
+        <div style="padding: 22px 14px; display: flex; flex-direction: column; gap: 18px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="position: relative; width: 32px; height: 30px;">
+              <span style="position: absolute; left: 0; top: 0; width: 21px; height: 21px; border: 3px solid #16211a; border-radius: 3px;"></span>
+              <span style="position: absolute; right: 0; bottom: 0; width: 21px; height: 21px; background: #c9ee4d; border: 3px solid #16211a; border-radius: 3px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="position: relative; width: 28px; height: 26px;">
+              <span style="position: absolute; left: 0; top: 0; width: 18px; height: 18px; border: 3px solid #fbfbfa; border-radius: 3px;"></span>
+              <span style="position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; background: #c9ee4d; border: 3px solid #16211a; border-radius: 3px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Dos actores que se solapan: humano y agente sobre el mismo código.</span>
+        </div>
+      </div>
+
+      <!-- 4g -->
+      <div id="4g" style="width: 300px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">4g</span>
+          <span style="font-size: 13px; font-weight: 600;">Corchetes</span>
+        </div>
+        <div style="padding: 22px 14px; display: flex; flex-direction: column; gap: 18px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="display: flex; align-items: center; gap: 4px; height: 30px;">
+              <span style="width: 9px; height: 28px; border: 3px solid #16211a; border-right: 0; border-radius: 3px 0 0 3px;"></span>
+              <span style="width: 9px; height: 9px; border-radius: 50%; background: #c9ee4d; border: 2px solid #16211a;"></span>
+              <span style="width: 9px; height: 28px; border: 3px solid #16211a; border-left: 0; border-radius: 0 3px 3px 0;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="display: flex; align-items: center; gap: 4px; height: 26px;">
+              <span style="width: 8px; height: 24px; border: 3px solid #fbfbfa; border-right: 0; border-radius: 3px 0 0 3px;"></span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #c9ee4d;"></span>
+              <span style="width: 8px; height: 24px; border: 3px solid #fbfbfa; border-left: 0; border-radius: 0 3px 3px 0;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Scope reservado: el trabajo vivo entre límites explícitos.</span>
+        </div>
+      </div>
+
+      <!-- 4h -->
+      <div id="4h" style="width: 300px; border: 1px solid #d4d3cb; border-radius: 10px; background: #fbfbfa; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: #16211a; color: #c9ee4d; padding: 2px 7px; border-radius: 4px;">4h</span>
+          <span style="font-size: 13px; font-weight: 600;">Cuadrícula</span>
+        </div>
+        <div style="padding: 22px 14px; display: flex; flex-direction: column; gap: 18px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <div style="display: grid; grid-template-columns: 13px 13px; grid-template-rows: 13px 13px; gap: 3px;">
+              <span style="background: #16211a; border-radius: 2px;"></span>
+              <span style="background: #c9ee4d; border-radius: 2px;"></span>
+              <span style="background: #16211a; border-radius: 2px; opacity: 0.35;"></span>
+              <span style="background: #16211a; border-radius: 2px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; letter-spacing: 0.16em; color: #16211a;">PACT</span>
+          </div>
+          <div style="width: 100%; background: #16211a; border-radius: 8px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 11px;">
+            <div style="display: grid; grid-template-columns: 11px 11px; grid-template-rows: 11px 11px; gap: 3px;">
+              <span style="background: #fbfbfa; border-radius: 2px;"></span>
+              <span style="background: #c9ee4d; border-radius: 2px;"></span>
+              <span style="background: #fbfbfa; border-radius: 2px; opacity: 0.35;"></span>
+              <span style="background: #fbfbfa; border-radius: 2px;"></span>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: #fbfbfa;">PACT</span>
+          </div>
+          <span style="font-size: 11.5px; color: #6b6b64; text-align: center;">Celdas de trabajo: una activa, una libre, una en espera.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</x-dc>
+</body>
+</html>

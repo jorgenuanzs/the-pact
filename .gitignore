@@ -16,6 +16,23 @@ bin/
 coverage.out
 *.test
 
+# Web control plane
+node_modules/
+web/coverage/
+web/.vite/
+web/*.tsbuildinfo
+internal/transport/httpapi/adminui/dist/
+internal/transport/httpapi/publicui/dist/
+
+# Wails desktop generated output
+desktop/frontend/dist/*
+!desktop/frontend/dist/.gitkeep
+desktop/frontend/wailsjs/
+desktop/frontend/package.json.md5
+desktop/build/bin/
+desktop/localhelper/pact-local
+desktop/localhelper/pact-local.exe
+
 # Terraform local state
 .terraform/
 *.tfstate

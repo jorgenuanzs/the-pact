@@ -37,11 +37,25 @@ COPYFILE_DISABLE=1 tar \
   --no-xattrs \
   --no-mac-metadata \
   --exclude='./.git' \
+  --exclude='./.DS_Store' \
+  --exclude='*/.DS_Store' \
   --exclude='./.env' \
   --exclude='./.pact' \
   --exclude='./bin' \
   --exclude='./build' \
   --exclude='./coverage' \
+  --exclude='./web/node_modules' \
+  --exclude='./web/coverage' \
+  --exclude='./web/.vite' \
+  --exclude='./web/*.tsbuildinfo' \
+  --exclude='./desktop/build' \
+  --exclude='./desktop/frontend/dist' \
+  --exclude='./desktop/frontend/wailsjs' \
+  --exclude='./desktop/frontend/package.json.md5' \
+  --exclude='./desktop/localhelper/pact-local' \
+  --exclude='./desktop/localhelper/pact-local.exe' \
+  --exclude='./internal/transport/httpapi/adminui/dist' \
+  --exclude='./internal/transport/httpapi/publicui/dist' \
   --exclude='./dist' \
   --exclude='./infra/secrets' \
   --exclude='./infra/oci-madrid/.terraform' \

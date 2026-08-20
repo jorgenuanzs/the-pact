@@ -61,6 +61,7 @@ The current implementation includes:
 - durable work intentions, hierarchical scopes, leases, and overlap detection;
 - isolated Git worktrees provisioned for coordinated tasks;
 - a live web backoffice for projects, active work, and recent events;
+- a native Wails desktop client for securely connecting macOS and Windows to a remote Pact Server;
 - native CLI releases for Windows, macOS, and Linux on `amd64` and `arm64`;
 - Docker Compose development and production deployment examples.
 
@@ -99,7 +100,29 @@ projects. Each checkout keeps only its machine-specific binding locally and
 connects to the shared server. A developer does not need PostgreSQL or Docker
 on their computer when using a remote Pact Server.
 
+## Download
+
+The public site at [pact.nuanzs.com](https://pact.nuanzs.com/) detects the
+current operating system and links to the latest Desktop and CLI artifacts.
+Each release also includes SHA-256 checksums, a machine-readable manifest, and
+a self-host bundle. Desktop is the recommended entry point for macOS and
+Windows; the CLI remains available for terminals, automation, and Linux.
+
 ## Quick start: run Pact Server locally
+
+The simplest personal installation is managed by Desktop, or by the CLI:
+
+```sh
+pact server install
+```
+
+PACT creates a private Docker Compose stack containing PACT Server,
+PostgreSQL + pgvector, migrations, and durable storage. It prints a one-time
+setup code and exposes the control plane only on `127.0.0.1:8080`. The same
+installation can be started, stopped, backed up, and upgraded from Desktop or
+with `pact server` commands.
+
+### Develop the server from source
 
 ### Requirements
 
@@ -146,6 +169,45 @@ and create the first owner with the setup code. Then remove
 `PACT_SETUP_TOKEN` from `.env` and restart the server. Subsequent visits use
 the owner's username or email and password; the browser receives an HttpOnly,
 SameSite session cookie instead of seeing an API credential.
+
+## PACT Desktop
+
+PACT Desktop wraps the same React control plane in a lightweight native shell.
+The first milestone connects macOS and Windows to an existing remote Pact
+Server through device authorization; the user's password remains in the server
+login page and the native credential never enters the React runtime.
+
+The desktop rail also exposes a separate **This computer** area. It manages
+local checkouts, detects Codex and Claude Code, and installs project-scoped MCP
+configuration through a native folder picker. The package contains its own
+`pact-local` runtime, so agents do not depend on a Homebrew, PowerShell, or
+standalone CLI installation and can connect while the Desktop window is closed.
+
+Build and test it locally with:
+
+```sh
+make desktop-install
+make desktop-test
+make desktop-build
+```
+
+The macOS output is `desktop/build/bin/PACT.app`. The dedicated Desktop CI
+workflow also creates a Windows NSIS installer. See
+[`desktop/README.md`](desktop/README.md) for architecture, development, and
+distribution notes. The same application can connect to an existing team
+server or manage a local PACT Server and PostgreSQL installation. Docker
+Desktop (or Docker Engine with Compose v2) is required only for local server
+mode.
+
+## Self-host for a team
+
+Every release includes `pact-server-self-host.zip` and publishes the matching
+multi-architecture container image to GitHub Container Registry. The bundle
+contains a production-oriented Compose definition, `.env.example`, health
+checks, durable volumes, and daily database backups. Put an HTTPS reverse proxy
+in front of the loopback-bound PACT port and connect each Desktop or CLI client
+to that shared URL. Full instructions live in
+[`deploy/self-host/README.md`](deploy/self-host/README.md).
 
 ## Install the CLI
 
@@ -376,7 +438,6 @@ Start Pact as a local `stdio` MCP server:
       "args": [
         "mcp", "serve",
         "--client", "your-client",
-        "--name", "Your agent",
         "--path", "/absolute/path/to/repository"
       ]
     }
@@ -386,6 +447,9 @@ Start Pact as a local `stdio` MCP server:
 
 The MCP client owns the process lifecycle. The computer must already be logged
 in, and the checkout must have completed `pact init` or `pact connect`.
+The durable agent identity comes from the client type and sponsoring user. Task
+names belong to intents and sessions; they must not be used to create a new
+agent identity for every run.
 
 ### Wrap a command-line agent
 
@@ -623,8 +687,12 @@ Common commands:
 |---|---|
 | `make doctor` | Validate Docker and local configuration |
 | `make dev` | Build and start the development stack |
+| `make ui-install` | Install the locked React toolchain locally |
+| `make ui-dev` | Start Vite with API proxying and hot reload |
+| `make ui-build` | Build the React application for Go embedding |
 | `make ps` | Show Pact containers |
 | `make logs` | Follow server and database logs |
+| `make test-ui` | Run the fast Admin UI validation profile |
 | `make test` | Run unit tests in the reproducible Docker build |
 | `make test-race` | Run the Go race detector |
 | `make test-integration` | Run PostgreSQL integration tests |
@@ -634,9 +702,21 @@ Common commands:
 | `make docker-clean-stale` | Remove stale Pact build artifacts while preserving volumes |
 | `make down` | Stop the local stack without deleting PostgreSQL data |
 
+The control plane source lives in `web/` and uses React, TypeScript, Vite, and
+Vitest. Run `make ui-install` once and `make ui-dev` alongside `make dev` for
+hot reload at `http://127.0.0.1:5173/admin/`; Vite proxies the same-origin API
+and health endpoints to Pact Server. `make test-ui` runs the locked TypeScript
+checks, component tests, production build, and focused Go handler tests in
+Docker. The generated `adminui/dist/` directory is not committed. Production
+still contains one Go binary: Node is used only during the image build.
+
+Run `make test` or `make verify` before merging changes that affect the API,
+data model, infrastructure, or any other package.
+
 Native Go checks:
 
 ```sh
+make ui-build
 go vet ./...
 go test ./...
 go test -race ./...
@@ -657,6 +737,7 @@ cmd/pact/                 CLI, agent wrapper, Pact Node, and MCP adapter
 cmd/pact-server/          server entry point and migrations command
 internal/                 domain modules and infrastructure adapters
 internal/transport/       HTTP API and embedded backoffice
+web/                      React and TypeScript control plane source
 api/openapi.yaml          versioned HTTP contract
 docs/adr/                 accepted architecture decisions
 docs/spec/                protocol and core-loop specifications

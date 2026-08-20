@@ -48,9 +48,12 @@ make test-integration
 make build
 ```
 
-If the Go toolchain declared in `go.mod` is installed locally:
+If the Go toolchain declared in `go.mod` is installed locally, build the
+embedded React application first:
 
 ```sh
+make ui-install
+make ui-build
 go vet ./...
 go test ./...
 go test -race ./...

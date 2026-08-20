@@ -41,6 +41,27 @@ The server keeps the two newest PACT images and ten newest source releases. It
 prunes only the dedicated `the-pact-builder-prod` cache and PACT-labelled
 containers; PostgreSQL volumes are never removed automatically.
 
+### Automatic validation profiles
+
+The server compares every candidate release with the active release before it
+changes the `current` symlink:
+
+- `frontend`: selected only when every changed file is under `web/` or
+  `internal/transport/httpapi/adminui/`. It runs TypeScript checks, Vitest
+  component tests, the Vite production build, Go formatting, focused vetting,
+  and focused UI package tests. It skips the temporary integration database
+  and migrations.
+- `full`: used for the first deployment, for an unchanged candidate, or when
+  any API, dependency, infrastructure, migration, deployment, or other source
+  file changed. It retains the complete unit and PostgreSQL integration suite.
+
+Both profiles still build the production server image, validate Compose,
+start PostgreSQL, recreate the server, wait for the health checks, and preserve
+the previous release for rollback. The selected profile and exact changed
+paths are stored in each release directory. The first deployment containing
+this classifier is necessarily a full deployment; later UI-only releases can
+use the fast path.
+
 The shared gateway integration is installed once by copying the five gateway
 artifacts to the VM and running `install-gateway.sh` as root. A normal PACT
 application deployment never edits or restarts Caddy.
