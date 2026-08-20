@@ -7,6 +7,7 @@ deploy_host="${PACT_DEPLOY_HOST:-}"
 ssh_key="${PACT_SSH_KEY:-}"
 ssh_known_hosts="${PACT_SSH_KNOWN_HOSTS:-}"
 deploy_dry_run="${PACT_DEPLOY_DRY_RUN:-false}"
+deploy_local="${PACT_DEPLOY_LOCAL:-false}"
 temporary_dir="$(mktemp -d)"
 
 cleanup() {
@@ -14,36 +15,45 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[[ -n "${deploy_host}" ]] || {
-  echo "PACT_DEPLOY_HOST is required, for example ubuntu@server.example.com." >&2
-  exit 1
-}
-[[ -n "${ssh_key}" ]] || {
-  echo "PACT_SSH_KEY is required and must point to a private SSH key." >&2
-  exit 1
-}
+required_commands=(cp git shasum tar)
+if [[ "${deploy_local}" == "true" ]]; then
+  required_commands+=(install sudo)
+else
+  [[ -n "${deploy_host}" ]] || {
+    echo "PACT_DEPLOY_HOST is required, for example ubuntu@server.example.com." >&2
+    exit 1
+  }
+  [[ -n "${ssh_key}" ]] || {
+    echo "PACT_SSH_KEY is required and must point to a private SSH key." >&2
+    exit 1
+  }
+  required_commands+=(scp ssh)
+fi
 
-for command_name in git scp shasum ssh tar; do
+for command_name in "${required_commands[@]}"; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Missing required command: ${command_name}" >&2
     exit 1
   }
 done
-[[ -f "${ssh_key}" ]] || {
-  echo "SSH key not found: ${ssh_key}" >&2
-  exit 1
-}
 
-ssh_options=(-i "${ssh_key}")
-if [[ -n "${ssh_known_hosts}" ]]; then
-  [[ -f "${ssh_known_hosts}" ]] || {
-    echo "SSH known-hosts file not found: ${ssh_known_hosts}" >&2
+ssh_options=()
+if [[ "${deploy_local}" != "true" ]]; then
+  [[ -f "${ssh_key}" ]] || {
+    echo "SSH key not found: ${ssh_key}" >&2
     exit 1
   }
-  ssh_options+=(
-    -o "UserKnownHostsFile=${ssh_known_hosts}"
-    -o StrictHostKeyChecking=yes
-  )
+  ssh_options=(-i "${ssh_key}")
+  if [[ -n "${ssh_known_hosts}" ]]; then
+    [[ -f "${ssh_known_hosts}" ]] || {
+      echo "SSH known-hosts file not found: ${ssh_known_hosts}" >&2
+      exit 1
+    }
+    ssh_options+=(
+      -o "UserKnownHostsFile=${ssh_known_hosts}"
+      -o StrictHostKeyChecking=yes
+    )
+  fi
 fi
 
 source_archive="${temporary_dir}/source.tar.gz"
@@ -106,6 +116,19 @@ if [[ "${deploy_dry_run}" == "true" ]]; then
 fi
 
 remote_dir="/tmp/the-pact-${release_id}"
+if [[ "${deploy_local}" == "true" ]]; then
+  install -d -m 700 "${remote_dir}"
+  cp \
+    "${source_archive}" \
+    "${temporary_dir}/deployment.env" \
+    "${temporary_dir}/docker-compose.prod.yml" \
+    "${temporary_dir}/activate-release.sh" \
+    "${remote_dir}/"
+  sudo -n bash "${remote_dir}/activate-release.sh" "${remote_dir}"
+  echo "Deployed PACT release ${release_id} locally."
+  exit 0
+fi
+
 ssh "${ssh_options[@]}" "${deploy_host}" "mkdir -m 700 '${remote_dir}'"
 scp "${ssh_options[@]}" \
   "${source_archive}" \

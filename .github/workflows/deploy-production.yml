@@ -13,8 +13,9 @@ concurrency:
 jobs:
   deploy:
     name: Deploy main to pact.nuanzs.com
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, pact-production]
     environment: production
+    timeout-minutes: 30
     steps:
       - name: Require main
         shell: bash
@@ -27,28 +28,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Configure production SSH identity
-        shell: bash
-        env:
-          PACT_PRODUCTION_SSH_KEY: ${{ secrets.PACT_PRODUCTION_SSH_KEY }}
-          PACT_PRODUCTION_KNOWN_HOSTS: ${{ secrets.PACT_PRODUCTION_KNOWN_HOSTS }}
-        run: |
-          [[ -n "${PACT_PRODUCTION_SSH_KEY}" ]] || { echo "PACT_PRODUCTION_SSH_KEY is not configured." >&2; exit 1; }
-          [[ -n "${PACT_PRODUCTION_KNOWN_HOSTS}" ]] || { echo "PACT_PRODUCTION_KNOWN_HOSTS is not configured." >&2; exit 1; }
-          install -m 700 -d "${RUNNER_TEMP}/pact-ssh"
-          printf '%s\n' "${PACT_PRODUCTION_SSH_KEY}" >"${RUNNER_TEMP}/pact-ssh/key"
-          printf '%s\n' "${PACT_PRODUCTION_KNOWN_HOSTS}" >"${RUNNER_TEMP}/pact-ssh/known_hosts"
-          chmod 600 "${RUNNER_TEMP}/pact-ssh/key" "${RUNNER_TEMP}/pact-ssh/known_hosts"
       - name: Deploy immutable release
         env:
-          PACT_DEPLOY_HOST: ${{ secrets.PACT_PRODUCTION_HOST }}
-          PACT_SSH_KEY: ${{ runner.temp }}/pact-ssh/key
-          PACT_SSH_KNOWN_HOSTS: ${{ runner.temp }}/pact-ssh/known_hosts
-        run: |
-          [[ -n "${PACT_DEPLOY_HOST}" ]] || { echo "PACT_PRODUCTION_HOST is not configured." >&2; exit 1; }
-          ./deploy/oci-shared/deploy.sh
+          PACT_DEPLOY_LOCAL: "true"
+        run: ./deploy/oci-shared/deploy.sh
       - name: Verify public readiness
         run: curl --fail --show-error --silent https://pact.nuanzs.com/readyz
-      - name: Remove temporary SSH material
-        if: always()
-        run: rm -f "${RUNNER_TEMP}/pact-ssh/key" "${RUNNER_TEMP}/pact-ssh/known_hosts"
