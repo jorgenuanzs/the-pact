@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import type { Workspace } from "@/api/types";
+import { ToastProvider } from "@/components/ui";
 import { useAuth } from "@/features/auth";
 import { useControlDirectory } from "@/features/workspaces/queries";
 
 import { ControlShell } from "./ControlShell";
 
 vi.mock("@/features/auth", () => ({ useAuth: vi.fn() }));
+vi.mock("@/realtime/useWorkspaceDirectoryEvents", () => ({ useWorkspaceDirectoryEvents: vi.fn() }));
 vi.mock("@/features/workspaces/queries", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/workspaces/queries")>();
   return { ...actual, useControlDirectory: vi.fn() };
@@ -43,18 +45,20 @@ function renderShell(path: string, workspaces: Workspace[]) {
     principal: { id: "owner-1", display_name: "Jorge", organization_role: "owner" },
     isPending: false,
     error: null,
-    refetch: vi.fn(async () => []),
+    refetch: vi.fn(async () => ({ workspaces, projects: [], github: undefined, principal: undefined })),
   } as unknown as ReturnType<typeof useControlDirectory>);
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route element={<ControlShell />}>
-            <Route path="*" element={<div>Contenido de prueba</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route element={<ControlShell />}>
+              <Route path="*" element={<div>Contenido de prueba</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

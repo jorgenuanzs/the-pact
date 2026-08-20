@@ -22,12 +22,33 @@ const desktopStreamEvent = "pact:desktop-project-stream"
 
 type DesktopStreamMessage struct {
 	SubscriptionID string          `json:"subscription_id"`
+	Stream         string          `json:"stream"`
 	ProjectID      string          `json:"project_id"`
 	Kind           string          `json:"kind"`
 	Status         string          `json:"status,omitempty"`
 	EventID        string          `json:"event_id,omitempty"`
 	Data           json.RawMessage `json:"data,omitempty"`
 	Error          string          `json:"error,omitempty"`
+}
+
+func (d *Desktop) StartWorkspaceDirectoryStream() (string, error) {
+	if _, err := userconfig.Load(); err != nil {
+		return "", err
+	}
+	subscriptionID, err := randomStreamID()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	d.mu.Lock()
+	d.streams[subscriptionID] = cancel
+	d.mu.Unlock()
+	go d.runWorkspaceDirectoryStream(ctx, subscriptionID)
+	return subscriptionID, nil
+}
+
+func (d *Desktop) StopWorkspaceDirectoryStream(subscriptionID string) {
+	d.StopProjectEventStream(subscriptionID)
 }
 
 func (d *Desktop) StartProjectEventStream(projectID, cursor string) (string, error) {
@@ -115,6 +136,88 @@ func (d *Desktop) runProjectEventStream(ctx context.Context, subscriptionID, pro
 		case <-timer.C:
 		}
 	}
+}
+
+func (d *Desktop) runWorkspaceDirectoryStream(ctx context.Context, subscriptionID string) {
+	defer func() {
+		d.mu.Lock()
+		delete(d.streams, subscriptionID)
+		d.mu.Unlock()
+	}()
+	delays := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 10 * time.Second}
+	attempt := 0
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		status := "connecting"
+		if attempt > 0 {
+			status = "reconnecting"
+		}
+		d.emitStream(DesktopStreamMessage{SubscriptionID: subscriptionID, Stream: "directory", Kind: "status", Status: status})
+		connectedAt, terminal, err := d.consumeWorkspaceDirectoryEvents(ctx, subscriptionID)
+		if ctx.Err() != nil || terminal {
+			return
+		}
+		message := DesktopStreamMessage{SubscriptionID: subscriptionID, Stream: "directory", Kind: "status", Status: "offline"}
+		if err != nil {
+			message.Error = err.Error()
+		}
+		d.emitStream(message)
+		if time.Since(connectedAt) > 10*time.Second {
+			attempt = 0
+		}
+		delay := delays[min(attempt, len(delays)-1)]
+		attempt++
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (d *Desktop) consumeWorkspaceDirectoryEvents(ctx context.Context, subscriptionID string) (time.Time, bool, error) {
+	config, err := userconfig.Load()
+	if err != nil {
+		return time.Now(), true, err
+	}
+	endpoint, err := desktopEndpoint(config.ServerURL, "/v1/workspaces/events/stream")
+	if err != nil {
+		return time.Now(), true, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return time.Now(), true, err
+	}
+	request.Header.Set("Authorization", "Bearer "+config.DeviceCredential)
+	request.Header.Set("Accept", "text/event-stream")
+	response, err := (&http.Client{}).Do(request)
+	if err != nil {
+		return time.Now(), false, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		d.emitStream(DesktopStreamMessage{
+			SubscriptionID: subscriptionID, Stream: "directory", Kind: "status",
+			Status: "offline", Error: "La autorización del dispositivo ya no es válida.",
+		})
+		return time.Now(), true, nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return time.Now(), false, fmt.Errorf("Pact workspace directory stream returned HTTP %d", response.StatusCode)
+	}
+	connectedAt := time.Now()
+	d.emitStream(DesktopStreamMessage{SubscriptionID: subscriptionID, Stream: "directory", Kind: "status", Status: "connected"})
+	_, err = readSSE(response.Body, "", func(eventID string, data json.RawMessage) {
+		d.emitStream(DesktopStreamMessage{
+			SubscriptionID: subscriptionID, Stream: "directory", Kind: "event",
+			EventID: eventID, Data: data,
+		})
+	})
+	return connectedAt, false, err
 }
 
 func (d *Desktop) consumeProjectEvents(
@@ -212,6 +315,13 @@ func readSSE(reader io.Reader, cursor string, emit func(string, json.RawMessage)
 }
 
 func (d *Desktop) emitStream(message DesktopStreamMessage) {
+	if message.Stream == "" {
+		if message.ProjectID == "" {
+			message.Stream = "directory"
+		} else {
+			message.Stream = "project"
+		}
+	}
 	if ctx := d.appContext(); ctx != nil {
 		runtime.EventsEmit(ctx, desktopStreamEvent, message)
 	}

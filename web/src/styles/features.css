@@ -118,7 +118,18 @@
 .local-machine-identity small { color: var(--color-text-muted); font-size: var(--pact-text-help); }
 .local-machine-icon { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; color: var(--color-ink); background: var(--accent-cyan); border-radius: 8px; }
 
-.local-overview-grid { display: grid; margin-bottom: 28px; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--color-ink); border-bottom: 1px solid var(--color-border); }
+.local-shared-workspaces { margin-top: 24px; }
+.local-workspace-list { display: grid; }
+.local-workspace-list > button { display: grid; min-height: 58px; padding: 9px 4px; grid-template-columns: 14px minmax(220px, 1fr) auto 22px; align-items: center; gap: 12px; color: var(--color-text-secondary); background: transparent; border: 0; border-bottom: 1px solid var(--color-border); text-align: left; cursor: pointer; }
+.local-workspace-list > button:hover { background: var(--pact-color-subtle); }
+.local-workspace-list > button > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
+.local-workspace-list strong { overflow: hidden; color: var(--color-ink); font-size: var(--pact-text-table); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.local-workspace-list small { overflow: hidden; color: var(--color-text-muted); font-size: var(--pact-text-help); text-overflow: ellipsis; white-space: nowrap; }
+.local-workspace-list > button > span:nth-child(3) { color: var(--color-text-muted); font-family: var(--font-mono); font-size: var(--pact-text-label); white-space: nowrap; }
+.local-workspace-color { width: 10px; height: 10px; border: 1px solid color-mix(in srgb, var(--color-ink) 18%, transparent); border-radius: 3px; }
+.local-shared-empty { padding: 18px 4px; margin: 0; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); font-size: var(--pact-text-body); }
+.local-device-section { margin-top: 28px; }
+.local-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--color-border); }
 .local-overview-grid > button { display: grid; min-height: 128px; padding: 16px; align-content: start; gap: 8px; color: var(--color-text-secondary); background: transparent; border: 0; border-right: 1px solid var(--color-border); text-align: left; cursor: pointer; }
 .local-overview-grid > button:last-child { border-right: 0; }
 .local-overview-grid > button:hover { background: var(--pact-color-subtle); }
@@ -201,7 +212,7 @@
 .local-folder-picker strong { color: var(--color-ink); font-size: var(--pact-text-table); }
 .local-folder-picker small { overflow: hidden; color: var(--color-text-muted); font-family: var(--font-mono); font-size: var(--pact-text-label); text-overflow: ellipsis; white-space: nowrap; }
 .local-folder-picker b { color: var(--pact-color-info); font-size: var(--pact-text-help); font-weight: 500; }
-.local-connection-preview { display: grid; padding: 10px; grid-template-columns: .7fr 1fr 1.3fr; gap: 10px; background: var(--pact-color-active-soft); border: 1px solid #c3e2ce; border-radius: var(--pact-radius-control); }
+.local-connection-preview { display: grid; padding: 10px; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; background: var(--pact-color-active-soft); border: 1px solid #c3e2ce; border-radius: var(--pact-radius-control); }
 .local-connection-preview > span { display: grid; min-width: 0; gap: 3px; }
 .local-connection-preview small { color: var(--color-text-subtle); font-family: var(--font-mono); font-size: var(--pact-text-label); letter-spacing: .08em; }
 .local-connection-preview strong,
@@ -214,6 +225,7 @@
   .local-overview-grid { grid-template-columns: 1fr; }
   .local-overview-grid > button { min-height: 104px; border-right: 0; border-bottom: 1px solid var(--color-border); }
   .local-service-layout { grid-template-columns: 1fr; }
+  .local-connection-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 600px) {
@@ -223,6 +235,8 @@
   .local-connection-preview,
   .local-runtime-facts { grid-template-columns: 1fr; }
   .local-client-choice { margin-left: 0; }
+  .local-workspace-list > button { grid-template-columns: 14px minmax(0, 1fr) 22px; }
+  .local-workspace-list > button > span:nth-child(3) { display: none; }
   .local-runtime-facts > div:nth-child(odd) { border-right: 0; }
   .local-runtime-facts > div:nth-child(even) { padding-left: 4px; }
 }

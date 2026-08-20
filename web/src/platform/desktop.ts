@@ -124,6 +124,7 @@ export interface DesktopAPIResponse {
 
 export interface DesktopStreamMessage {
   subscription_id: string;
+  stream?: "project" | "directory";
   project_id: string;
   kind: "status" | "event";
   status?: "connecting" | "connected" | "reconnecting" | "offline";
@@ -149,6 +150,8 @@ export interface DesktopBridge {
   BackupLocalServer(): Promise<string>;
   UpgradeLocalServer(image: string): Promise<LocalServerUpgradeResult>;
   APIRequest(input: DesktopAPIRequest): Promise<DesktopAPIResponse>;
+  StartWorkspaceDirectoryStream(): Promise<string>;
+  StopWorkspaceDirectoryStream(subscriptionID: string): Promise<void>;
   StartProjectEventStream(projectID: string, cursor: string): Promise<string>;
   StopProjectEventStream(subscriptionID: string): Promise<void>;
 }

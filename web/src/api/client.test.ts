@@ -59,6 +59,8 @@ describe("API client", () => {
       BackupLocalServer: vi.fn(),
       UpgradeLocalServer: vi.fn(),
       APIRequest,
+      StartWorkspaceDirectoryStream: vi.fn(),
+      StopWorkspaceDirectoryStream: vi.fn(),
       StartProjectEventStream: vi.fn(),
       StopProjectEventStream: vi.fn(),
     } } };

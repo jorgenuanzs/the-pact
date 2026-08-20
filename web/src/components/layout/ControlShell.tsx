@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { Icon } from "@/components/ui/Icon";
 import { ErrorState, LoadingState } from "@/components/ui/States";
+import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/features/auth";
 import { MentionInbox } from "@/features/conversations/MentionInbox";
 import { projectForWorkspace } from "@/api/viewModels";
@@ -11,6 +12,7 @@ import { useWorkspaceAccess } from "@/features/overview/queries";
 import { canManage, workspaceColorKey } from "@/lib/format";
 import { isDesktopRuntime } from "@/platform/desktop";
 import { useWorkspaceEvents } from "@/realtime/useProjectEvents";
+import { useWorkspaceDirectoryEvents } from "@/realtime/useWorkspaceDirectoryEvents";
 import { useControlDirectory, workspaceProjects } from "@/features/workspaces/queries";
 import { WorkspaceContextProvider } from "@/features/workspaces/WorkspaceContext";
 
@@ -23,12 +25,16 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 export function ControlShell() {
   const directory = useControlDirectory();
   const auth = useAuth();
+  const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
   const workspaceSidebarRef = useRef<HTMLElement>(null);
+  const knownWorkspacesRef = useRef(new Map<string, string>());
+  const directoryReadyRef = useRef(false);
+  const directoryRefreshRef = useRef<Promise<void> | null>(null);
   const match = matchPath({ path: "/w/:workspaceId/*" }, location.pathname)
     || matchPath({ path: "/w/:workspaceId" }, location.pathname);
   const workspaceID = match?.params.workspaceId;
@@ -40,6 +46,40 @@ export function ControlShell() {
   const principal = directory.principal || auth.principal || undefined;
   const organizationMode = location.pathname.startsWith("/organization/");
   const localMode = location.pathname === "/local" || location.pathname.startsWith("/local/");
+
+  useEffect(() => {
+    if (directory.isPending) return;
+    knownWorkspacesRef.current = new Map(directory.workspaces.map((item) => [item.id, item.name]));
+    directoryReadyRef.current = true;
+  }, [directory.isPending, directory.workspaces]);
+
+  const refreshDirectory = useCallback(() => {
+    if (directoryRefreshRef.current) return directoryRefreshRef.current;
+    const task = (async () => {
+      const previous = new Map(knownWorkspacesRef.current);
+      const shouldNotify = directoryReadyRef.current;
+      const result = await directory.refetch();
+      const next = new Map(result.workspaces.map((item) => [item.id, item.name]));
+      knownWorkspacesRef.current = next;
+      directoryReadyRef.current = true;
+      const added = shouldNotify
+        ? result.workspaces.filter((item) => !previous.has(item.id))
+        : [];
+      if (added.length) {
+        toast({
+          title: added.length === 1 ? "Nuevo workspace disponible" : "Nuevos workspaces disponibles",
+          description: added.map((item) => item.name).join(", "),
+          tone: "success",
+        });
+      }
+    })().finally(() => {
+      directoryRefreshRef.current = null;
+    });
+    directoryRefreshRef.current = task;
+    return task;
+  }, [directory.refetch, toast]);
+
+  useWorkspaceDirectoryEvents(Boolean(principal) && !directory.isPending, refreshDirectory);
 
   useEffect(() => {
     const result = new URL(window.location.href).searchParams.get("github");
@@ -92,7 +132,7 @@ export function ControlShell() {
   ], [auth, navigate, principal?.organization_role]);
 
   if (directory.isPending) return <LoadingState label="Preparando PACT Control" />;
-  if (directory.error) return <ErrorState title="No se pudo cargar PACT Control" description={(directory.error as Error).message} actionLabel="Reintentar" onAction={() => void directory.refetch()} />;
+  if (directory.error) return <ErrorState title="No se pudo cargar PACT Control" description={(directory.error as Error).message} actionLabel="Reintentar" onAction={() => void refreshDirectory()} />;
 
   return (
     <WorkspaceContextProvider value={{
@@ -105,7 +145,7 @@ export function ControlShell() {
       principal,
       access: access.data,
       stream,
-      refreshDirectory: directory.refetch,
+      refreshDirectory,
     }}>
       <div
         className="control-shell"

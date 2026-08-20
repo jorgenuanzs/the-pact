@@ -44,6 +44,8 @@ function installDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBr
     BackupLocalServer: vi.fn(),
     UpgradeLocalServer: vi.fn(),
     APIRequest: vi.fn(),
+    StartWorkspaceDirectoryStream: vi.fn(),
+    StopWorkspaceDirectoryStream: vi.fn(),
     StartProjectEventStream: vi.fn(),
     StopProjectEventStream: vi.fn().mockResolvedValue(undefined),
     ...overrides,
