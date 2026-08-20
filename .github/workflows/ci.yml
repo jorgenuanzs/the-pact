@@ -23,12 +23,31 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.16.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Admin UI dependencies
+        working-directory: web
+        run: npm ci
+      - name: Build Admin UI
+        working-directory: web
+        run: npm run build
+      - name: Test Admin UI
+        if: runner.os == 'Linux'
+        working-directory: web
+        run: npm test
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
       - run: go vet ./...
       - run: go test ./...
+      - name: Validate release classifier
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash deploy/oci-shared/classify-release_test.sh
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
         shell: pwsh

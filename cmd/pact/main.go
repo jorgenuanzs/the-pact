@@ -25,6 +25,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/gitobserve"
 	"github.com/jorgenuanzs/the-pact/internal/lifecycle"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
+	"github.com/jorgenuanzs/the-pact/internal/localserver"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
@@ -70,6 +71,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runAgent(args[1:], stdin, stdout, stderr)
 	case "node":
 		return runNode(args[1:], stdout, stderr)
+	case "server":
+		return runServer(args[1:], stdout, stderr)
 	case "mcp":
 		return runMCP(args[1:], stderr)
 	case "version":
@@ -79,6 +82,195 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func runServer(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("expected pact server install, start, stop, status, logs, backup, restore, upgrade, or uninstall")
+	}
+	manager, err := localserver.NewDefault(stdout, stderr)
+	if err != nil {
+		return err
+	}
+	ctx, stop := lifecycle.NotifyContext(context.Background())
+	defer stop()
+
+	switch args[0] {
+	case "install":
+		flags := flag.NewFlagSet("pact server install", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		port := flags.Int("port", 8080, "loopback port for PACT Server")
+		image := flags.String("image", "", "versioned PACT Server container image")
+		force := flags.Bool("force", false, "replace the local installation configuration")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact server install accepts no positional arguments")
+		}
+		result, err := manager.Install(ctx, localserver.InstallOptions{Port: *port, Image: *image, Force: *force})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "PACT Server is ready at %s\n", result.Status.ServerURL)
+		fmt.Fprintf(stdout, "Open %s/admin/ and use this one-time setup code:\n\n%s\n\n", result.Status.ServerURL, result.SetupCode)
+		fmt.Fprintln(stdout, "The setup code is stored in the private local server configuration until the first owner account is created.")
+		return nil
+	case "start":
+		if len(args) != 1 {
+			return errors.New("pact server start accepts no arguments")
+		}
+		status, err := manager.Start(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "PACT Server started at %s (ready: %t).\n", status.ServerURL, status.Ready)
+		return nil
+	case "stop":
+		if len(args) != 1 {
+			return errors.New("pact server stop accepts no arguments")
+		}
+		status, err := manager.Stop(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "PACT Server stopped (data preserved in %s).\n", status.DataDirectory)
+		return nil
+	case "status":
+		flags := flag.NewFlagSet("pact server status", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact server status accepts no positional arguments")
+		}
+		status, err := manager.Status(ctx)
+		if err != nil {
+			return err
+		}
+		if *jsonOutput {
+			return json.NewEncoder(stdout).Encode(status)
+		}
+		if !status.Installed {
+			fmt.Fprintln(stdout, "PACT Server is not installed on this computer.")
+			return nil
+		}
+		fmt.Fprintf(stdout, "Installed: yes\nRunning: %t\nReady: %t\nURL: %s\nImage: %s\nData: %s\n", status.Running, status.Ready, status.ServerURL, status.Image, status.DataDirectory)
+		if status.Error != "" {
+			fmt.Fprintf(stdout, "Problem: %s\n", status.Error)
+		}
+		return nil
+	case "logs":
+		flags := flag.NewFlagSet("pact server logs", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		follow := flags.Bool("follow", false, "keep streaming new logs")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact server logs accepts no positional arguments")
+		}
+		return manager.Logs(ctx, *follow, stdout)
+	case "backup":
+		flags := flag.NewFlagSet("pact server backup", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		output := flags.String("output", "", "destination .dump file")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact server backup accepts no positional arguments")
+		}
+		path, err := manager.Backup(ctx, *output)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "PACT backup created at %s\n", path)
+		return nil
+	case "restore":
+		flags := flag.NewFlagSet("pact server restore", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		input := flags.String("input", "", "source .dump file")
+		confirm := flags.Bool("confirm", false, "confirm replacement of the current database")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 || strings.TrimSpace(*input) == "" {
+			return errors.New("pact server restore requires --input FILE")
+		}
+		if !*confirm {
+			return errors.New("restore replaces current database contents; repeat with --confirm")
+		}
+		if err := manager.Restore(ctx, *input); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "PACT Server data restored. Restart the server before continuing.")
+		return nil
+	case "upgrade":
+		flags := flag.NewFlagSet("pact server upgrade", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		image := flags.String("image", "", "versioned PACT Server container image")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact server upgrade accepts no positional arguments")
+		}
+		status, backup, err := manager.Upgrade(ctx, *image)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "PACT Server upgraded to %s. Backup: %s\n", status.Image, backup)
+		return nil
+	case "uninstall":
+		flags := flag.NewFlagSet("pact server uninstall", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		removeData := flags.Bool("remove-data", false, "also permanently remove PostgreSQL data and local configuration")
+		confirm := flags.Bool("confirm", false, "confirm permanent data removal")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact server uninstall accepts no positional arguments")
+		}
+		if *removeData && !*confirm {
+			return errors.New("--remove-data is permanent; repeat with --confirm")
+		}
+		if err := manager.Uninstall(ctx, *removeData); err != nil {
+			return err
+		}
+		if *removeData {
+			fmt.Fprintln(stdout, "PACT Server and its local data were removed.")
+		} else {
+			fmt.Fprintln(stdout, "PACT Server containers were removed; local configuration and PostgreSQL data were preserved.")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown server command %q", args[0])
 	}
 }
 
@@ -337,7 +529,7 @@ func runAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact agent run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	clientType := flags.String("client", "", "agent client type, such as codex, claude, or kimi")
-	agentName := flags.String("name", "", "agent display name (defaults to the client type)")
+	agentName := flags.String("name", "", "legacy agent label (the durable identity is derived from --client)")
 	projectPath := flags.String("path", ".", "path inside the connected Pact project")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -1253,6 +1445,12 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact logout [--local-only]")
 	fmt.Fprintln(writer, "  pact agent run --client TYPE [--name NAME] [--path PATH] [-- COMMAND ...]")
 	fmt.Fprintln(writer, "  pact node run [--path PATH] [--interval 2s] [--once]")
+	fmt.Fprintln(writer, "  pact server install [--port 8080] [--image IMAGE]")
+	fmt.Fprintln(writer, "  pact server start|stop|status|logs")
+	fmt.Fprintln(writer, "  pact server backup [--output FILE]")
+	fmt.Fprintln(writer, "  pact server restore --input FILE --confirm")
+	fmt.Fprintln(writer, "  pact server upgrade [--image IMAGE]")
+	fmt.Fprintln(writer, "  pact server uninstall [--remove-data --confirm]")
 	fmt.Fprintln(writer, "  pact mcp serve --client TYPE [--name NAME] [--path PATH]")
 	fmt.Fprintln(writer, "  pact version")
 }

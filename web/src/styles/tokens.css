@@ -1,0 +1,98 @@
+:root {
+  color-scheme: light;
+
+  --pact-color-ink: #16211a;
+  --pact-color-text-primary: #35403a;
+  --pact-color-text-secondary: #5a655e;
+  --pact-color-text-tertiary: #8a938c;
+  --pact-color-canvas: #fbfbfa;
+  --pact-color-surface: #ffffff;
+  --pact-color-sidebar: #f2f3f0;
+  --pact-color-subtle: #f8f9f7;
+  --pact-color-border: #e6e7e3;
+  --pact-color-border-strong: #d4d6d1;
+
+  --pact-color-active: #3f8f5a;
+  --pact-color-active-soft: #e8f4ec;
+  --pact-color-warning: #8a6a12;
+  --pact-color-warning-strong: #d99e0b;
+  --pact-color-warning-soft: #fff5d8;
+  --pact-color-danger: #8a2f22;
+  --pact-color-danger-soft: #f8e9e6;
+  --pact-color-info: #1d4e6b;
+  --pact-color-info-soft: #e6f0f5;
+
+  --pact-accent-lime: #c9ee4d;
+  --pact-accent-cyan: #2ab4e8;
+  --pact-accent-cobalt: #3c6ee0;
+  --pact-accent-orange: #ee8a3c;
+  --pact-accent-terracotta: #d2683d;
+  --pact-accent-mauve: #9b5fc0;
+  --workspace-accent: var(--pact-accent-lime);
+
+  --pact-font-sans: "Instrument Sans", Inter, ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pact-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+
+  --pact-text-view: 1.3125rem;
+  --pact-text-panel: 0.9375rem;
+  --pact-text-section: 0.875rem;
+  --pact-text-body: 0.8125rem;
+  --pact-text-table: 0.78125rem;
+  --pact-text-compact: 0.75rem;
+  --pact-text-help: 0.71875rem;
+  --pact-text-label: 0.625rem;
+  --pact-text-technical: 0.71875rem;
+
+  --pact-space-1: 0.25rem;
+  --pact-space-2: 0.5rem;
+  --pact-space-3: 0.75rem;
+  --pact-space-4: 1rem;
+  --pact-space-6: 1.5rem;
+  --pact-space-8: 2rem;
+
+  --pact-radius-chip: 0.25rem;
+  --pact-radius-nav: 0.375rem;
+  --pact-radius-control: 0.4375rem;
+  --pact-radius-panel: 0.625rem;
+
+  --pact-shadow-floating: 0 12px 36px rgb(22 33 26 / 14%);
+  --pact-shadow-drawer: -8px 0 24px rgb(22 33 26 / 10%);
+  --pact-focus-ring: 0 0 0 2px var(--pact-color-canvas),
+    0 0 0 4px var(--pact-color-info);
+
+  --pact-global-rail-width: 4rem;
+  --pact-workspace-sidebar-width: 16rem;
+  --pact-drawer-width: 40rem;
+  --pact-control-height-sm: 1.625rem;
+  --pact-control-height-md: 2.125rem;
+  --pact-control-height-lg: 2.5rem;
+  --pact-icon-size-sm: 0.875rem;
+  --pact-icon-size-md: 1rem;
+  --pact-icon-size-lg: 1.125rem;
+
+  /* Short aliases used by feature and layout styles. */
+  --color-ink: var(--pact-color-ink);
+  --color-text-secondary: var(--pact-color-text-primary);
+  --color-text-muted: var(--pact-color-text-secondary);
+  --color-text-subtle: var(--pact-color-text-tertiary);
+  --color-canvas: var(--pact-color-canvas);
+  --color-sidebar: var(--pact-color-sidebar);
+  --color-border: var(--pact-color-border);
+  --color-active: var(--pact-color-active);
+  --accent-lime: var(--pact-accent-lime);
+  --accent-cyan: var(--pact-accent-cyan);
+  --accent-cobalt: var(--pact-accent-cobalt);
+  --accent-orange: var(--pact-accent-orange);
+  --accent-terracotta: var(--pact-accent-terracotta);
+  --accent-mauve: var(--pact-accent-mauve);
+  --font-sans: var(--pact-font-sans);
+  --font-mono: var(--pact-font-mono);
+}
+
+@media (max-width: 79.9375rem) {
+  :root {
+    --pact-workspace-sidebar-width: 14rem;
+  }
+}

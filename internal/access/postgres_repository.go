@@ -255,6 +255,7 @@ func (r *PostgresRepository) GetProjectAccess(
 			LIMIT 1
 		) AS latest_session ON true
 		WHERE agent.organization_id = $1
+		  AND agent_actor.status <> 'retired'
 		ORDER BY (session_stats.active_sessions > 0) DESC,
 		         latest_session.last_seen_at DESC,
 		         lower(agent_actor.display_name),

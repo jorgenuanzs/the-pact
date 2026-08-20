@@ -1,0 +1,85 @@
+name: pact-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pact
+      POSTGRES_USER: pact
+      POSTGRES_PASSWORD: ${PACT_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: --data-checksums
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - pact_postgres_data:/var/lib/postgresql
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pact -d pact"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    stop_grace_period: 30s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  migrate:
+    image: ${PACT_SERVER_IMAGE}
+    restart: "no"
+    command: ["migrate", "up"]
+    environment: &pact_environment
+      PACT_DATABASE_URL: postgres://pact:${PACT_DB_PASSWORD}@postgres:5432/pact?sslmode=disable
+      PACT_DATABASE_TIMEOUT: 5s
+      PACT_DATABASE_STATEMENT_TIMEOUT: 15s
+      PACT_DATABASE_LOCK_TIMEOUT: 5s
+      PACT_PUBLIC_URL: ${PACT_PUBLIC_URL}
+      PACT_SETUP_TOKEN: ${PACT_SETUP_TOKEN}
+      PACT_LOG_LEVEL: info
+      PACT_LOCAL_ORGANIZATION_ID: 00000000-0000-4000-8000-000000000001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - private
+
+  pact-server:
+    image: ${PACT_SERVER_IMAGE}
+    restart: unless-stopped
+    command: ["serve"]
+    environment:
+      <<: *pact_environment
+      PACT_HTTP_ADDRESS: 0.0.0.0:8080
+      PACT_RUN_MIGRATIONS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - 127.0.0.1:${PACT_HTTP_PORT}:8080
+    networks:
+      - private
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 5s
+    stop_grace_period: 15s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  pact_postgres_data:
+
+networks:
+  private:
+    internal: true
+  edge:

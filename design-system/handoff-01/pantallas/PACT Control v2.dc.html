@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #16211a; }
+  * { box-sizing: border-box; }
+  a { color: #2f6b46; }
+  a:hover { color: #16211a; }
+  ::selection { background: #c9ee4d; }
+</style>
+</helmet>
+
+<div style="width: 100%; height: 100vh; display: grid; grid-template-columns: 64px 256px 1fr; background: #fbfbfa; font-family: 'Instrument Sans', system-ui, sans-serif; color: #16211a; position: relative; overflow: hidden;">
+
+  <!-- ░░ Rail global: un elemento por Workspace ░░ -->
+  <div style="background: #16211a; display: flex; flex-direction: column; align-items: center; padding: 12px 0 14px; gap: 6px;">
+    <div title="PACT Control" style="display: flex; align-items: center; gap: 3px; height: 24px; margin-bottom: 8px;">
+      <span style="width: 7px; height: 22px; border: 2.5px solid #eef2ef; border-right: 0; border-radius: 3px 0 0 3px;"></span>
+      <span style="{{ logoPunto }}"></span>
+      <span style="width: 7px; height: 22px; border: 2.5px solid #eef2ef; border-left: 0; border-radius: 0 3px 3px 0;"></span>
+    </div>
+    <div title="Inicio" style="width: 38px; height: 34px; border-radius: 8px; color: #8d9a90; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer;" style-hover="background:#22302a;color:#e7ece8">◇</div>
+    <div title="Menciones · 3 sin leer" style="width: 38px; height: 34px; border-radius: 8px; color: #8d9a90; display: flex; align-items: center; justify-content: center; font-size: 14px; position: relative; cursor: pointer;" style-hover="background:#22302a;color:#e7ece8">@
+      <span style="position: absolute; top: 5px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: #c9ee4d;"></span>
+    </div>
+    <div style="width: 24px; height: 1px; background: #2a3830; margin: 8px 0;"></div>
+
+    <sc-for list="{{ rail }}" as="ws" hint-placeholder-count="4">
+      <div title="{{ ws.title }}" onClick="{{ ws.abrir }}" style="{{ ws.tile }}">{{ ws.letra }}
+        <sc-if value="{{ ws.alerta }}" hint-placeholder-val="{{ false }}">
+          <span style="position: absolute; top: -3px; right: -3px; width: 14px; height: 14px; border-radius: 50%; background: #e9a04a; border: 2px solid #16211a; color: #16211a; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center;">{{ ws.alerta }}</span>
+        </sc-if>
+        <sc-if value="{{ ws.vivo }}" hint-placeholder-val="{{ false }}">
+          <span style="position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%; background: #7ee081; border: 2px solid #16211a;"></span>
+        </sc-if>
+      </div>
+    </sc-for>
+
+    <div title="{{ tituloExplorador }}" onClick="{{ togglePicker }}" style="width: 38px; height: 34px; border-radius: 8px; color: #5f6e64; display: flex; align-items: center; justify-content: center; font-size: 13px; margin-top: 4px; cursor: pointer;" style-hover="background:#22302a;color:#c9ee4d">⌘</div>
+
+    <div style="margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+      <div title="Administración de Nuanzs" style="width: 38px; height: 34px; border-radius: 8px; color: #8d9a90; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer;" style-hover="background:#22302a;color:#e7ece8">⚙</div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+        <span title="Jorge · Propietario de Nuanzs" style="width: 28px; height: 28px; border-radius: 50%; background: #c9ee4d; color: #16211a; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer;">J</span>
+        <span title="Pact Server conectado" style="width: 6px; height: 6px; border-radius: 50%; background: #7ee081;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ░░ Sidebar del Workspace ░░ -->
+  <div style="background: #f2f3f0; border-right: 1px solid #e0e1dc; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+    <div style="padding: 14px 16px 12px; border-bottom: 1px solid #e0e1dc; display: flex; flex-direction: column; gap: 4px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="{{ tileHeader }}">F</span>
+        <span style="font-size: 15px; font-weight: 600;">Footfall</span>
+        <span onClick="{{ togglePicker }}" style="margin-left: auto; font-size: 11px; color: #8a938c; cursor: pointer;" style-hover="color:#16211a">{{ etiquetaOrg }}</span>
+      </div>
+      <span style="font-size: 11.5px; color: #5a655e; line-height: 1.35;">Análisis y agregación de tráfico peatonal · 3 repositorios</span>
+      <div style="display: flex; align-items: center; gap: 6px; padding-top: 6px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.1em; color: #8a938c;">COLOR</span>
+        <sc-for list="{{ colores }}" as="c" hint-placeholder-count="6">
+          <span title="{{ c.nombre }}" onClick="{{ c.elegir }}" style="{{ c.swatch }}"></span>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="padding: 12px 12px 6px;">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: #fff; border: 1px solid #dcded8; border-radius: 7px; cursor: text;">
+        <span style="font-size: 11px; color: #8a938c;">⌕</span>
+        <span style="font-size: 12px; color: #8a938c;">Buscar en Footfall</span>
+        <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #8a938c;">⌘K</span>
+      </div>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; padding: 6px 12px 12px; display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #8a938c; padding: 8px 10px 5px;">GENERAL</div>
+      <div onClick="{{ irResumen }}" style="{{ navResumen }}"><span style="width: 14px; text-align: center; opacity: 0.7;">◇</span>Resumen</div>
+
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #8a938c; padding: 12px 10px 5px;">OPERACIÓN</div>
+      <div onClick="{{ irVivo }}" style="{{ navVivo }}"><span style="width: 14px; text-align: center; opacity: 0.7;">▶</span>Trabajo en vivo<span style="margin-left: auto; display: flex; align-items: center; gap: 5px; font-family: 'JetBrains Mono', monospace; font-size: 10px;">4<span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span></span></div>
+      <div onClick="{{ irActividad }}" style="{{ navActividad }}"><span style="width: 14px; text-align: center; opacity: 0.7;">≡</span>Actividad</div>
+
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #8a938c; padding: 12px 10px 5px;">COLABORACIÓN</div>
+      <div onClick="{{ irConversaciones }}" style="{{ navConversaciones }}"><span style="width: 14px; text-align: center; opacity: 0.7;">#</span>Conversaciones<span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; background: #16211a; color: #fff; border-radius: 8px; padding: 1px 6px;">3</span></div>
+      <div onClick="{{ irContexto }}" style="{{ navContexto }}"><span style="width: 14px; text-align: center; opacity: 0.7;">◫</span>Contexto<span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a2f22;">2</span></div>
+
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #8a938c; padding: 12px 10px 5px;">CÓDIGO</div>
+      <div onClick="{{ irCodigo }}" style="{{ navCodigo }}"><span style="width: 14px; text-align: center; opacity: 0.7;">⌥</span>Repositorios<span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a6a12;">△ 1</span></div>
+      <div style="padding: 2px 0 2px 18px; display: flex; flex-direction: column; gap: 1px; border-left: 1px solid #e0e1dc; margin-left: 10px;">
+        <sc-for list="{{ repos }}" as="r" hint-placeholder-count="3">
+          <div onClick="{{ r.abrir }}" style="{{ r.nav }}">
+            <span style="{{ r.punto }}"></span>{{ r.corto }}
+            <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #8a938c;">{{ r.navMeta }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #8a938c; padding: 12px 10px 5px;">GESTIÓN</div>
+      <div onClick="{{ irPersonas }}" style="{{ navPersonas }}"><span style="width: 14px; text-align: center; opacity: 0.7;">◎</span>Personas y agentes</div>
+      <div onClick="{{ irAcceso }}" style="{{ navAcceso }}"><span style="width: 14px; text-align: center; opacity: 0.7;">⚿</span>Acceso</div>
+      <div onClick="{{ irConfig }}" style="{{ navConfig }}"><span style="width: 14px; text-align: center; opacity: 0.7;">⚙</span>Configuración</div>
+    </div>
+
+    <div style="padding: 10px 16px; border-top: 1px solid #e0e1dc; display: flex; align-items: center; gap: 7px;">
+      <span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c;">PACT SERVER · SSE 3 s</span>
+    </div>
+  </div>
+
+  <!-- ░░ Panel principal ░░ -->
+  <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;">
+
+    <div style="padding: 18px 32px 16px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: flex-start; gap: 24px; background: #fbfbfa;">
+      <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+        <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em;">{{ tituloVista }}</h1>
+        <div style="font-size: 12.5px; color: #5a655e;">{{ subtituloVista }}</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: #5a655e;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #3f8f5a;"></span> SSE en vivo · 5 actores conectados
+        </div>
+        <div style="display: flex; align-items: center;">
+          <span title="María · trabajando" style="width: 24px; height: 24px; border-radius: 50%; background: #16211a; color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; border: 2px solid #fbfbfa;">M</span>
+          <span title="Jorge · conectado" style="width: 24px; height: 24px; border-radius: 50%; background: #56635a; color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; border: 2px solid #fbfbfa; margin-left: -7px;">J</span>
+          <span title="Codex · agente activo" style="{{ avatarCodexHeader }}">CX</span>
+          <span title="Claude · agente bloqueado" style="width: 24px; height: 24px; border-radius: 6px; background: #fdf1d4; color: #8a6a12; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #fbfbfa; margin-left: -7px;">CL</span>
+          <span title="Kimi · sin heartbeat" style="width: 24px; height: 24px; border-radius: 6px; background: #ecedea; color: #8a938c; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #fbfbfa; margin-left: -7px;">KM</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex: 1; min-height: 0; overflow-y: auto;">
+
+      <!-- ══ Resumen ══ -->
+      <sc-if value="{{ esResumen }}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 20px 32px 32px; display: flex; flex-direction: column; gap: 24px;">
+          <div style="border: 1px solid #e3ddc6; border-radius: 8px; overflow: hidden; background: #fffdf6;">
+            <div style="display: flex; align-items: flex-start; gap: 11px; padding: 12px 16px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px; margin-top: 1px;">COLISIÓN</span>
+              <div style="display: flex; flex-direction: column; gap: 3px;">
+                <span style="font-size: 13px; font-weight: 600;">Dos intents reclaman <span style="font-family: 'JetBrains Mono', monospace; font-weight: 500;">footfall-api · backend/internal/reports</span></span>
+                <span style="font-size: 12.5px; color: #6b6459;">Codex tiene reserva exclusiva (expira en 38 min). Claude quedó bloqueado sobre <span style="font-family: 'JetBrains Mono', monospace;">reports/zones.go</span>, sin override.</span>
+              </div>
+              <div style="margin-left: auto; display: flex; gap: 8px;">
+                <button onClick="{{ irVivo }}" style="font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 6px 11px; cursor: pointer;" style-hover="background:#f4f5f2">Ver ambos intents</button>
+                <button onClick="{{ abrirColision }}" style="font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 6px 11px; cursor: pointer;" style-hover="background:#22302a">Resolver</button>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 16px; border-top: 1px solid #f0e9d6; background: #fefefb;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #5a655e; border: 1px solid #dcded8; border-radius: 4px; padding: 1px 6px;">STALE</span>
+              <span style="font-size: 12.5px; color: #35403a;">Kimi no envía heartbeat hace 14 min y mantiene reserva sobre <span style="font-family: 'JetBrains Mono', monospace;">footfall-infra · infra/terraform/oci</span>.</span>
+              <button onClick="{{ abrirStale }}" style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 6px 11px; cursor: pointer;" style-hover="background:#f4f5f2">Ver sesión</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 16px; border-top: 1px solid #f0e9d6; background: #fefefb;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #5a655e; border: 1px solid #dcded8; border-radius: 4px; padding: 1px 6px;">GIT</span>
+              <span style="font-size: 12.5px; color: #35403a;"><span style="font-family: 'JetBrains Mono', monospace;">footfall-infra</span> no se verifica desde hace 3 h.</span>
+              <button onClick="{{ irCodigo }}" style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 6px 11px; cursor: pointer;" style-hover="background:#f4f5f2">Verificar</button>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Ahora</h2>
+              <span style="font-size: 12.5px; color: #5a655e;">5 actores conectados, 3 con trabajo declarado en Footfall.</span>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <sc-for list="{{ presencia }}" as="p" hint-placeholder-count="5">
+                <div style="{{ p.chip }}">
+                  <span style="{{ p.avatar }}">{{ p.ini }}</span>
+                  <span style="font-size: 12px; font-weight: 600;">{{ p.nombre }}</span>
+                  <span style="{{ p.estadoStyle }}">{{ p.estado }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8a938c;">{{ p.donde }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 320px; gap: 32px; align-items: start;">
+            <div style="display: flex; flex-direction: column; gap: 24px; min-width: 0;">
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; align-items: baseline; gap: 10px;">
+                  <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Trabajo activo</h2>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">4 INTENTS · 1 COLISIÓN</span>
+                  <span onClick="{{ irVivo }}" style="margin-left: auto; font-size: 12px; color: #2f6b46; cursor: pointer;" style-hover="color:#16211a">Trabajo en vivo →</span>
+                </div>
+                <div>
+                  <div style="display: grid; grid-template-columns: 178px 1fr 236px 122px 74px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                    <span>ACTOR</span><span>OBJETIVO</span><span>REPOSITORIO · SCOPE</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+                  </div>
+                  <sc-for list="{{ trabajoActivo }}" as="t" hint-placeholder-count="4">
+                    <div onClick="{{ t.abrir }}" style="{{ t.fila }}" style-hover="background:#f4f5f2">
+                      <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                        <span style="{{ t.avatar }}">{{ t.ini }}</span>
+                        <span style="font-weight: 500;">{{ t.actor }}</span>
+                        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c;">{{ t.tipo }}</span>
+                      </div>
+                      <div style="padding-right: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                        <span>{{ t.objetivo }}</span>
+                        <sc-if value="{{ t.alerta }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-size: 11px; color: #8a6a12;">△ {{ t.alerta }}</span>
+                        </sc-if>
+                      </div>
+                      <div style="display: flex; flex-direction: column; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 0;">
+                        <span><span style="font-weight: 500;">{{ t.repo }}</span> · {{ t.scope }}</span>
+                        <span style="color: #8a938c;">{{ t.rama }}</span>
+                      </div>
+                      <span style="{{ t.chip }}">{{ t.estado }}</span>
+                      <span style="{{ t.latidoStyle }}">{{ t.latido }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; align-items: baseline; gap: 10px;">
+                  <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Repositorios de Footfall</h2>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">3 VINCULADOS · 1 SIN VERIFICAR</span>
+                  <span onClick="{{ irCodigo }}" style="margin-left: auto; font-size: 12px; color: #2f6b46; cursor: pointer;" style-hover="color:#16211a">Código →</span>
+                </div>
+                <div>
+                  <div style="display: grid; grid-template-columns: 1fr 136px 176px 128px 150px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                    <span>REPOSITORIO</span><span>ROL</span><span>RAMA · COMMIT</span><span>INTENTS</span><span style="text-align: right;">SINCRONIZACIÓN</span>
+                  </div>
+                  <sc-for list="{{ repos }}" as="r" hint-placeholder-count="3">
+                    <div onClick="{{ r.abrir }}" style="display: grid; grid-template-columns: 1fr 136px 176px 128px 150px; align-items: center; padding: 9px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px; cursor: pointer;" style-hover="background:#f4f5f2">
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ r.nombre }}</span>
+                      <span style="{{ r.rolChip }}">{{ r.rol }}</span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ r.rama }} · {{ r.commit }}</span>
+                      <span style="font-size: 12px; color: #5a655e;">{{ r.intents }}</span>
+                      <span style="{{ r.syncStyle }}">{{ r.sync }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 22px; border-left: 1px solid #e6e7e3; padding-left: 24px; min-width: 0;">
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; align-items: baseline;">
+                  <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Contexto por revisar</h2>
+                  <span onClick="{{ irContexto }}" style="margin-left: auto; font-size: 12px; color: #2f6b46; cursor: pointer;" style-hover="color:#16211a">Contexto →</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                  <sc-for list="{{ contextoPendiente }}" as="c" hint-placeholder-count="4">
+                    <div onClick="{{ irContexto }}" style="display: flex; flex-direction: column; gap: 3px; cursor: pointer;">
+                      <div style="display: flex; align-items: center; gap: 7px;">
+                        <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.06em; color: #8a938c;">{{ c.tipo }}</span>
+                        <span style="{{ c.chip }}">{{ c.estado }}</span>
+                      </div>
+                      <span style="font-size: 12.5px;">{{ c.titulo }}</span>
+                      <span style="font-size: 11.5px; color: #8a938c;">{{ c.meta }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #e6e7e3; padding-top: 18px;">
+                <div style="display: flex; align-items: center;">
+                  <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Actividad</h2>
+                  <span style="margin-left: auto; display: flex; align-items: center; gap: 5px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #5a655e;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>EN VIVO</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px;">
+                  <sc-for list="{{ actividadCorta }}" as="a" hint-placeholder-count="5">
+                    <div style="display: grid; grid-template-columns: 46px 1fr; gap: 8px;">
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">{{ a.hora }}</span>
+                      <span>{{ a.texto }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <span onClick="{{ irActividad }}" style="font-size: 12px; color: #2f6b46; cursor: pointer;" style-hover="color:#16211a">Ver toda la actividad →</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Trabajo en vivo ══ -->
+      <sc-if value="{{ esVivo }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 14px 32px; border-bottom: 1px solid #e6e7e3; background: #f8f9f7;">
+            <div style="display: flex; gap: 1px; background: #e6e7e3; border: 1px solid #dcded8; border-radius: 7px; padding: 2px;">
+              <span style="font-size: 12px; font-weight: 600; background: #fff; border-radius: 5px; padding: 4px 10px;">Todos</span>
+              <span style="font-size: 12px; color: #5a655e; padding: 4px 10px; cursor: pointer;">Activos</span>
+              <span style="font-size: 12px; color: #5a655e; padding: 4px 10px; cursor: pointer;">Bloqueados</span>
+              <span style="font-size: 12px; color: #5a655e; padding: 4px 10px; cursor: pointer;">Históricos</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Repositorio: todos <span style="font-size: 9px; color: #8a938c;">▾</span></div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Actor: todos <span style="font-size: 9px; color: #8a938c;">▾</span></div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8a6a12; background: #fdf1d4; border: 1px solid #e5d5a8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">△ Solo con colisión</div>
+            <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">5 INTENTS · ORDENADOS POR LATIDO</span>
+          </div>
+
+          <div style="padding: 0 32px 32px;">
+            <div style="display: grid; grid-template-columns: 168px 1fr 230px 200px 122px 74px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 12px 4px 7px; border-bottom: 1px solid #16211a; position: sticky; top: 0; background: #fbfbfa;">
+              <span>ACTOR</span><span>OBJETIVO</span><span>REPOSITORIO · SCOPE</span><span>RAMA / WORKTREE</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+            </div>
+            <sc-for list="{{ intents }}" as="t" hint-placeholder-count="5">
+              <div onClick="{{ t.abrir }}" style="{{ t.filaVivo }}" style-hover="background:#f4f5f2">
+                <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                  <span style="{{ t.avatar }}">{{ t.ini }}</span>
+                  <div style="display: flex; flex-direction: column; line-height: 1.3; min-width: 0;">
+                    <span style="font-weight: 500;">{{ t.actor }}</span>
+                    <span style="font-size: 10.5px; color: #8a938c;">{{ t.sesion }}</span>
+                  </div>
+                </div>
+                <div style="padding-right: 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                  <span>{{ t.objetivo }}</span>
+                  <sc-if value="{{ t.alerta }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size: 11px; color: #8a6a12;">△ {{ t.alerta }}</span>
+                  </sc-if>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 0; padding-right: 10px;">
+                  <span style="font-weight: 500;">{{ t.repo }}</span>
+                  <span style="color: #5a655e;">{{ t.scope }}</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 0; padding-right: 10px;">
+                  <span>{{ t.rama }}</span>
+                  <span style="color: #8a938c;">{{ t.gitCorto }}</span>
+                </div>
+                <span style="{{ t.chip }}">{{ t.estado }}</span>
+                <span style="{{ t.latidoStyle }}">{{ t.latido }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Conversaciones ══ -->
+      <sc-if value="{{ esConversaciones }}" hint-placeholder-val="{{ false }}">
+        <div style="height: 100%; display: grid; grid-template-columns: 240px 1fr;">
+          <div style="border-right: 1px solid #e6e7e3; background: #f8f9f7; display: flex; flex-direction: column;">
+            <div style="padding: 14px 16px 10px; display: flex; align-items: center;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #8a938c;">SALAS DE FOOTFALL</span>
+              <span style="margin-left: auto; font-size: 13px; color: #8a938c; cursor: pointer;">+</span>
+            </div>
+            <sc-for list="{{ salas }}" as="s" hint-placeholder-count="5">
+              <div style="{{ s.fila }}" style-hover="background:#eeefec">
+                <span style="color: #8a938c;">#</span>
+                <span>{{ s.nombre }}</span>
+                <span style="{{ s.badge }}">{{ s.noLeidos }}</span>
+              </div>
+            </sc-for>
+            <div style="margin-top: auto; padding: 12px 16px; border-top: 1px solid #e6e7e3; font-size: 11.5px; color: #8a938c; line-height: 1.4;">Las salas son conversaciones del equipo en Footfall. Mencionar a un agente no lo ejecuta.</div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div style="padding: 14px 24px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: center; gap: 12px;">
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 15px; font-weight: 600;">#product-decisions</span>
+                <span style="font-size: 11.5px; color: #5a655e;">Decisiones de producto de Footfall · 6 participantes · 2 agentes con acceso</span>
+              </div>
+              <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 12px; color: #2f6b46; cursor: pointer;">Menciones (3)</span>
+                <span style="font-size: 12px; color: #5a655e; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Participantes</span>
+              </div>
+            </div>
+
+            <div style="flex: 1; overflow-y: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 18px;">
+              <sc-for list="{{ mensajes }}" as="m" hint-placeholder-count="4">
+                <div style="display: grid; grid-template-columns: 30px 1fr; gap: 12px;">
+                  <span style="{{ m.avatar }}">{{ m.ini }}</span>
+                  <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 12.5px; font-weight: 600;">{{ m.autor }}</span>
+                      <span style="{{ m.tipoChip }}">{{ m.tipo }}</span>
+                      <span style="font-size: 11px; color: #8a938c;">{{ m.hora }}</span>
+                    </div>
+                    <sc-if value="{{ m.responde }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; align-items: center; gap: 7px; padding: 5px 9px; background: #f4f5f2; border-left: 2px solid #dcded8; border-radius: 0 5px 5px 0; font-size: 11.5px; color: #5a655e;">
+                        <span style="font-weight: 600;">{{ m.responde }}</span><span>{{ m.respondeTexto }}</span>
+                      </div>
+                    </sc-if>
+                    <span style="font-size: 13px; line-height: 1.5; text-wrap: pretty;">{{ m.texto }}</span>
+                    <sc-if value="{{ m.mencion }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5a655e; background: #f8f9f7; border: 1px solid #e6e7e3; border-radius: 7px; padding: 6px 10px; width: fit-content;">
+                        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c;">MENCIÓN</span>
+                        <span style="font-weight: 600;">{{ m.mencion }}</span>
+                        <span>{{ m.mencionEstado }}</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="padding: 14px 24px 18px; border-top: 1px solid #e6e7e3;">
+              <div style="border: 1px solid #dcded8; border-radius: 9px; background: #fff; overflow: hidden;">
+                <div style="padding: 11px 14px; font-size: 13px; color: #8a938c;">Escribe un mensaje o usa @ para mencionar a una persona o agente…</div>
+                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #eff0ed; background: #fbfbfa;">
+                  <span style="font-size: 11.5px; color: #5a655e; border: 1px solid #dcded8; border-radius: 6px; padding: 3px 8px; background: #fff;">@ Mencionar</span>
+                  <span style="font-size: 11.5px; color: #8a938c;">Solo se notifica a quien menciones explícitamente.</span>
+                  <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #fff; background: #16211a; border: 0; border-radius: 7px; padding: 6px 14px; cursor: pointer;">Enviar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Contexto ══ -->
+      <sc-if value="{{ esContexto }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 32px 32px; display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: start;">
+          <div style="display: flex; flex-direction: column; gap: 14px; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 600; background: #16211a; color: #fff; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Todo (18)</span>
+              <span style="font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Decisiones (5)</span>
+              <span style="font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Requisitos (4)</span>
+              <span style="font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Restricciones (2)</span>
+              <span style="font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Riesgos (3)</span>
+              <span style="font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Preguntas (3)</span>
+              <span style="font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 999px; padding: 5px 11px; cursor: pointer;">Recursos (6)</span>
+            </div>
+            <div>
+              <div style="display: grid; grid-template-columns: 118px 1fr 136px 150px 96px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                <span>TIPO</span><span>ENUNCIADO</span><span>ESTADO</span><span>AUTOR · FECHA</span><span style="text-align: right;">EVIDENCIAS</span>
+              </div>
+              <sc-for list="{{ registros }}" as="r" hint-placeholder-count="7">
+                <div style="{{ r.fila }}" style-hover="background:#f4f5f2">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; color: #8a938c;">{{ r.tipo }}</span>
+                  <div style="display: flex; flex-direction: column; gap: 2px; padding-right: 14px; min-width: 0;">
+                    <span>{{ r.titulo }}</span>
+                    <sc-if value="{{ r.nota }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size: 11px; color: #8a938c;">{{ r.nota }}</span>
+                    </sc-if>
+                  </div>
+                  <span style="{{ r.chip }}">{{ r.estado }}</span>
+                  <span style="font-size: 12px; color: #5a655e;">{{ r.meta }}</span>
+                  <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ r.evidencias }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 20px; border-left: 1px solid #e6e7e3; padding-left: 24px;">
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Handoffs</h2>
+              <div style="display: flex; flex-direction: column; gap: 3px;">
+                <div style="display: flex; align-items: center; gap: 7px;">
+                  <span style="font-size: 11px; font-weight: 500; color: #235c3b; background: #e8f5ec; border: 1px solid #c3e2ce; border-radius: 4px; padding: 1px 6px;">Ofrecido</span>
+                  <span style="font-size: 11.5px; color: #8a938c;">hace 18 min</span>
+                </div>
+                <span style="font-size: 12.5px;">Codex → Daniel · filtros de zona listos para validar</span>
+                <span style="font-size: 11.5px; color: #8a938c;">2 pendientes · 1 bloqueo · 3 validaciones</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 10px; border-top: 1px solid #eff0ed;">
+                <div style="display: flex; align-items: center; gap: 7px;">
+                  <span style="font-size: 11px; font-weight: 500; color: #4c574f; background: #f1f2ef; border: 1px solid #dcded8; border-radius: 4px; padding: 1px 6px;">Aceptado</span>
+                  <span style="font-size: 11.5px; color: #8a938c;">ayer</span>
+                </div>
+                <span style="font-size: 12.5px;">María → Kimi · migración de red en OCI</span>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #e6e7e3; padding-top: 18px;">
+              <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Context Packs</h2>
+              <span style="font-size: 11.5px; color: #8a938c; line-height: 1.45;">Snapshots inmutables generados por agentes vía MCP. Solo lectura en la web.</span>
+              <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">cp_7f31a</span>
+                  <span style="color: #8a938c;">Codex · hace 22 min</span>
+                  <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #235c3b;">verificado</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">cp_5c08d</span>
+                  <span style="color: #8a938c;">Claude · hace 1 h</span>
+                  <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #235c3b;">verificado</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Código ══ -->
+      <sc-if value="{{ esCodigo }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 32px 32px; display: flex; flex-direction: column; gap: 18px;">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: #f8f9f7; border: 1px solid #e6e7e3; border-radius: 8px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c;">GITHUB APP</span>
+            <span style="font-size: 12.5px;">Conectada a la organización <span style="font-weight: 600;">Nuanzs</span> · cuenta <span style="font-family: 'JetBrains Mono', monospace;">nuanzs</span> · 12 repositorios autorizados</span>
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #235c3b; margin-left: auto;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>Instalación activa</span>
+            <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 6px 11px; cursor: pointer;" style-hover="background:#f4f5f2">Vincular repositorio</button>
+          </div>
+
+          <div>
+            <div style="display: grid; grid-template-columns: 1fr 140px 168px 190px 150px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+              <span>REPOSITORIO</span><span>ROL · PROPÓSITO</span><span>RAMA · COMMIT</span><span>TRABAJO ACTIVO</span><span style="text-align: right;">SINCRONIZACIÓN</span>
+            </div>
+            <sc-for list="{{ repos }}" as="r" hint-placeholder-count="3">
+              <div onClick="{{ r.abrir }}" style="display: grid; grid-template-columns: 1fr 140px 168px 190px 150px; align-items: center; padding: 12px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px; cursor: pointer;" style-hover="background:#f4f5f2">
+                <div style="display: flex; flex-direction: column; gap: 3px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 500;">{{ r.nombre }}</span>
+                  <span style="font-size: 11.5px; color: #8a938c;">{{ r.descripcion }}</span>
+                </div>
+                <span style="{{ r.rolChip }}">{{ r.rol }} · {{ r.proposito }}</span>
+                <div style="display: flex; flex-direction: column; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+                  <span>{{ r.rama }}</span><span style="color: #8a938c;">{{ r.commit }}</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px; font-size: 12px;">
+                  <span>{{ r.intents }}</span>
+                  <span style="font-size: 11px; color: #8a6a12;">{{ r.aviso }}</span>
+                </div>
+                <span style="{{ r.syncStyle }}">{{ r.sync }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <span style="font-size: 11.5px; color: #8a938c;">Los tres repositorios son partes técnicas de Footfall. Seleccionar uno abre su detalle sin salir del Workspace.</span>
+        </div>
+      </sc-if>
+
+      <!-- ══ Detalle de repositorio ══ -->
+      <sc-if value="{{ esRepo }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 32px 32px; display: flex; flex-direction: column; gap: 22px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span onClick="{{ irCodigo }}" style="font-size: 12px; color: #2f6b46; cursor: pointer;" style-hover="color:#16211a">← Repositorios de Footfall</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">{{ repoSel.rol }} · {{ repoSel.proposito }}</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #e6e7e3; border-radius: 8px; overflow: hidden; background: #f8f9f7;">
+            <div style="padding: 12px 16px; border-right: 1px solid #e6e7e3; display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c;">RAMA CANÓNICA</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px;">{{ repoSel.rama }} · {{ repoSel.commit }}</span>
+            </div>
+            <div style="padding: 12px 16px; border-right: 1px solid #e6e7e3; display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c;">SINCRONIZACIÓN</span>
+              <span style="{{ repoSel.syncStyle }}">{{ repoSel.sync }}</span>
+            </div>
+            <div style="padding: 12px 16px; border-right: 1px solid #e6e7e3; display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c;">INSTALACIÓN</span>
+              <span style="font-size: 12.5px;">GitHub · nuanzs</span>
+            </div>
+            <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c;">TRABAJO ACTIVO</span>
+              <span style="font-size: 12.5px;">{{ repoSel.intents }}</span>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: start;">
+            <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0;">
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Intents sobre este repositorio</h2>
+                <div>
+                  <div style="display: grid; grid-template-columns: 168px 1fr 200px 122px 74px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                    <span>ACTOR</span><span>OBJETIVO</span><span>SCOPE</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+                  </div>
+                  <sc-for list="{{ intentsRepo }}" as="t" hint-placeholder-count="2">
+                    <div onClick="{{ t.abrir }}" style="{{ t.fila }}" style-hover="background:#f4f5f2">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="{{ t.avatar }}">{{ t.ini }}</span>
+                        <span style="font-weight: 500;">{{ t.actor }}</span>
+                      </div>
+                      <span style="padding-right: 12px;">{{ t.objetivo }}</span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">{{ t.scope }}</span>
+                      <span style="{{ t.chip }}">{{ t.estado }}</span>
+                      <span style="{{ t.latidoStyle }}">{{ t.latido }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Scopes reservados</h2>
+                <div>
+                  <sc-for list="{{ scopesRepo }}" as="s" hint-placeholder-count="3">
+                    <div style="display: grid; grid-template-columns: 1fr 150px 130px 120px; align-items: center; padding: 9px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px;">
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">{{ s.ruta }}</span>
+                      <span style="font-size: 12px; color: #5a655e;">{{ s.actor }}</span>
+                      <span style="{{ s.chip }}">{{ s.modo }}</span>
+                      <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ s.expira }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 10px; border-left: 1px solid #e6e7e3; padding-left: 24px;">
+              <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Estado Git observado</h2>
+              <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px;">
+                <div style="display: flex; align-items: center; gap: 8px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c; width: 76px;">CANÓNICO</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">{{ repoSel.commit }}</span></div>
+                <div style="display: flex; align-items: center; gap: 8px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c; width: 76px;">WORKTREES</span><span>{{ repoSel.worktrees }}</span></div>
+                <div style="display: flex; align-items: center; gap: 8px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c; width: 76px;">SUCIOS</span><span>{{ repoSel.sucios }}</span></div>
+                <div style="display: flex; align-items: center; gap: 8px;"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c; width: 76px;">VERIFICADO</span><span>{{ repoSel.verificado }}</span></div>
+              </div>
+              <button style="margin-top: 6px; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 7px 12px; cursor: pointer; width: fit-content;" style-hover="background:#f4f5f2">Verificar ahora</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Personas y agentes ══ -->
+      <sc-if value="{{ esPersonas }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 32px 32px; display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Personas con acceso a Footfall</h2>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">3 PERSONAS</span>
+              <span onClick="{{ irAcceso }}" style="margin-left: auto; font-size: 12px; color: #2f6b46; cursor: pointer;">Acceso →</span>
+            </div>
+            <div>
+              <div style="display: grid; grid-template-columns: 220px 150px 150px 1fr 130px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                <span>PERSONA</span><span>ROL EN FOOTFALL</span><span>ROL EN NUANZS</span><span>SESIONES Y DISPOSITIVOS</span><span style="text-align: right;">ÚLTIMO ACCESO</span>
+              </div>
+              <sc-for list="{{ personas }}" as="p" hint-placeholder-count="3">
+                <div style="display: grid; grid-template-columns: 220px 150px 150px 1fr 130px; align-items: center; padding: 10px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px;">
+                  <div style="display: flex; align-items: center; gap: 9px;">
+                    <span style="{{ p.avatar }}">{{ p.ini }}</span>
+                    <div style="display: flex; flex-direction: column; line-height: 1.3;">
+                      <span style="font-weight: 500;">{{ p.nombre }}</span>
+                      <span style="font-size: 11px; color: #8a938c;">{{ p.correo }}</span>
+                    </div>
+                  </div>
+                  <span style="{{ p.rolChip }}">{{ p.rolWs }}</span>
+                  <span style="font-size: 12px; color: #5a655e;">{{ p.rolOrg }}</span>
+                  <span style="font-size: 12px; color: #5a655e;">{{ p.sesiones }}</span>
+                  <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ p.ultimo }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Agentes conocidos en Footfall</h2>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">3 AGENTES · 2 CON SESIÓN VIVA</span>
+            </div>
+            <div>
+              <div style="display: grid; grid-template-columns: 220px 190px 1fr 150px 130px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                <span>AGENTE</span><span>OPERADO POR</span><span>SESIÓN / DISPOSITIVO</span><span>ESTADO</span><span style="text-align: right;">LATIDO</span>
+              </div>
+              <sc-for list="{{ agentes }}" as="a" hint-placeholder-count="3">
+                <div style="display: grid; grid-template-columns: 220px 190px 1fr 150px 130px; align-items: center; padding: 10px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px;">
+                  <div style="display: flex; align-items: center; gap: 9px;">
+                    <span style="{{ a.avatar }}">{{ a.ini }}</span>
+                    <div style="display: flex; flex-direction: column; line-height: 1.3;">
+                      <span style="font-weight: 500;">{{ a.nombre }}</span>
+                      <span style="font-size: 11px; color: #8a938c;">{{ a.cliente }}</span>
+                    </div>
+                  </div>
+                  <span style="font-size: 12px; color: #5a655e;">{{ a.operador }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ a.dispositivo }}</span>
+                  <span style="{{ a.chip }}">{{ a.estado }}</span>
+                  <span style="{{ a.latidoStyle }}">{{ a.latido }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <span style="font-size: 11.5px; color: #8a938c;">Los agentes se conectan por MCP con credenciales de dispositivo revocables. Estar conectado no implica estar trabajando.</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Acceso ══ -->
+      <sc-if value="{{ esAcceso }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 32px 32px; display: flex; flex-direction: column; gap: 22px; max-width: 1080px;">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: #f8f9f7; border: 1px solid #e6e7e3; border-radius: 8px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c;">ALCANCE</span>
+            <span style="font-size: 12.5px;">Esta vista otorga acceso <span style="font-weight: 600;">al Workspace Footfall</span>. Las cuentas, invitaciones y auditoría de la organización viven en Nuanzs → Acceso y seguridad.</span>
+            <span onClick="{{ togglePicker }}" style="margin-left: auto; font-size: 12px; color: #2f6b46; cursor: pointer;">Abrir administración de Nuanzs →</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Roles en Footfall</h2>
+            <div>
+              <div style="display: grid; grid-template-columns: 240px 160px 1fr 140px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                <span>PERSONA</span><span>ROL</span><span>ORIGEN DEL ACCESO</span><span style="text-align: right;">ACCIONES</span>
+              </div>
+              <sc-for list="{{ accesos }}" as="a" hint-placeholder-count="3">
+                <div style="display: grid; grid-template-columns: 240px 160px 1fr 140px; align-items: center; padding: 10px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px;">
+                  <div style="display: flex; align-items: center; gap: 9px;">
+                    <span style="{{ a.avatar }}">{{ a.ini }}</span>
+                    <span style="font-weight: 500;">{{ a.nombre }}</span>
+                  </div>
+                  <span style="{{ a.rolChip }}">{{ a.rol }}</span>
+                  <span style="font-size: 12px; color: #5a655e;">{{ a.origen }}</span>
+                  <span style="{{ a.accionStyle }}">{{ a.accion }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Sesiones y dispositivos activos en Footfall</h2>
+            <div>
+              <div style="display: grid; grid-template-columns: 200px 200px 1fr 130px 120px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #8a938c; padding: 0 4px 7px; border-bottom: 1px solid #16211a;">
+                <span>ACTOR</span><span>CLIENTE</span><span>DISPOSITIVO</span><span>INICIADA</span><span style="text-align: right;">ACCIÓN</span>
+              </div>
+              <sc-for list="{{ sesiones }}" as="s" hint-placeholder-count="4">
+                <div style="display: grid; grid-template-columns: 200px 200px 1fr 130px 120px; align-items: center; padding: 10px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px;">
+                  <span>{{ s.actor }}</span>
+                  <span style="font-size: 12px; color: #5a655e;">{{ s.cliente }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ s.dispositivo }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ s.inicio }}</span>
+                  <span style="text-align: right; font-size: 12px; color: #8a2f22; cursor: pointer;">Revocar</span>
+                </div>
+              </sc-for>
+            </div>
+            <span style="font-size: 11.5px; color: #8a938c;">Revocar una sesión o dispositivo no desactiva la cuenta: eso ocurre a nivel de organización y preserva la atribución.</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Actividad ══ -->
+      <sc-if value="{{ esActividad }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 14px 32px; border-bottom: 1px solid #e6e7e3; background: #f8f9f7;">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Actor: todos <span style="font-size: 9px; color: #8a938c;">▾</span></div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Tipo: todos <span style="font-size: 9px; color: #8a938c;">▾</span></div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Repositorio: todos <span style="font-size: 9px; color: #8a938c;">▾</span></div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #35403a; background: #fff; border: 1px solid #dcded8; border-radius: 7px; padding: 5px 10px; cursor: pointer;">Últimas 24 h <span style="font-size: 9px; color: #8a938c;">▾</span></div>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #5a655e;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #3f8f5a;"></span>LLEGADA EN VIVO · SIN REORDENAR</span>
+          </div>
+          <div style="padding: 8px 32px 32px;">
+            <sc-for list="{{ actividad }}" as="a" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 84px 116px 1fr 190px; align-items: start; padding: 11px 4px; border-bottom: 1px solid #eaebe7; font-size: 12.5px;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">{{ a.hora }}</span>
+                <span style="{{ a.tipoChip }}">{{ a.tipo }}</span>
+                <div style="display: flex; flex-direction: column; gap: 3px; padding-right: 16px;">
+                  <span>{{ a.texto }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8a938c;">{{ a.meta }}</span>
+                </div>
+                <span style="font-size: 12px; color: #5a655e;">{{ a.repo }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ Configuración ══ -->
+      <sc-if value="{{ esConfig }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 32px 32px; display: flex; flex-direction: column; gap: 24px; max-width: 900px;">
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <h2 style="margin: 0; font-size: 14px; font-weight: 600;">General</h2>
+            <div style="display: grid; grid-template-columns: 200px 1fr; gap: 12px 20px; align-items: center; font-size: 12.5px;">
+              <span style="color: #5a655e;">Nombre del Workspace</span>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 8px 11px;">Footfall</div>
+              <span style="color: #5a655e;">Descripción</span>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 8px 11px;">Análisis y agregación de tráfico peatonal</div>
+              <span style="color: #5a655e;">Repositorio principal</span>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 8px 11px; font-family: 'JetBrains Mono', monospace; font-size: 12px;">nuanzs/footfall-api</div>
+              <span style="color: #5a655e;">Expiración de reservas de scope</span>
+              <div style="border: 1px solid #dcded8; border-radius: 7px; background: #fff; padding: 8px 11px;">60 minutos</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #e6e7e3; padding-top: 18px;">
+            <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Integraciones</h2>
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 12.5px;">
+              <span style="font-weight: 500;">GitHub</span>
+              <span style="color: #5a655e;">Instalación de Nuanzs · 3 repositorios vinculados a Footfall</span>
+              <span onClick="{{ irCodigo }}" style="margin-left: auto; font-size: 12px; color: #2f6b46; cursor: pointer;">Gestionar en Código →</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 12.5px;">
+              <span style="font-weight: 500;">MCP</span>
+              <span style="color: #5a655e;">Endpoint activo · 3 agentes registrados</span>
+            </div>
+          </div>
+          <div style="border: 1px solid #eecdc6; border-radius: 8px; overflow: hidden;">
+            <div style="padding: 10px 14px; background: #fbeae7; border-bottom: 1px solid #f3d8d2; font-size: 13px; font-weight: 600; color: #8a2f22;">Zona de riesgo</div>
+            <div style="padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; align-items: center; gap: 16px;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span style="font-size: 12.5px; font-weight: 500;">Archivar Footfall</span>
+                  <span style="font-size: 11.5px; color: #8a938c;">Conserva historial y conocimiento; detiene sesiones y reservas.</span>
+                </div>
+                <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #8a2f22; background: #fff; border: 1px solid #e3b7ae; border-radius: 7px; padding: 6px 11px; cursor: pointer;">Archivar</button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 16px; border-top: 1px solid #f5eae7; padding-top: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span style="font-size: 12.5px; font-weight: 500;">Desvincular todos los repositorios</span>
+                  <span style="font-size: 11.5px; color: #8a938c;">Requiere confirmación escrita del nombre del Workspace.</span>
+                </div>
+                <button style="margin-left: auto; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #8a2f22; background: #fff; border: 1px solid #e3b7ae; border-radius: 7px; padding: 6px 11px; cursor: pointer;">Desvincular</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <!-- ░░ Drawer de intent ░░ -->
+  <sc-if value="{{ hayDrawer }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; inset: 0; background: rgba(22,33,26,0.28); display: flex; justify-content: flex-end;" onClick="{{ cerrarDrawer }}">
+      <div onClick="{{ stop }}" style="width: 640px; height: 100%; background: #fbfbfa; border-left: 1px solid #d4d3cb; display: flex; flex-direction: column; box-shadow: -18px 0 48px rgba(22,33,26,0.14);">
+        <div style="padding: 16px 24px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: flex-start; gap: 14px;">
+          <span style="{{ drawer.avatar }}">{{ drawer.ini }}</span>
+          <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 13px; font-weight: 600;">{{ drawer.actor }}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c;">{{ drawer.tipo }}</span>
+              <span style="{{ drawer.chip }}">{{ drawer.estado }}</span>
+            </div>
+            <span style="font-size: 15px; font-weight: 600; line-height: 1.3;">{{ drawer.objetivo }}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #5a655e;">{{ drawer.repo }} · {{ drawer.scope }}</span>
+          </div>
+          <span onClick="{{ cerrarDrawer }}" style="margin-left: auto; font-size: 16px; color: #8a938c; cursor: pointer;" style-hover="color:#16211a">✕</span>
+        </div>
+
+        <div style="flex: 1; overflow-y: auto; padding: 18px 24px 28px; display: flex; flex-direction: column; gap: 20px;">
+          <sc-if value="{{ drawer.colision }}" hint-placeholder-val="{{ false }}">
+            <div style="border: 1px solid #e3ddc6; background: #fffdf6; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #8a6a12; border: 1px solid #e0d3a3; border-radius: 4px; padding: 1px 6px;">COLISIÓN</span>
+                <span style="font-size: 12.5px; font-weight: 600;">{{ drawer.colision }}</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 12px;">
+                <span style="color: #8a938c;">Dueño del scope</span><span>{{ drawer.colisionDueno }}</span>
+                <span style="color: #8a938c;">Tipo de reserva</span><span>{{ drawer.colisionModo }}</span>
+                <span style="color: #8a938c;">Expira</span><span>{{ drawer.colisionExpira }}</span>
+                <span style="color: #8a938c;">Override</span><span>{{ drawer.colisionOverride }}</span>
+              </div>
+              <div style="display: flex; gap: 8px; padding-top: 4px;">
+                <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 6px 11px; cursor: pointer;">Ir al intent de {{ drawer.colisionActor }}</button>
+                <button style="font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #16211a; background: #fff; border: 1px solid #d0d3cd; border-radius: 7px; padding: 6px 11px; cursor: pointer;">Solicitar liberación</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="display: grid; grid-template-columns: 132px 1fr; gap: 8px 14px; font-size: 12.5px;">
+            <span style="color: #8a938c;">Repositorio</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ drawer.repoLargo }}</span>
+            <span style="color: #8a938c;">Rama</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ drawer.rama }}</span>
+            <span style="color: #8a938c;">Worktree</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ drawer.worktree }}</span>
+            <span style="color: #8a938c;">Revisión base</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ drawer.base }}</span>
+            <span style="color: #8a938c;">Observado</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ drawer.observado }}</span>
+            <span style="color: #8a938c;">Sesión</span><span>{{ drawer.sesion }}</span>
+            <span style="color: #8a938c;">Último latido</span><span>{{ drawer.latidoTexto }}</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #e6e7e3; padding-top: 16px;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 600;">Criterios de éxito</h3>
+            <sc-for list="{{ drawer.criterios }}" as="c" hint-placeholder-count="3">
+              <div style="display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px;">
+                <span style="{{ c.marca }}">{{ c.icono }}</span>
+                <span>{{ c.texto }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #e6e7e3; padding-top: 16px;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 600;">Scopes reclamados</h3>
+            <sc-for list="{{ drawer.scopes }}" as="s" hint-placeholder-count="2">
+              <div style="display: grid; grid-template-columns: 1fr 120px 110px; align-items: center; font-size: 12px; padding: 7px 0; border-bottom: 1px solid #eff0ed;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">{{ s.ruta }}</span>
+                <span style="{{ s.chip }}">{{ s.modo }}</span>
+                <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5a655e;">{{ s.expira }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #e6e7e3; padding-top: 16px;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 600;">Resumen durable</h3>
+            <span style="font-size: 12.5px; line-height: 1.55; color: #35403a; text-wrap: pretty;">{{ drawer.resumen }}</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #e6e7e3; padding-top: 16px;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 600;">Handoff y Context Pack</h3>
+            <div style="display: grid; grid-template-columns: 132px 1fr; gap: 8px 14px; font-size: 12.5px;">
+              <span style="color: #8a938c;">Handoff</span><span>{{ drawer.handoff }}</span>
+              <span style="color: #8a938c;">Context Pack</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">{{ drawer.pack }}</span>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #e6e7e3; padding-top: 16px;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 600;">Eventos del intent</h3>
+            <sc-for list="{{ drawer.eventos }}" as="e" hint-placeholder-count="4">
+              <div style="display: grid; grid-template-columns: 52px 1fr; gap: 10px; font-size: 12.5px;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a938c;">{{ e.hora }}</span>
+                <span>{{ e.texto }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ░░ Explorador de Workspaces (muchos workspaces) ░░ -->
+  <sc-if value="{{ picker }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ togglePicker }}" style="position: absolute; inset: 0; background: rgba(22,33,26,0.34); display: flex; align-items: flex-start; justify-content: center; padding-top: 88px;">
+      <div onClick="{{ stop }}" style="width: 660px; background: #fbfbfa; border: 1px solid #d4d3cb; border-radius: 12px; box-shadow: 0 24px 64px rgba(22,33,26,0.22); overflow: hidden;">
+        <div style="padding: 13px 16px; border-bottom: 1px solid #e6e7e3; display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 12px; color: #8a938c;">⌕</span>
+          <span style="font-size: 13px; color: #8a938c;">Buscar Workspaces de Nuanzs…</span>
+          <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8a938c; border: 1px solid #dcded8; border-radius: 4px; padding: 1px 5px;">ESC</span>
+        </div>
+        <div style="padding: 8px 8px 12px; max-height: 420px; overflow-y: auto;">
+          <sc-for list="{{ workspaces }}" as="w" hint-placeholder-count="5">
+            <div onClick="{{ w.abrir }}" style="{{ w.fila }}" style-hover="background:#f2f3f0">
+              <span style="{{ w.tile }}">{{ w.letra }}</span>
+              <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                <span style="font-size: 13px; font-weight: 600;">{{ w.nombre }}</span>
+                <span style="font-size: 11.5px; color: #8a938c;">{{ w.desc }}</span>
+              </div>
+              <span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #5a655e;">{{ w.meta }}</span>
+              <span style="{{ w.estadoStyle }}">{{ w.estado }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="padding: 10px 16px; border-top: 1px solid #e6e7e3; display: flex; align-items: center; gap: 12px; background: #f8f9f7;">
+          <span style="font-size: 12px; color: #2f6b46; cursor: pointer;">+ Crear Workspace</span>
+          <span style="margin-left: auto; font-size: 11.5px; color: #8a938c;">Con un solo Workspace, PACT abre Footfall directo y el rail queda compacto.</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:940}}">
+const CHIP = {
+  activo: "display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11.5px;font-weight:500;color:#235c3b;background:#e8f5ec;border:1px solid #c3e2ce;border-radius:5px;padding:2px 7px",
+  bloqueado: "display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11.5px;font-weight:500;color:#8a6a12;background:#fdf1d4;border:1px solid #e5d5a8;border-radius:5px;padding:2px 7px",
+  neutro: "display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11.5px;font-weight:500;color:#4c574f;background:#f1f2ef;border:1px solid #dcded8;border-radius:5px;padding:2px 7px",
+  rojo: "display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11.5px;font-weight:500;color:#8a2f22;background:#fbeae7;border:1px solid #eecdc6;border-radius:5px;padding:2px 7px",
+  azul: "display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11.5px;font-weight:500;color:#1d4e6b;background:#e8f1f7;border:1px solid #c8dceb;border-radius:5px;padding:2px 7px",
+  ink: "display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11.5px;font-weight:500;color:#16211a;background:#eef4ea;border:1px solid #d7e0d1;border-radius:5px;padding:2px 7px"
+};
+const AV = {
+  agente: "width:20px;height:20px;border-radius:5px;background:#c9ee4d;color:#16211a;font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none",
+  agenteAmbar: "width:20px;height:20px;border-radius:5px;background:#fdf1d4;color:#8a6a12;font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none",
+  agenteGris: "width:20px;height:20px;border-radius:5px;background:#ecedea;color:#8a938c;font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none",
+  persona: "width:20px;height:20px;border-radius:50%;background:#16211a;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;flex:none",
+  personaGris: "width:20px;height:20px;border-radius:50%;background:#56635a;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;flex:none"
+};
+const FILA = "display:grid;grid-template-columns:178px 1fr 236px 122px 74px;align-items:center;padding:10px 4px;border-bottom:1px solid #eaebe7;font-size:12.5px;cursor:pointer";
+const FILA_VIVO = "display:grid;grid-template-columns:168px 1fr 230px 200px 122px 74px;align-items:center;padding:12px 4px;border-bottom:1px solid #eaebe7;font-size:12.5px;cursor:pointer";
+const FILA_REPO_INTENT = "display:grid;grid-template-columns:168px 1fr 200px 122px 74px;align-items:center;padding:10px 4px;border-bottom:1px solid #eaebe7;font-size:12.5px;cursor:pointer";
+const LATIDO = "text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#5a655e";
+const LATIDO_ALERTA = "text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a6a12";
+const LATIDO_VIVO = "text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#235c3b";
+
+const INTENTS = [
+  {
+    id: "i1", actor: "Codex", ini: "CX", tipo: "AGENTE", av: "agente", sesion: "sesión de Jorge · mbp-jorge",
+    objetivo: "Implementar filtros de tráfico por zona", repo: "footfall-api", repoLargo: "nuanzs/footfall-api",
+    scope: "backend/internal/reports", rama: "pact/a81c2-filtros-zona", gitCorto: "wt/a81c2 · sucio",
+    worktree: "~/pact/wt/a81c2-filtros-zona", base: "a81c2e0", observado: "a81c2e0 + 7 archivos sin commit",
+    estado: "Activo", chip: "activo", latido: "12 s", latidoStyle: LATIDO_VIVO, alerta: "", historico: false,
+    latidoTexto: "hace 12 segundos", handoff: "Ofrecido a Daniel · pendiente de aceptación", pack: "cp_7f31a · verificado",
+    resumen: "Filtros por zona expuestos en el endpoint de reportes con agregación por hora. Falta cubrir el caso de zonas sin datos y validar la cuota de la API de mapas al recalcular históricos.",
+    criterios: [
+      { icono: "✓", ok: true, texto: "Endpoint /reports/zones acepta filtro por zona y rango" },
+      { icono: "✓", ok: true, texto: "Agregación por hora con retención de 90 días" },
+      { icono: "○", ok: false, texto: "Zonas sin datos devuelven serie vacía, no error" }
+    ],
+    scopes: [
+      { ruta: "backend/internal/reports", modo: "Exclusivo", chip: "ink", expira: "en 38 min" },
+      { ruta: "backend/internal/zones", modo: "Compartido", chip: "neutro", expira: "en 38 min" }
+    ],
+    eventos: [
+      { hora: "13:24", texto: "Intent declarado y worktree creado sobre a81c2e0" },
+      { hora: "13:26", texto: "Scope exclusivo reservado en backend/internal/reports" },
+      { hora: "13:58", texto: "Handoff ofrecido a Daniel" },
+      { hora: "14:02", texto: "Colisión detectada con el intent de Claude" }
+    ],
+    colision: "", colisionDueno: "", colisionModo: "", colisionExpira: "", colisionOverride: "", colisionActor: ""
+  },
+  {
+    id: "i2", actor: "Claude", ini: "CL", tipo: "AGENTE", av: "agenteAmbar", sesion: "sesión de María · mbp-maria",
+    objetivo: "Ajustar agregación del reporte de zonas", repo: "footfall-api", repoLargo: "nuanzs/footfall-api",
+    scope: "backend/internal/reports/zones.go", rama: "pact/f30d9-reporte-zonas", gitCorto: "wt/f30d9 · limpio",
+    worktree: "~/pact/wt/f30d9-reporte-zonas", base: "a81c2e0", observado: "a81c2e0 · sin cambios locales",
+    estado: "Bloqueado", chip: "bloqueado", latido: "40 s", latidoStyle: LATIDO, alerta: "Solapa la reserva exclusiva de Codex", historico: false,
+    latidoTexto: "hace 40 segundos", handoff: "Sin handoff", pack: "cp_5c08d · verificado",
+    resumen: "Trabajo detenido a la espera de que se libere el scope exclusivo. No se han escrito cambios en el worktree.",
+    criterios: [
+      { icono: "○", ok: false, texto: "Agregación coherente con el contrato del panel" },
+      { icono: "○", ok: false, texto: "Pruebas de regresión sobre zones.go" }
+    ],
+    scopes: [
+      { ruta: "backend/internal/reports/zones.go", modo: "Bloqueado", chip: "bloqueado", expira: "—" }
+    ],
+    eventos: [
+      { hora: "13:55", texto: "Intent declarado sobre a81c2e0" },
+      { hora: "14:02", texto: "Reclamo rechazado: scope reservado por Codex" },
+      { hora: "14:02", texto: "Estado cambiado a bloqueado" }
+    ],
+    colision: "backend/internal/reports/zones.go está dentro de un scope exclusivo",
+    colisionDueno: "Codex · intent «Implementar filtros de tráfico por zona»",
+    colisionModo: "Exclusivo, declarado a las 13:26",
+    colisionExpira: "en 38 min (renovación automática con cada latido)",
+    colisionOverride: "No se usó override",
+    colisionActor: "Codex"
+  },
+  {
+    id: "i3", actor: "María", ini: "M", tipo: "PERSONA", av: "persona", sesion: "CLI en mbp-maria",
+    objetivo: "Revisar contrato de filtros con el panel", repo: "footfall-web", repoLargo: "nuanzs/footfall-web",
+    scope: "frontend/src/analytics", rama: "pact/7c1b4-panel-filtros", gitCorto: "wt/7c1b4 · sucio",
+    worktree: "~/pact/wt/7c1b4-panel-filtros", base: "4f2a9c1", observado: "4f2a9c1 + 3 archivos sin commit",
+    estado: "Activo", chip: "activo", latido: "2 min", latidoStyle: LATIDO, alerta: "", historico: false,
+    latidoTexto: "hace 2 minutos", handoff: "Sin handoff", pack: "—",
+    resumen: "Ajuste del panel de analítica para consumir el nuevo filtro por zona. Pendiente definir el baseline de comparación.",
+    criterios: [
+      { icono: "✓", ok: true, texto: "Selector de zona conectado al endpoint" },
+      { icono: "○", ok: false, texto: "Estado vacío cuando la zona no tiene datos" }
+    ],
+    scopes: [{ ruta: "frontend/src/analytics", modo: "Exclusivo", chip: "ink", expira: "en 52 min" }],
+    eventos: [
+      { hora: "13:47", texto: "Scope reservado en frontend/src/analytics" },
+      { hora: "13:49", texto: "Pregunta abierta registrada sobre el baseline" }
+    ],
+    colision: "", colisionDueno: "", colisionModo: "", colisionExpira: "", colisionOverride: "", colisionActor: ""
+  },
+  {
+    id: "i4", actor: "Kimi", ini: "KM", tipo: "AGENTE", av: "agenteGris", sesion: "sesión de Daniel · linux-daniel",
+    objetivo: "Migrar módulos de red en OCI", repo: "footfall-infra", repoLargo: "nuanzs/footfall-infra",
+    scope: "infra/terraform/oci", rama: "pact/9de71-oci-modulos", gitCorto: "wt/9de71 · sucio",
+    worktree: "~/pact/wt/9de71-oci-modulos", base: "9de7104", observado: "desconocido · sin latido desde 13:31",
+    estado: "Sin latido", chip: "neutro", latido: "14 min", latidoStyle: LATIDO_ALERTA, alerta: "Sesión stale: mantiene reserva de scope", historico: false,
+    latidoTexto: "hace 14 minutos (umbral: 5 min)", handoff: "Sin handoff", pack: "—",
+    resumen: "Migración de módulos de red iniciada. El estado real del worktree no puede confirmarse mientras la sesión siga sin latido.",
+    criterios: [
+      { icono: "○", ok: false, texto: "Módulos de red aplicados en el tenancy de staging" },
+      { icono: "○", ok: false, texto: "Plan sin cambios destructivos" }
+    ],
+    scopes: [{ ruta: "infra/terraform/oci", modo: "Exclusivo", chip: "bloqueado", expira: "vence en 6 min" }],
+    eventos: [
+      { hora: "12:58", texto: "Intent declarado sobre 9de7104" },
+      { hora: "13:31", texto: "Último latido recibido" },
+      { hora: "13:36", texto: "Sesión marcada como stale" }
+    ],
+    colision: "", colisionDueno: "", colisionModo: "", colisionExpira: "", colisionOverride: "", colisionActor: ""
+  },
+  {
+    id: "i5", actor: "Daniel", ini: "D", tipo: "PERSONA", av: "personaGris", sesion: "web · sin CLI activa",
+    objetivo: "Validar filtros de zona en staging", repo: "footfall-web", repoLargo: "nuanzs/footfall-web",
+    scope: "frontend/src/analytics/filters", rama: "pact/2b904-validacion", gitCorto: "worktree eliminado",
+    worktree: "eliminado al completar", base: "4f2a9c1", observado: "4f2a9c1",
+    estado: "Completado", chip: "neutro", latido: "hace 1 h", latidoStyle: LATIDO, alerta: "", historico: true,
+    latidoTexto: "última actividad hace 1 hora", handoff: "Aceptado desde Codex", pack: "cp_31b7c · verificado",
+    resumen: "Validación manual de los filtros en staging. Se registró una validación aceptada y un riesgo sobre la cuota de la API de mapas.",
+    criterios: [
+      { icono: "✓", ok: true, texto: "Filtros verificados en staging" },
+      { icono: "✓", ok: true, texto: "Riesgo de cuota registrado en Contexto" }
+    ],
+    scopes: [{ ruta: "frontend/src/analytics/filters", modo: "Liberado", chip: "neutro", expira: "—" }],
+    eventos: [
+      { hora: "12:10", texto: "Handoff aceptado desde Codex" },
+      { hora: "12:52", texto: "Validación registrada" },
+      { hora: "13:04", texto: "Intent completado y worktree eliminado" }
+    ],
+    colision: "", colisionDueno: "", colisionModo: "", colisionExpira: "", colisionOverride: "", colisionActor: ""
+  }
+];
+
+const REPOS = [
+  {
+    id: "footfall-web", nombre: "nuanzs/footfall-web", corto: "footfall-web", descripcion: "Panel de analítica y reportes",
+    rol: "Requerido", proposito: "web", rama: "main", commit: "4f2a9c1", sync: "Sincronizado · 5 min", syncOk: true,
+    intents: "2 intents · María", aviso: "", worktrees: "2 activos", sucios: "1 worktree con cambios", verificado: "hace 5 min"
+  },
+  {
+    id: "footfall-api", nombre: "nuanzs/footfall-api", corto: "footfall-api", descripcion: "Servicios de reportes y agregación",
+    rol: "Principal", proposito: "api", rama: "main", commit: "a81c2e0", sync: "Sincronizado · 2 min", syncOk: true,
+    intents: "2 intents · Codex, Claude", aviso: "1 scope bloqueado", worktrees: "2 activos", sucios: "1 worktree con cambios", verificado: "hace 2 min"
+  },
+  {
+    id: "footfall-infra", nombre: "nuanzs/footfall-infra", corto: "footfall-infra", descripcion: "Terraform y redes en OCI",
+    rol: "Opcional", proposito: "infra", rama: "main", commit: "9de7104", sync: "Sin verificar · 3 h", syncOk: false,
+    intents: "1 intent · Kimi", aviso: "sesión sin latido", worktrees: "1 activo", sucios: "estado desconocido", verificado: "hace 3 h"
+  }
+];
+
+const WORKSPACES = [
+  { id: "footfall", letra: "F", nombre: "Footfall", desc: "Análisis y agregación de tráfico peatonal", meta: "3 repos · 5 actores", estado: "1 colisión", alerta: "1", vivo: true, color: "#c9ee4d", texto: "#16211a" },
+  { id: "magi", letra: "M", nombre: "Magi", desc: "Asistente interno de documentación", meta: "2 repos · 2 actores", estado: "En curso", alerta: "", vivo: true, color: "#22302a", texto: "#7fb0c9" },
+  { id: "cost", letra: "C", nombre: "Cost Control", desc: "Control de costos de infraestructura", meta: "1 repo · sin sesiones", estado: "Inactivo", alerta: "", vivo: false, color: "#22302a", texto: "#d9a97b" },
+  { id: "portal", letra: "P", nombre: "Customer Portal", desc: "Portal de clientes y facturación", meta: "4 repos · 1 actor", estado: "En curso", alerta: "", vivo: false, color: "#22302a", texto: "#b9c3bd" },
+  { id: "data", letra: "D", nombre: "Data Platform", desc: "Ingesta, modelos y warehouse", meta: "5 repos · 3 actores", estado: "En curso", alerta: "", vivo: true, color: "#22302a", texto: "#9fc4a8" }
+];
+
+const COLORES = [
+  { id: "lima", nombre: "Lima", base: "#c9ee4d", texto: "#16211a" },
+  { id: "cian", nombre: "Cian", base: "#2ab4e8", texto: "#06202b" },
+  { id: "cobalto", nombre: "Cobalto", base: "#3c6ee0", texto: "#ffffff" },
+  { id: "naranja", nombre: "Naranja", base: "#ee8a3c", texto: "#241611" },
+  { id: "terracota", nombre: "Terracota", base: "#d2683d", texto: "#ffffff" },
+  { id: "malva", nombre: "Malva", base: "#9b5fc0", texto: "#ffffff" }
+];
+
+class Component extends DCLogic {
+  state = {
+    seccion: "resumen", repo: null, drawerId: null, picker: false,
+    colorWs: { footfall: "lima", magi: "cian", cost: "terracota", portal: "cobalto", data: "malva" }
+  };
+
+  elegirColor = (colorId) => () =>
+    this.setState({ colorWs: { ...this.state.colorWs, footfall: colorId } });
+
+  colorDe(wsId) {
+    return COLORES.find((c) => c.id === this.state.colorWs[wsId]) || COLORES[0];
+  }
+
+  ir = (seccion) => () => this.setState({ seccion, repo: null, drawerId: null, picker: false });
+
+  navStyle(activo) {
+    const base = "display:flex;align-items:center;gap:9px;padding:7px 10px;font-size:13px;border-radius:6px;cursor:pointer;";
+    return activo
+      ? base + "background:#16211a;color:#fff;font-weight:600"
+      : base + "color:#35403a";
+  }
+
+  repoNav(r, activo) {
+    const base = "display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;border-radius:6px;cursor:pointer;";
+    return activo ? base + "background:#e4e7e2;color:#16211a;font-weight:600" : base + "color:#4c574f";
+  }
+
+  intentVista(t) {
+    return {
+      ...t,
+      avatar: this._av[t.av],
+      chip: CHIP[t.chip],
+      fila: FILA,
+      filaVivo: FILA_VIVO,
+      abrir: () => this.setState({ drawerId: t.id })
+    };
+  }
+
+  renderVals() {
+    const s = this.state.seccion;
+    const ac = this.colorDe("footfall");
+    this._av = {
+      ...AV,
+      agente: "width:20px;height:20px;border-radius:5px;background:" + ac.base + ";color:" + ac.texto +
+        ";font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none"
+    };
+    const drawer = INTENTS.find((i) => i.id === this.state.drawerId);
+    const repoSel = REPOS.find((r) => r.id === this.state.repo);
+    const syncStyle = (ok) =>
+      ok
+        ? "display:flex;align-items:center;justify-content:flex-end;gap:6px;font-size:12px;color:#235c3b"
+        : "display:flex;align-items:center;justify-content:flex-end;gap:6px;font-size:12px;color:#8a6a12";
+
+    const repos = REPOS.map((r) => ({
+      ...r,
+      rolChip: r.rol === "Principal" ? CHIP.ink : CHIP.neutro,
+      sync: (r.syncOk ? "● " : "△ ") + r.sync,
+      syncStyle: syncStyle(r.syncOk),
+      nav: this.repoNav(r, this.state.repo === r.id),
+      navMeta: r.syncOk ? "" : "△",
+      punto: "width:5px;height:5px;border-radius:50%;flex:none;background:" + (r.syncOk ? "#3f8f5a" : "#e0a83c"),
+      abrir: () => this.setState({ seccion: "repo", repo: r.id, drawerId: null, picker: false })
+    }));
+
+    const titulos = {
+      resumen: ["Footfall", "Análisis y agregación de tráfico peatonal · Workspace de Nuanzs"],
+      vivo: ["Trabajo en vivo", "Intents, scopes y worktrees declarados en Footfall"],
+      conversaciones: ["Conversaciones", "Salas del equipo de Footfall · las menciones no ejecutan agentes"],
+      contexto: ["Contexto", "Conocimiento durable de Footfall: decisiones, requisitos, riesgos y evidencias"],
+      codigo: ["Repositorios", "Los repositorios técnicos de Footfall, vinculados desde la instalación de GitHub en Nuanzs"],
+      repo: [repoSel ? repoSel.nombre : "Repositorio", repoSel ? repoSel.descripcion + " · selección técnica dentro de Footfall" : ""],
+      personas: ["Personas y agentes", "Quién y qué participa en Footfall, con sus sesiones y dispositivos"],
+      acceso: ["Acceso", "Roles del Workspace, sesiones y dispositivos activos en Footfall"],
+      actividad: ["Actividad", "Eventos auditables de Footfall"],
+      config: ["Configuración", "Ajustes del Workspace Footfall"]
+    };
+    const [tituloVista, subtituloVista] = titulos[s] || titulos.resumen;
+
+    return {
+      esResumen: s === "resumen", esVivo: s === "vivo", esConversaciones: s === "conversaciones",
+      esContexto: s === "contexto", esCodigo: s === "codigo", esRepo: s === "repo",
+      esPersonas: s === "personas", esAcceso: s === "acceso", esActividad: s === "actividad", esConfig: s === "config",
+      tituloVista, subtituloVista,
+      etiquetaOrg: "Nuanzs ▾",
+      tituloExplorador: "Explorar Workspaces (5)",
+
+      navResumen: this.navStyle(s === "resumen"),
+      navVivo: this.navStyle(s === "vivo"),
+      navActividad: this.navStyle(s === "actividad"),
+      navConversaciones: this.navStyle(s === "conversaciones"),
+      navContexto: this.navStyle(s === "contexto"),
+      navCodigo: this.navStyle(s === "codigo" || s === "repo"),
+      navPersonas: this.navStyle(s === "personas"),
+      navAcceso: this.navStyle(s === "acceso"),
+      navConfig: this.navStyle(s === "config"),
+
+      irResumen: this.ir("resumen"), irVivo: this.ir("vivo"), irActividad: this.ir("actividad"),
+      irConversaciones: this.ir("conversaciones"), irContexto: this.ir("contexto"),
+      irCodigo: this.ir("codigo"), irPersonas: this.ir("personas"), irAcceso: this.ir("acceso"), irConfig: this.ir("config"),
+      abrirColision: () => this.setState({ seccion: "vivo", drawerId: "i2" }),
+      abrirStale: () => this.setState({ seccion: "vivo", drawerId: "i4" }),
+      cerrarDrawer: () => this.setState({ drawerId: null }),
+      togglePicker: () => this.setState({ picker: !this.state.picker }),
+      stop: (e) => e.stopPropagation(),
+
+      logoPunto: "width:9px;height:9px;border-radius:50%;background:" + ac.base,
+      tileHeader: "width:18px;height:18px;border-radius:5px;background:" + ac.base + ";color:" + ac.texto + ";font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center",
+      avatarCodexHeader: "width:24px;height:24px;border-radius:6px;background:" + ac.base + ";color:" + ac.texto + ";font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fbfbfa;margin-left:-7px",
+
+      colores: COLORES.map((c) => ({
+        nombre: c.nombre + (c.id === ac.id ? " · en uso" : ""),
+        elegir: this.elegirColor(c.id),
+        swatch: "width:16px;height:16px;border-radius:5px;cursor:pointer;background:" + c.base + ";" +
+          (c.id === ac.id ? "box-shadow:0 0 0 2px #16211a" : "box-shadow:0 0 0 1px rgba(22,33,26,0.16)")
+      })),
+
+      rail: WORKSPACES.slice(0, 4).map((w) => {
+        const col = this.colorDe(w.id);
+        return {
+          letra: w.letra, alerta: w.alerta, vivo: w.vivo,
+          title: w.nombre + " · " + w.meta,
+          tile: w.id === "footfall"
+            ? "width:38px;height:38px;border-radius:10px;background:" + col.base + ";color:" + col.texto + ";font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;margin-top:4px;cursor:pointer;box-shadow:-11px 0 0 -8px " + col.base
+            : "width:38px;height:38px;border-radius:10px;background:#22302a;border:1px solid #33453b;color:" + col.base + ";font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;margin-top:4px;cursor:pointer",
+          abrir: () => this.setState({ seccion: "resumen", repo: null, drawerId: null, picker: false })
+        };
+      }),
+
+      workspaces: WORKSPACES.map((w) => ({
+        ...w,
+        fila: "display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;cursor:pointer;" + (w.id === "footfall" ? "background:#f2f3f0" : ""),
+        tile: "width:28px;height:28px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;background:" +
+          this.colorDe(w.id).base + ";color:" + this.colorDe(w.id).texto,
+        estadoStyle: w.alerta ? CHIP.bloqueado : (w.vivo ? CHIP.activo : CHIP.neutro),
+        abrir: () => this.setState({ picker: false, seccion: "resumen", repo: null, drawerId: null })
+      })),
+
+      repos,
+      trabajoActivo: INTENTS.filter((t) => !t.historico).map((t) => this.intentVista(t)),
+      intents: INTENTS.map((t) => this.intentVista(t)),
+      intentsRepo: INTENTS.filter((t) => repoSel && t.repo === repoSel.corto).map((t) => ({
+        ...this.intentVista(t), fila: FILA_REPO_INTENT
+      })),
+      scopesRepo: (repoSel ? INTENTS.filter((t) => t.repo === repoSel.corto) : []).flatMap((t) =>
+        t.scopes.map((sc) => ({ ...sc, chip: CHIP[sc.chip], actor: t.actor }))
+      ),
+      repoSel: repoSel ? { ...repoSel, sync: (repoSel.syncOk ? "● " : "△ ") + repoSel.sync, syncStyle: syncStyle(repoSel.syncOk) } : {},
+
+      drawer: drawer
+        ? {
+            ...drawer,
+            avatar: this._av[drawer.av].replace("width:20px;height:20px", "width:34px;height:34px").replace("font-size:8.5px", "font-size:12px").replace("font-size:9px", "font-size:13px"),
+            chip: CHIP[drawer.chip],
+            criterios: drawer.criterios.map((c) => ({
+              ...c,
+              marca: "font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.4;color:" + (c.ok ? "#3f8f5a" : "#8a938c")
+            })),
+            scopes: drawer.scopes.map((sc) => ({ ...sc, chip: CHIP[sc.chip] }))
+          }
+        : {},
+      hayDrawer: !!drawer,
+      picker: this.state.picker,
+
+      presencia: [
+        { nombre: "Codex", ini: "CX", av: "agente", estado: "● trabajando", tono: "verde", donde: "footfall-api" },
+        { nombre: "Claude", ini: "CL", av: "agenteAmbar", estado: "▣ bloqueado", tono: "ambar", donde: "footfall-api" },
+        { nombre: "María", ini: "M", av: "persona", estado: "● trabajando", tono: "verde", donde: "footfall-web" },
+        { nombre: "Jorge", ini: "J", av: "personaGris", estado: "○ sin intent", tono: "gris", donde: "solo lectura" },
+        { nombre: "Kimi", ini: "KM", av: "agenteGris", estado: "◷ sin heartbeat", tono: "gris", donde: "footfall-infra" }
+      ].map((p) => ({
+        ...p,
+        avatar: this._av[p.av].replace("width:20px;height:20px", "width:18px;height:18px"),
+        chip: "display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;" +
+          (p.tono === "ambar" ? "border:1px solid #e3ddc6;background:#fffdf6" : p.tono === "gris" ? "border:1px dashed #cdd0ca;background:#f6f7f5" : "border:1px solid #dcded8;background:#fff"),
+        estadoStyle: "font-size:11.5px;color:" + (p.tono === "verde" ? "#3f8f5a" : p.tono === "ambar" ? "#8a6a12" : "#8a938c")
+      })),
+
+      contextoPendiente: [
+        { tipo: "DECISIÓN", estado: "✕ En disputa", chip: CHIP.rojo, titulo: "Usar OCI como destino del pipeline de agregación", meta: "Daniel · hace 2 d · 3 evidencias" },
+        { tipo: "PREGUNTA", estado: "? Abierta", chip: CHIP.azul, titulo: "¿Qué zona define el baseline de comparación?", meta: "María · hace 6 h · 1 evidencia" },
+        { tipo: "RIESGO", estado: "△ Activo", chip: CHIP.bloqueado, titulo: "Cuota de la API de mapas al recalcular históricos", meta: "Codex · hace 1 d · 2 evidencias" },
+        { tipo: "HANDOFF", estado: "Ofrecido", chip: CHIP.activo, titulo: "Codex → Daniel: filtros de zona por validar", meta: "hace 18 min · 2 pendientes, 1 bloqueo" }
+      ],
+
+      actividadCorta: [
+        { hora: "14:02", texto: "Claude quedó bloqueado por colisión en footfall-api" },
+        { hora: "13:58", texto: "Codex ofreció un handoff a Daniel" },
+        { hora: "13:47", texto: "María reclamó frontend/src/analytics en footfall-web" },
+        { hora: "13:36", texto: "Sesión de Kimi marcada como stale" },
+        { hora: "13:20", texto: "Requisito aceptado: retención de 90 días por zona" }
+      ],
+
+      actividad: [
+        { hora: "14:02:11", tipo: "COLISIÓN", tono: "ambar", texto: "El reclamo de Claude sobre reports/zones.go fue rechazado por reserva exclusiva", meta: "intent i2 · scope_claim_denied · actor agent:claude", repo: "footfall-api" },
+        { hora: "13:58:40", tipo: "HANDOFF", tono: "verde", texto: "Codex ofreció un handoff a Daniel con 2 pendientes y 1 bloqueo", meta: "handoff h_44c1 · offered", repo: "footfall-api" },
+        { hora: "13:49:02", tipo: "CONTEXTO", tono: "azul", texto: "María registró una pregunta abierta sobre el baseline de comparación", meta: "record r_8812 · question.open", repo: "—" },
+        { hora: "13:47:15", tipo: "SCOPE", tono: "neutro", texto: "María reservó frontend/src/analytics en modo exclusivo", meta: "intent i3 · scope_claimed · lease 60m", repo: "footfall-web" },
+        { hora: "13:36:00", tipo: "SESIÓN", tono: "neutro", texto: "La sesión de Kimi fue marcada como stale tras 5 min sin latido", meta: "session s_71ab · stale", repo: "footfall-infra" },
+        { hora: "13:26:31", tipo: "SCOPE", tono: "neutro", texto: "Codex reservó backend/internal/reports en modo exclusivo", meta: "intent i1 · scope_claimed · lease 60m", repo: "footfall-api" },
+        { hora: "13:24:08", tipo: "INTENT", tono: "verde", texto: "Codex declaró el intent «Implementar filtros de tráfico por zona»", meta: "intent i1 · created · base a81c2e0", repo: "footfall-api" },
+        { hora: "13:20:44", tipo: "CONTEXTO", tono: "verde", texto: "Requisito aceptado: retención de 90 días por zona", meta: "record r_8790 · requirement.accepted", repo: "—" },
+        { hora: "13:04:12", tipo: "INTENT", tono: "neutro", texto: "Daniel completó la validación y su worktree fue eliminado", meta: "intent i5 · completed", repo: "footfall-web" }
+      ].map((a) => ({
+        ...a,
+        tipoChip: (a.tono === "ambar" ? CHIP.bloqueado : a.tono === "verde" ? CHIP.activo : a.tono === "azul" ? CHIP.azul : CHIP.neutro) + ";font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em"
+      })),
+
+      salas: [
+        { nombre: "general", noLeidos: "", activa: false },
+        { nombre: "product-decisions", noLeidos: "3", activa: true },
+        { nombre: "backend", noLeidos: "", activa: false },
+        { nombre: "infrastructure", noLeidos: "1", activa: false },
+        { nombre: "client-feedback", noLeidos: "", activa: false }
+      ].map((sa) => ({
+        nombre: sa.nombre,
+        noLeidos: sa.noLeidos,
+        fila: "display:flex;align-items:center;gap:8px;padding:7px 16px;font-size:12.5px;cursor:pointer;" +
+          (sa.activa ? "background:#e4e7e2;font-weight:600;color:#16211a" : "color:#35403a"),
+        badge: sa.noLeidos
+          ? "margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;background:#16211a;color:#fff;border-radius:8px;padding:1px 6px"
+          : "display:none"
+      })),
+
+      mensajes: [
+        {
+          autor: "María", ini: "M", av: "persona", tipo: "PERSONA", hora: "13:41",
+          texto: "El panel necesita saber qué zona es el baseline cuando el usuario compara dos rangos. Hoy cada repo asume algo distinto.",
+          responde: "", respondeTexto: "", mencion: "", mencionEstado: ""
+        },
+        {
+          autor: "Daniel", ini: "D", av: "personaGris", tipo: "PERSONA", hora: "13:44",
+          texto: "En infra dejamos OCI como destino del pipeline, pero eso sigue en disputa. No lo tomen como decisión aceptada todavía.",
+          responde: "María", respondeTexto: "El panel necesita saber qué zona…", mencion: "", mencionEstado: ""
+        },
+        {
+          autor: "Jorge", ini: "J", av: "personaGris", tipo: "PERSONA", hora: "13:52",
+          texto: "@Claude cuando se libere el scope de reports, revisa la agregación por hora contra el contrato del panel.",
+          responde: "", respondeTexto: "", mencion: "@Claude", mencionEstado: "· mención pendiente · el agente no se ejecuta automáticamente"
+        },
+        {
+          autor: "Claude", ini: "CL", av: "agenteAmbar", tipo: "AGENTE", hora: "13:56",
+          texto: "Recibido. Mi intent quedó bloqueado por la reserva exclusiva de Codex; retomo en cuanto se libere.",
+          responde: "Jorge", respondeTexto: "@Claude cuando se libere el scope…", mencion: "", mencionEstado: ""
+        }
+      ].map((m) => ({
+        ...m,
+        avatar: this._av[m.av].replace("width:20px;height:20px", "width:30px;height:30px").replace("font-size:8.5px", "font-size:10px").replace("font-size:9px", "font-size:11px"),
+        tipoChip: (m.tipo === "AGENTE" ? CHIP.ink : CHIP.neutro) + ";font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.06em"
+      })),
+
+      registros: [
+        { tipo: "DECISIÓN", titulo: "Usar OCI como destino del pipeline de agregación", nota: "Contradice el recurso «Costos comparados AWS/OCI»", estado: "✕ En disputa", chip: CHIP.rojo, meta: "Daniel · hace 2 d", evidencias: "3" },
+        { tipo: "REQUISITO", titulo: "Retención de 90 días por zona en reportes agregados", nota: "", estado: "✓ Aceptado", chip: CHIP.activo, meta: "María · hace 3 d", evidencias: "2" },
+        { tipo: "RESTRICCIÓN", titulo: "Sin datos personales en los agregados de tráfico", nota: "", estado: "✓ Aceptada", chip: CHIP.activo, meta: "Jorge · hace 2 sem", evidencias: "1" },
+        { tipo: "RIESGO", titulo: "Cuota de la API de mapas al recalcular históricos", nota: "Detectado por Codex durante la implementación", estado: "△ Activo", chip: CHIP.bloqueado, meta: "Codex · hace 1 d", evidencias: "2" },
+        { tipo: "PREGUNTA", titulo: "¿Qué zona define el baseline de comparación?", nota: "", estado: "? Abierta", chip: CHIP.azul, meta: "María · hace 6 h", evidencias: "1" },
+        { tipo: "VALIDACIÓN", titulo: "Filtros por zona verificados en staging", nota: "", estado: "✓ Aceptada", chip: CHIP.activo, meta: "Daniel · hace 1 h", evidencias: "2" },
+        { tipo: "REQUISITO", titulo: "Series vacías en zonas sin datos, no error 500", nota: "", estado: "Propuesto", chip: CHIP.neutro, meta: "Codex · hace 22 min", evidencias: "1" },
+        { tipo: "RECURSO", titulo: "Costos comparados AWS/OCI · hoja de cálculo interna", nota: "Solo metadatos y localizador; PACT no almacena el archivo", estado: "Referencia", chip: CHIP.neutro, meta: "Daniel · hace 2 d", evidencias: "—" }
+      ].map((r) => ({
+        ...r,
+        fila: "display:grid;grid-template-columns:118px 1fr 136px 150px 96px;align-items:center;padding:11px 4px;border-bottom:1px solid #eaebe7;font-size:12.5px;cursor:pointer"
+      })),
+
+      personas: [
+        { nombre: "Jorge", ini: "J", av: "persona", correo: "jorge@nuanzs.com", rolWs: "Mantenedor", rolOrg: "Propietario de Nuanzs", sesiones: "1 web · 1 CLI (mbp-jorge)", ultimo: "hace 2 min", chipTipo: "ink" },
+        { nombre: "María", ini: "M", av: "persona", correo: "maria@nuanzs.com", rolWs: "Colaboradora", rolOrg: "Miembro", sesiones: "1 web · 1 CLI (mbp-maria)", ultimo: "hace 40 s", chipTipo: "neutro" },
+        { nombre: "Daniel", ini: "D", av: "personaGris", correo: "daniel@nuanzs.com", rolWs: "Colaborador", rolOrg: "Miembro", sesiones: "1 web · 1 CLI (linux-daniel)", ultimo: "hace 1 h", chipTipo: "neutro" }
+      ].map((p) => ({ ...p, avatar: this._av[p.av].replace("width:20px;height:20px", "width:26px;height:26px"), rolChip: CHIP[p.chipTipo] })),
+
+      agentes: [
+        { nombre: "Codex", ini: "CX", av: "agente", cliente: "codex-cli 1.4", operador: "Jorge", dispositivo: "mbp-jorge · dev_9f21", estado: "Trabajando", chip: CHIP.activo, latido: "12 s", latidoStyle: LATIDO_VIVO },
+        { nombre: "Claude", ini: "CL", av: "agenteAmbar", cliente: "claude-code 2.1", operador: "María", dispositivo: "mbp-maria · dev_3c77", estado: "Bloqueado", chip: CHIP.bloqueado, latido: "40 s", latidoStyle: LATIDO },
+        { nombre: "Kimi", ini: "KM", av: "agenteGris", cliente: "kimi-cli 0.9", operador: "Daniel", dispositivo: "linux-daniel · dev_1a05", estado: "Sin latido", chip: CHIP.neutro, latido: "14 min", latidoStyle: LATIDO_ALERTA }
+      ].map((a) => ({ ...a, avatar: this._av[a.av].replace("width:20px;height:20px", "width:26px;height:26px") })),
+
+      accesos: [
+        { nombre: "Jorge", ini: "J", av: "persona", rol: "Mantenedor", rolChip: CHIP.ink, origen: "Acceso global por rol de propietario en Nuanzs", accion: "No editable aquí", editable: false },
+        { nombre: "María", ini: "M", av: "persona", rol: "Colaboradora", rolChip: CHIP.neutro, origen: "Permiso directo sobre Footfall", accion: "Cambiar rol", editable: true },
+        { nombre: "Daniel", ini: "D", av: "personaGris", rol: "Colaborador", rolChip: CHIP.neutro, origen: "Permiso directo sobre Footfall", accion: "Cambiar rol", editable: true }
+      ].map((a) => ({
+        ...a,
+        avatar: this._av[a.av].replace("width:20px;height:20px", "width:24px;height:24px"),
+        accionStyle: "text-align:right;font-size:12px;" + (a.editable ? "color:#2f6b46;cursor:pointer" : "color:#a6ada7")
+      })),
+
+      sesiones: [
+        { actor: "Jorge", cliente: "Web · Chrome 128", dispositivo: "—", inicio: "hace 2 h" },
+        { actor: "Codex (Jorge)", cliente: "codex-cli 1.4 · MCP", dispositivo: "mbp-jorge · dev_9f21", inicio: "hace 38 min" },
+        { actor: "Claude (María)", cliente: "claude-code 2.1 · MCP", dispositivo: "mbp-maria · dev_3c77", inicio: "hace 12 min" },
+        { actor: "Kimi (Daniel)", cliente: "kimi-cli 0.9 · MCP", dispositivo: "linux-daniel · dev_1a05", inicio: "hace 1 h" }
+      ]
+    };
+  }
+}
+
+</script>
+</body>
+</html>

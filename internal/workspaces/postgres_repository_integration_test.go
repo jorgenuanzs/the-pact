@@ -78,6 +78,9 @@ func TestWorkspaceFoundationBackfillsCreatesAndMovesProjects(t *testing.T) {
 	if len(created.Workspace.Projects) != 2 {
 		t.Fatalf("shared workspace projects = %#v", created.Workspace.Projects)
 	}
+	if created.Workspace.Color != workspaces.DefaultColor {
+		t.Fatalf("workspace color = %q", created.Workspace.Color)
+	}
 	replayed, err := workspaceService.Create(ctx, "workspace-create-"+suffix, input)
 	if err != nil || !replayed.Replayed || replayed.Workspace.ID != created.Workspace.ID {
 		t.Fatalf("replayed result = %#v, error = %v", replayed, err)
@@ -90,5 +93,14 @@ func TestWorkspaceFoundationBackfillsCreatesAndMovesProjects(t *testing.T) {
 	}
 	if unchanged.Version != beforeVersion {
 		t.Fatalf("idempotent attachment changed version from %d to %d", beforeVersion, unchanged.Version)
+	}
+	updated, err := workspaceService.Update(ctx, created.Workspace.ID, workspaces.UpdateInput{
+		Name: "Renamed Workspace " + suffix, Description: "Updated from settings", Color: "#3877dc",
+	})
+	if err != nil {
+		t.Fatalf("update workspace: %v", err)
+	}
+	if updated.Name != "Renamed Workspace "+suffix || updated.Description != "Updated from settings" || updated.Color != "#3877dc" || updated.Version != unchanged.Version+1 {
+		t.Fatalf("updated workspace = %#v", updated)
 	}
 }

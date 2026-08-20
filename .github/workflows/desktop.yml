@@ -1,0 +1,102 @@
+name: PACT Desktop
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "desktop/**"
+      - "web/**"
+      - "internal/access/**"
+      - "internal/authn/**"
+      - "internal/pactclient/**"
+      - "internal/localserver/**"
+      - "internal/userconfig/**"
+      - "cmd/pact/**"
+      - "go.mod"
+      - "go.sum"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "desktop/**"
+      - "web/**"
+      - "internal/access/**"
+      - "internal/authn/**"
+      - "internal/pactclient/**"
+      - "internal/localserver/**"
+      - "internal/userconfig/**"
+      - "cmd/pact/**"
+      - "go.mod"
+      - "go.sum"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            os: macos-latest
+            artifact: PACT-macOS-arm64
+          - label: Windows amd64
+            os: windows-latest
+            artifact: PACT-Windows-amd64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.16.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+      - name: Install Wails
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          "${env:ProgramFiles(x86)}\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test native layer
+        working-directory: desktop
+        run: |
+          npm --prefix ../web run build:desktop
+          node ../web/scripts/build-desktop-helper.mjs
+          go test ./...
+      - name: Test desktop frontend
+        working-directory: web
+        run: npm test -- --run src/features/desktop/DesktopGate.test.tsx src/features/desktop/LocalComputerPage.test.tsx src/api/client.test.ts
+      - name: Build macOS application
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: wails build -clean -ldflags="-extldflags '-framework UniformTypeIdentifiers'"
+      - name: Archive macOS application
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent desktop/build/bin/PACT.app desktop/build/bin/PACT-macOS-arm64.zip
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: wails build -clean -nsis -installscope user
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            desktop/build/bin/*.zip
+            desktop/build/bin/*-installer.exe
+          if-no-files-found: error

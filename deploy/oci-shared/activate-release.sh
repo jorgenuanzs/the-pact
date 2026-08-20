@@ -31,7 +31,7 @@ if [[ -z "${incoming_dir}" || ! -d "${incoming_dir}" ]]; then
   exit 2
 fi
 
-for command_name in docker flock openssl sha256sum tar; do
+for command_name in bash docker find flock openssl sha256sum sort tar; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Missing required command: ${command_name}" >&2
     exit 1
@@ -127,6 +127,22 @@ install -m 640 "${deployment_file}" "${release_dir}/deployment.env"
   exit 1
 }
 
+validation_profile="full"
+changed_paths_file="${release_dir}/changed-paths.txt"
+classifier="${release_dir}/source/deploy/oci-shared/classify-release.sh"
+if [[ -d "${runtime_root}/current/source" && -f "${classifier}" ]]; then
+  validation_profile="$(bash "${classifier}" "${runtime_root}/current/source" "${release_dir}/source" "${changed_paths_file}")"
+else
+  printf '%s\n' "initial release or missing classifier" >"${changed_paths_file}"
+fi
+[[ "${validation_profile}" == "frontend" || "${validation_profile}" == "full" ]] || {
+  echo "Invalid release validation profile: ${validation_profile}" >&2
+  exit 1
+}
+chmod 640 "${changed_paths_file}"
+echo "PACT validation profile: ${validation_profile}"
+sed 's/^/  changed: /' "${changed_paths_file}"
+
 secrets_file="${shared_dir}/runtime.env"
 if [[ ! -f "${secrets_file}" ]]; then
   umask 077
@@ -190,6 +206,7 @@ PACT_SERVER_IMAGE=${image}
 PACT_VERSION=${PACT_RELEASE_ID}
 PACT_COMMIT=${PACT_GIT_COMMIT}
 PACT_BUILD_DATE=${PACT_BUILD_DATE}
+PACT_VALIDATION_PROFILE=${validation_profile}
 EOF
 chmod 640 "${release_dir}/release.env"
 
@@ -198,75 +215,83 @@ docker buildx inspect "${builder_name}" >/dev/null 2>&1 || \
   docker buildx create --name "${builder_name}" --driver docker-container >/dev/null
 docker buildx inspect "${builder_name}" --bootstrap >/dev/null
 
-docker buildx build \
-  --builder "${builder_name}" \
-  --target test \
-  --build-arg "GO_TEST_FLAGS=" \
-  --output type=cacheonly \
-  "${release_dir}/source"
+if [[ "${validation_profile}" == "frontend" ]]; then
+  docker buildx build \
+    --builder "${builder_name}" \
+    --target test-ui \
+    --output type=cacheonly \
+    "${release_dir}/source"
+else
+  docker buildx build \
+    --builder "${builder_name}" \
+    --target test \
+    --build-arg "GO_TEST_FLAGS=" \
+    --output type=cacheonly \
+    "${release_dir}/source"
 
-integration_suffix="${PACT_SOURCE_SHA256:0:12}"
-integration_database_container="pact-it-db-${integration_suffix}"
-integration_network="pact-it-${integration_suffix}"
-integration_image="the-pact-integration:${PACT_RELEASE_ID}"
-docker network create "${integration_network}" >/dev/null
-docker run \
-  --detach \
-  --name "${integration_database_container}" \
-  --network "${integration_network}" \
-  --network-alias postgres \
-  --memory 512m \
-  --cpus 0.25 \
-  --tmpfs /var/lib/postgresql:rw,noexec,nosuid,size=384m \
-  --env POSTGRES_DB=pact_test \
-  --env POSTGRES_USER=pact \
-  --env POSTGRES_PASSWORD=pact-integration-password \
-  --env PGDATA=/var/lib/postgresql/18/docker \
-  pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3 \
-  >/dev/null
+  integration_suffix="${PACT_SOURCE_SHA256:0:12}"
+  integration_database_container="pact-it-db-${integration_suffix}"
+  integration_network="pact-it-${integration_suffix}"
+  integration_image="the-pact-integration:${PACT_RELEASE_ID}"
+  docker network create "${integration_network}" >/dev/null
+  docker run \
+    --detach \
+    --name "${integration_database_container}" \
+    --network "${integration_network}" \
+    --network-alias postgres \
+    --memory 512m \
+    --cpus 0.25 \
+    --tmpfs /var/lib/postgresql:rw,noexec,nosuid,size=384m \
+    --env POSTGRES_DB=pact_test \
+    --env POSTGRES_USER=pact \
+    --env POSTGRES_PASSWORD=pact-integration-password \
+    --env PGDATA=/var/lib/postgresql/18/docker \
+    pgvector/pgvector:0.8.2-pg18-trixie@sha256:b7337db8fe39d12fe8ecb0003c72680f24479813a744b43154eee6f2eab5a5f3 \
+    >/dev/null
 
-integration_database_ready=false
-for _ in {1..30}; do
-  if docker exec "${integration_database_container}" pg_isready --username=pact --dbname=pact_test >/dev/null 2>&1; then
-    integration_database_ready=true
-    break
-  fi
-  sleep 2
-done
-[[ "${integration_database_ready}" == true ]] || {
-  docker logs "${integration_database_container}" >&2 || true
-  echo "The temporary PACT integration database did not become ready." >&2
-  exit 1
-}
+  integration_database_ready=false
+  for _ in {1..30}; do
+    if docker exec "${integration_database_container}" pg_isready --username=pact --dbname=pact_test >/dev/null 2>&1; then
+      integration_database_ready=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "${integration_database_ready}" == true ]] || {
+    docker logs "${integration_database_container}" >&2 || true
+    echo "The temporary PACT integration database did not become ready." >&2
+    exit 1
+  }
 
-docker buildx build \
-  --builder "${builder_name}" \
-  --target source \
-  --tag "${integration_image}" \
-  --load \
-  "${release_dir}/source"
-docker run \
-  --rm \
-  --network "${integration_network}" \
-  --memory 1g \
-  --cpus 0.50 \
-  --env PACT_TEST_DATABASE_URL=postgres://pact:pact-integration-password@postgres:5432/pact_test?sslmode=disable \
-  "${integration_image}" \
-  go test -tags=integration -p=1 \
-    ./internal/projects \
-    ./internal/access \
-    ./internal/agentsession \
-    ./internal/coordination \
-    ./internal/workspaces \
-    ./internal/knowledge \
-    ./internal/rooms \
-    ./internal/contextpack \
-    ./internal/projectrepo \
-    ./internal/repositorysync
-cleanup_integration
-integration_database_container=""
-integration_network=""
-integration_image=""
+  docker buildx build \
+    --builder "${builder_name}" \
+    --target source \
+    --tag "${integration_image}" \
+    --load \
+    "${release_dir}/source"
+  docker run \
+    --rm \
+    --network "${integration_network}" \
+    --memory 1g \
+    --cpus 0.50 \
+    --env PACT_TEST_DATABASE_URL=postgres://pact:pact-integration-password@postgres:5432/pact_test?sslmode=disable \
+    "${integration_image}" \
+    go test -tags=integration -p=1 \
+      ./internal/projects \
+      ./internal/access \
+      ./internal/agentsession \
+      ./internal/coordination \
+      ./internal/workspaces \
+      ./internal/knowledge \
+      ./internal/rooms \
+      ./internal/contextpack \
+      ./internal/projectrepo \
+      ./internal/repositorysync
+  cleanup_integration
+  integration_database_container=""
+  integration_network=""
+  integration_image=""
+fi
 
 docker buildx build \
   --builder "${builder_name}" \
@@ -288,7 +313,11 @@ compose=(
 
 "${compose[@]}" config --quiet
 "${compose[@]}" up --detach --wait postgres
-"${compose[@]}" run --rm migrate
+if [[ "${validation_profile}" == "full" ]]; then
+  "${compose[@]}" run --rm migrate
+else
+  echo "Skipping migrations for frontend-only release."
+fi
 "${compose[@]}" up --detach --remove-orphans pact-server backup
 
 healthy=false

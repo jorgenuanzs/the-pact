@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 40" width="210" height="40" role="img" aria-label="PACT">
+  <path d="M17 5.5 H8.5 V34.5 H17" fill="none" stroke="#16211A" stroke-width="5" stroke-linecap="square"></path>
+  <path d="M31 5.5 H39.5 V34.5 H31" fill="none" stroke="#16211A" stroke-width="5" stroke-linecap="square"></path>
+  <circle cx="24" cy="20" r="5" fill="#16211A"></circle>
+  <text x="56" y="28" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="26" font-weight="700" letter-spacing="4.2" fill="#16211A">PACT</text>
+</svg>

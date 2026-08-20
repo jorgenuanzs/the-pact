@@ -334,6 +334,15 @@ crea esos archivos los excluye mediante `.git/info/exclude`, ya que contienen
 rutas absolutas propias de cada checkout. Claude Code solicita aprobación antes
 de iniciar por primera vez un servidor MCP configurado en el proyecto.
 
+PACT Desktop ofrece el mismo flujo desde **Este computador → Agentes y
+clientes**. El usuario selecciona explícitamente un checkout con el diálogo
+nativo y Desktop instala la configuración usando el runtime `pact-local`
+incluido en la aplicación. El runtime se extrae en el directorio de
+configuración del usuario, identificado por su digest, y puede ser iniciado por
+el cliente MCP aunque la interfaz Desktop esté cerrada. La autorización de
+dispositivo permanece en la configuración privada del usuario; nunca se copia
+al checkout ni se expone al frontend React.
+
 Para probar el transporte directamente o configurar otro cliente, el proceso
 que debe iniciarse desde un checkout conectado es:
 
@@ -503,6 +512,36 @@ incorporará junto con el modelo de permisos para equipos.
 
 ## Pruebas y compilación
 
+El código fuente de Pact Control vive en `web/` y se construye con React,
+TypeScript y Vite. El build reproducible y CI usan Node 24.16.0; utiliza esa
+versión o una Node 24 posterior para los comandos locales. Para trabajar con
+recarga en caliente, primero inicia Pact Server y después Vite en otra terminal:
+
+```sh
+make dev
+make ui-install
+make ui-dev
+```
+
+Abre `http://127.0.0.1:5173/admin/`. Vite reenvía `/v1`, `/livez`, `/readyz` y
+`/version` al servidor local, de modo que cookies, CSRF y SSE conservan el mismo
+modelo de origen que en producción. `make ui-build` genera
+`internal/transport/httpapi/adminui/dist/` para las comprobaciones nativas de
+Go; Docker siempre lo genera desde cero y Node no forma parte de la imagen
+final.
+
+Para iterar exclusivamente en el backoffice ejecuta el perfil rápido:
+
+```sh
+make test-ui
+```
+
+Este perfil ejecuta el análisis de tipos de TypeScript, las pruebas de
+componentes con Vitest, el build de producción de Vite, el formato y análisis
+de Go del paquete `adminui`, y sus pruebas específicas. No inicia PostgreSQL ni
+ejecuta las pruebas del resto del servidor. Si un cambio afecta la API,
+migraciones, infraestructura o cualquier otro paquete, usa la batería completa.
+
 Ejecuta las pruebas:
 
 ```sh
@@ -536,6 +575,12 @@ comprobaciones definidas por el repositorio:
 ```sh
 make verify
 ```
+
+El despliegue de OCI aplica la misma distinción automáticamente. Compara el
+contenido del release nuevo con el release activo y solo utiliza el perfil
+rápido cuando todos los archivos modificados viven bajo `web/` o
+`internal/transport/httpapi/adminui/`; ante cualquier duda utiliza el perfil
+completo.
 
 ## Diagnóstico
 

@@ -60,6 +60,21 @@ func TestStartNormalizesAgentIdentity(t *testing.T) {
 	}
 }
 
+func TestCanonicalAgentDisplayName(t *testing.T) {
+	t.Parallel()
+	for input, expected := range map[string]string{
+		"codex":       "Codex",
+		"claude":      "Claude",
+		"pact-node":   "PACT Node",
+		"custom_mcp":  "Custom MCP",
+		"security.ai": "Security AI",
+	} {
+		if actual := canonicalAgentDisplayName(input); actual != expected {
+			t.Errorf("canonicalAgentDisplayName(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+}
+
 func TestStartRejectsInvalidProjectID(t *testing.T) {
 	service := NewService("organization", fakeRepository{
 		start: func(context.Context, string, string, string, StartInput) (Session, error) {

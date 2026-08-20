@@ -176,6 +176,19 @@ func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start access agent session: %v", err)
 	}
+	secondAgentSession, err := agentsession.NewService(
+		organizationID,
+		agentsession.NewPostgresRepository(pool),
+	).Start(ctx, collaborator.ID, projectResult.Project.ID, agentsession.StartInput{
+		NodeKey: "access-node-second-" + suffix, NodeName: "Second access node",
+		AgentName: "codex-release-check", AgentType: "codex", ClientType: "codex-mcp", ObserveGit: true,
+	})
+	if err != nil {
+		t.Fatalf("start second access agent session: %v", err)
+	}
+	if secondAgentSession.ActorID != agentSession.ActorID || secondAgentSession.ActorName != "Codex" {
+		t.Fatalf("logical agent identity was not reused: first=%#v second=%#v", agentSession, secondAgentSession)
+	}
 	roster, err := authorization.GetProjectAccess(ctx, owner.Principal, projectResult.Project.ID)
 	if err != nil {
 		t.Fatalf("get project access: %v", err)
@@ -183,7 +196,7 @@ func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
 	if !containsMember(roster.Members, owner.Principal.ID) || !containsMember(roster.Members, collaborator.ID) || containsMember(roster.Members, access.BootstrapPrincipalID) {
 		t.Fatalf("project members = %#v", roster.Members)
 	}
-	if len(roster.Agents) != 1 || roster.Agents[0].AgentID != agentSession.ActorID || !roster.Agents[0].Connected {
+	if len(roster.Agents) != 1 || roster.Agents[0].AgentID != agentSession.ActorID || !roster.Agents[0].Connected || roster.Agents[0].SessionCount != 2 {
 		t.Fatalf("project agents = %#v", roster.Agents)
 	}
 

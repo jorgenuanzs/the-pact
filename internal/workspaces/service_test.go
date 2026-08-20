@@ -11,6 +11,7 @@ type fakeRepository struct {
 	create func(context.Context, string, string, [sha256.Size]byte, CreateInput) (CreateResult, error)
 	get    func(context.Context, string, string) (Workspace, error)
 	list   func(context.Context, string) ([]Workspace, error)
+	update func(context.Context, string, string, UpdateInput) (Workspace, error)
 	attach func(context.Context, string, string, string) (Workspace, error)
 }
 
@@ -24,6 +25,10 @@ func (f fakeRepository) Get(ctx context.Context, organizationID, reference strin
 
 func (f fakeRepository) List(ctx context.Context, organizationID string) ([]Workspace, error) {
 	return f.list(ctx, organizationID)
+}
+
+func (f fakeRepository) Update(ctx context.Context, organizationID, reference string, input UpdateInput) (Workspace, error) {
+	return f.update(ctx, organizationID, reference, input)
 }
 
 func (f fakeRepository) AttachProject(ctx context.Context, organizationID, workspaceID, projectID string) (Workspace, error) {
@@ -48,11 +53,48 @@ func TestCreateNormalizesAndDeduplicatesProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if received.Name != "Footfall" || received.Slug != "footfall-app" || received.Description != "Shared product" {
+	if received.Name != "Footfall" || received.Slug != "footfall-app" || received.Description != "Shared product" || received.Color != DefaultColor {
 		t.Fatalf("normalized input = %#v", received)
 	}
 	if len(received.ProjectIDs) != 1 || received.ProjectIDs[0] != projectID {
 		t.Fatalf("project IDs = %#v", received.ProjectIDs)
+	}
+}
+
+func TestUpdateNormalizesWorkspaceDetails(t *testing.T) {
+	var received UpdateInput
+	service := NewService("org", fakeRepository{update: func(_ context.Context, organizationID, reference string, input UpdateInput) (Workspace, error) {
+		if organizationID != "org" || reference != "footfall" {
+			t.Fatalf("organization=%q reference=%q", organizationID, reference)
+		}
+		received = input
+		return Workspace{Name: input.Name, Description: input.Description, Color: input.Color}, nil
+	}})
+
+	workspace, err := service.Update(context.Background(), " footfall ", UpdateInput{
+		Name: " Footfall Platform ", Description: " Shared context ", Color: " #3877DC ",
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if received.Name != "Footfall Platform" || received.Description != "Shared context" || received.Color != "#3877dc" {
+		t.Fatalf("normalized input = %#v", received)
+	}
+	if workspace.Color != "#3877dc" {
+		t.Fatalf("workspace = %#v", workspace)
+	}
+}
+
+func TestUpdateRejectsInvalidColor(t *testing.T) {
+	service := NewService("org", fakeRepository{update: func(context.Context, string, string, UpdateInput) (Workspace, error) {
+		t.Fatal("repository should not be called")
+		return Workspace{}, nil
+	}})
+
+	_, err := service.Update(context.Background(), "footfall", UpdateInput{Name: "Footfall", Color: "lime"})
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) || validationErr.Field != "color" {
+		t.Fatalf("Update() error = %v", err)
 	}
 }
 

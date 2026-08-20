@@ -362,7 +362,7 @@ func runMCP(args []string, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact mcp serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	clientType := flags.String("client", "", "MCP client type, such as codex, claude, or kimi")
-	agentName := flags.String("name", "", "agent display name (defaults to the client type)")
+	agentName := flags.String("name", "", "legacy agent label (the durable identity is derived from --client)")
 	projectPath := flags.String("path", ".", "path inside the connected Pact project")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

@@ -2,6 +2,7 @@ SHELL := /bin/sh
 .DEFAULT_GOAL := doctor
 
 COMPOSE := docker compose
+NPM := npm --prefix web
 SERVER_IMAGE ?= the-pact-server:dev
 PACT_BUILDER ?= the-pact-builder
 PACT_CACHE_MAX_AGE ?= 168h
@@ -14,8 +15,15 @@ BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 HOST_OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 HOST_ARCH_RAW := $(shell uname -m)
 HOST_ARCH := $(if $(filter arm64 aarch64,$(HOST_ARCH_RAW)),arm64,amd64)
+WAILS_VERSION ?= v2.13.0
+WAILS ?= $(shell go env GOPATH 2>/dev/null)/bin/wails
+DESKTOP_GO_CACHE ?= /tmp/pact-desktop-go-cache
+DESKTOP_BUILD_FLAGS :=
+ifeq ($(HOST_OS),darwin)
+DESKTOP_BUILD_FLAGS += -ldflags="-extldflags '-framework UniformTypeIdentifiers'"
+endif
 
-.PHONY: init cli dev down logs ps migrate test test-race test-integration build verify doctor
+.PHONY: init cli dev ui-install ui-dev ui-build ui-test desktop-install desktop-dev desktop-test desktop-build down logs ps migrate test-ui test-release-classifier test test-race test-integration build verify doctor
 .PHONY: docker-builder docker-audit docker-clean-stale docker-clean
 .PHONY: _compose-config
 
@@ -47,6 +55,39 @@ dev: doctor docker-builder
 	@address="$$($(COMPOSE) port pact-server 8080)"; \
 		echo "Pact is ready at http://$${address}"
 
+ui-install:
+	@$(NPM) ci
+
+ui-dev:
+	@$(NPM) run dev
+
+ui-build:
+	@$(NPM) run build
+
+ui-test:
+	@$(NPM) run typecheck
+	@$(NPM) test
+
+desktop-install:
+	@command -v go >/dev/null 2>&1 || { echo "Go is required to build PACT Desktop."; exit 1; }
+	@go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
+
+desktop-dev:
+	@test -x "$(WAILS)" || { echo "Wails is missing. Run make desktop-install."; exit 1; }
+	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" "$(WAILS)" dev
+
+desktop-test:
+	@$(NPM) run build:desktop
+	@node web/scripts/build-desktop-helper.mjs
+	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" go test ./...
+	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" go vet ./...
+	@$(NPM) run typecheck
+	@$(NPM) test -- --run src/features/desktop/DesktopGate.test.tsx src/features/desktop/LocalComputerPage.test.tsx src/api/client.test.ts
+
+desktop-build:
+	@test -x "$(WAILS)" || { echo "Wails is missing. Run make desktop-install."; exit 1; }
+	@cd desktop && GOCACHE="$(DESKTOP_GO_CACHE)" "$(WAILS)" build -clean $(DESKTOP_BUILD_FLAGS)
+
 down:
 	@PACT_DB_PASSWORD=not-used $(COMPOSE) down
 
@@ -59,6 +100,16 @@ ps:
 migrate: doctor docker-builder
 	@$(COMPOSE) build --builder "$(PACT_BUILDER)" migrate
 	@$(COMPOSE) run --rm migrate
+
+test-ui: docker-builder
+	@docker buildx build \
+		--builder "$(PACT_BUILDER)" \
+		--target test-ui \
+		--output type=cacheonly \
+		.
+
+test-release-classifier:
+	@bash deploy/oci-shared/classify-release_test.sh
 
 test: docker-builder
 	@docker buildx build \

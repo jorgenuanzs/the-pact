@@ -1,0 +1,18 @@
+export const queryKeys = {
+  session: ["session"] as const,
+  setup: ["setup"] as const,
+  me: ["me"] as const,
+  workspaces: ["workspaces"] as const,
+  projects: ["projects"] as const,
+  github: ["github"] as const,
+  overview: (projectID: string) => ["projects", projectID, "overview"] as const,
+  access: (projectID: string) => ["projects", projectID, "access"] as const,
+  repositories: (projectID: string) => ["projects", projectID, "repositories"] as const,
+  availableRepositories: (projectID: string) => ["github", "repositories", projectID] as const,
+  context: (workspaceID: string) => ["workspaces", workspaceID, "context"] as const,
+  rooms: (workspaceID: string) => ["workspaces", workspaceID, "rooms"] as const,
+  participants: (workspaceID: string) => ["workspaces", workspaceID, "participants"] as const,
+  messages: (workspaceID: string, roomID: string) => ["workspaces", workspaceID, "rooms", roomID, "messages"] as const,
+  mentions: (workspaceID?: string) => ["mentions", workspaceID || "all"] as const,
+  users: ["admin", "users"] as const,
+};

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -109,7 +110,7 @@ func (r *PostgresRepository) Start(
 	if err != nil {
 		return Session{}, fmt.Errorf("create agent session: %w", err)
 	}
-	session.ActorName = input.AgentName
+	session.ActorName = canonicalAgentDisplayName(input.AgentType)
 	session.NodeName = input.NodeName
 	if err := tx.Commit(ctx); err != nil {
 		return Session{}, fmt.Errorf("commit agent session: %w", err)
@@ -336,9 +337,10 @@ func upsertAgent(
 	sponsorPrincipalID string,
 	input StartInput,
 ) (string, error) {
+	canonicalName := canonicalAgentDisplayName(input.AgentType)
 	if _, err := tx.Exec(ctx, `
 		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
-	`, "pact-agent:"+organizationID+":"+sponsorPrincipalID+":"+input.AgentType+":"+strings.ToLower(input.AgentName)); err != nil {
+	`, "pact-agent:"+organizationID+":"+sponsorPrincipalID+":"+input.AgentType); err != nil {
 		return "", fmt.Errorf("lock agent identity: %w", err)
 	}
 	var agentID string
@@ -347,14 +349,17 @@ func upsertAgent(
 		WHERE organization_id = $1
 		  AND sponsor_principal_id = $2
 		  AND agent_type = $3
-		  AND lower(name) = lower($4)
-	`, organizationID, sponsorPrincipalID, input.AgentType, input.AgentName).Scan(&agentID)
+		ORDER BY CASE WHEN lower(name) = lower($4) THEN 0 ELSE 1 END,
+		         created_at,
+		         id
+		LIMIT 1
+	`, organizationID, sponsorPrincipalID, input.AgentType, canonicalName).Scan(&agentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `
 			INSERT INTO identity.actors (organization_id, kind, display_name)
 			VALUES ($1, 'agent', $2)
 			RETURNING id
-		`, organizationID, input.AgentName).Scan(&agentID)
+		`, organizationID, canonicalName).Scan(&agentID)
 		if err != nil {
 			return "", fmt.Errorf("create agent actor: %w", err)
 		}
@@ -364,7 +369,7 @@ func upsertAgent(
 				declared_capabilities
 			)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, agentID, organizationID, sponsorPrincipalID, input.AgentName, input.AgentType, []byte(`{"pact.cli.session.v1":true}`))
+		`, agentID, organizationID, sponsorPrincipalID, canonicalName, input.AgentType, []byte(`{"pact.cli.session.v1":true}`))
 		if err != nil {
 			return "", fmt.Errorf("create agent identity: %w", err)
 		}
@@ -373,7 +378,55 @@ func upsertAgent(
 	if err != nil {
 		return "", fmt.Errorf("find agent identity: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE identity.actors
+		SET display_name = $3,
+		    updated_at = transaction_timestamp(),
+		    version = version + 1
+		WHERE organization_id = $1 AND id = $2 AND display_name <> $3
+	`, organizationID, agentID, canonicalName); err != nil {
+		return "", fmt.Errorf("normalize agent actor: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE identity.agents
+		SET name = $3,
+		    updated_at = transaction_timestamp()
+		WHERE organization_id = $1 AND id = $2 AND name <> $3
+	`, organizationID, agentID, canonicalName); err != nil {
+		return "", fmt.Errorf("normalize agent identity: %w", err)
+	}
 	return agentID, nil
+}
+
+func canonicalAgentDisplayName(agentType string) string {
+	parts := strings.FieldsFunc(strings.TrimSpace(agentType), func(value rune) bool {
+		return value == '-' || value == '_' || value == '.' || unicode.IsSpace(value)
+	})
+	for index, part := range parts {
+		lower := strings.ToLower(part)
+		switch lower {
+		case "ai":
+			parts[index] = "AI"
+		case "api":
+			parts[index] = "API"
+		case "cli":
+			parts[index] = "CLI"
+		case "mcp":
+			parts[index] = "MCP"
+		case "pact":
+			parts[index] = "PACT"
+		default:
+			runes := []rune(lower)
+			if len(runes) > 0 {
+				runes[0] = unicode.ToUpper(runes[0])
+			}
+			parts[index] = string(runes)
+		}
+	}
+	if len(parts) == 0 {
+		return "Agent"
+	}
+	return strings.Join(parts, " ")
 }
 
 func rollback(tx pgx.Tx) {

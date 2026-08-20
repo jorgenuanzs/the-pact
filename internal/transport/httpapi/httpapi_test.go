@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,14 +33,16 @@ import (
 const testToken = "this-is-a-long-local-test-token"
 
 type fakeAccessService struct {
-	require       func(context.Context, access.Principal, string, string) error
-	visible       func(context.Context, access.Principal) (map[string]struct{}, error)
-	projectAccess func(context.Context, access.Principal, string) (access.ProjectAccess, error)
-	register      func(context.Context, authn.InvitationRegistrationInput, authn.SessionMetadata) (authn.CreatedInvitationSession, error)
-	createInvite  func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
-	principal     *access.Principal
-	webSession    *authn.WebSession
-	csrfSecret    string
+	require            func(context.Context, access.Principal, string, string) error
+	visible            func(context.Context, access.Principal) (map[string]struct{}, error)
+	projectAccess      func(context.Context, access.Principal, string) (access.ProjectAccess, error)
+	register           func(context.Context, authn.InvitationRegistrationInput, authn.SessionMetadata) (authn.CreatedInvitationSession, error)
+	createInvite       func(context.Context, access.Principal, string, access.CreateInvitationInput) (access.CreatedInvitation, error)
+	authenticateWeb    func(context.Context, string) (authn.WebSession, error)
+	authenticateDevice func(context.Context, string) (authn.DevicePrincipal, error)
+	principal          *access.Principal
+	webSession         *authn.WebSession
+	csrfSecret         string
 }
 
 func (f fakeAccessService) Authenticate(_ context.Context, token string) (access.Principal, error) {
@@ -63,13 +67,19 @@ func (fakeAccessService) Setup(context.Context, authn.SetupInput, authn.SessionM
 func (fakeAccessService) Login(context.Context, authn.LoginInput, authn.SessionMetadata) (authn.CreatedWebSession, error) {
 	return authn.CreatedWebSession{}, nil
 }
-func (f fakeAccessService) AuthenticateWeb(_ context.Context, secret string) (authn.WebSession, error) {
+func (f fakeAccessService) AuthenticateWeb(ctx context.Context, secret string) (authn.WebSession, error) {
+	if f.authenticateWeb != nil {
+		return f.authenticateWeb(ctx, secret)
+	}
 	if f.webSession != nil && secret == "pact_web_test_secret" {
 		return *f.webSession, nil
 	}
 	return authn.WebSession{}, authn.ErrUnauthorized
 }
 func (f fakeAccessService) AuthenticateDevice(ctx context.Context, credential string) (authn.DevicePrincipal, error) {
+	if f.authenticateDevice != nil {
+		return f.authenticateDevice(ctx, credential)
+	}
 	principal, err := f.Authenticate(ctx, credential)
 	return authn.DevicePrincipal{CredentialID: "test-device", Principal: principal}, err
 }
@@ -249,6 +259,7 @@ type fakeWorkspaceService struct {
 	create func(context.Context, string, workspaces.CreateInput) (workspaces.CreateResult, error)
 	get    func(context.Context, string) (workspaces.Workspace, error)
 	list   func(context.Context) ([]workspaces.Workspace, error)
+	update func(context.Context, string, workspaces.UpdateInput) (workspaces.Workspace, error)
 	attach func(context.Context, string, string) (workspaces.Workspace, error)
 }
 
@@ -296,6 +307,10 @@ func (f fakeWorkspaceService) List(ctx context.Context) ([]workspaces.Workspace,
 	return f.list(ctx)
 }
 
+func (f fakeWorkspaceService) Update(ctx context.Context, reference string, input workspaces.UpdateInput) (workspaces.Workspace, error) {
+	return f.update(ctx, reference, input)
+}
+
 func (f fakeWorkspaceService) AttachProject(ctx context.Context, workspaceID, projectID string) (workspaces.Workspace, error) {
 	return f.attach(ctx, workspaceID, projectID)
 }
@@ -325,7 +340,8 @@ func (f fakeBackofficeReader) Get(
 }
 
 type fakeEventReader struct {
-	list func(context.Context, string, string, int64, int) ([]eventlog.Event, error)
+	list       func(context.Context, string, string, int64, int) ([]eventlog.Event, error)
+	listRecent func(context.Context, string, string, *int64, int, string) ([]eventlog.Event, error)
 }
 
 type fakeAgentSessionService struct {
@@ -407,6 +423,10 @@ func (fakeAgentSessionService) Close(context.Context, string, bool, string) erro
 
 func (f fakeEventReader) List(ctx context.Context, organizationID, projectID string, after int64, limit int) ([]eventlog.Event, error) {
 	return f.list(ctx, organizationID, projectID, after, limit)
+}
+
+func (f fakeEventReader) ListRecent(ctx context.Context, organizationID, projectID string, before *int64, limit int, query string) ([]eventlog.Event, error) {
+	return f.listRecent(ctx, organizationID, projectID, before, limit, query)
 }
 
 func TestLiveDoesNotRequireAuthentication(t *testing.T) {
@@ -663,6 +683,28 @@ func TestCreateWorkspaceUsesIdempotencyAndReturnsLocation(t *testing.T) {
 	}
 }
 
+func TestUpdateWorkspaceChangesIdentityAndColor(t *testing.T) {
+	const workspaceID = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+	handler := New(Config{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build: buildinfo.Info{Version: "test"}, Readiness: func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		WorkspaceService: fakeWorkspaceService{update: func(_ context.Context, reference string, input workspaces.UpdateInput) (workspaces.Workspace, error) {
+			if reference != workspaceID || input.Name != "Footfall Platform" || input.Description != "Traffic intelligence" || input.Color != "#3877dc" {
+				t.Fatalf("reference=%q input=%#v", reference, input)
+			}
+			return workspaces.Workspace{ID: workspaceID, Name: input.Name, Description: input.Description, Color: input.Color}, nil
+		}},
+		AccessService: fakeAccessService{}, BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }}, EventReader: fakeEventReader{},
+	})
+	request := authenticatedRequest(http.MethodPatch, "/v1/workspaces/"+workspaceID, `{"name":"Footfall Platform","description":"Traffic intelligence","color":"#3877dc"}`)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"color":"#3877dc"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestAttachWorktreeUsesNewVocabulary(t *testing.T) {
 	const (
 		intentID   = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
@@ -881,18 +923,19 @@ func TestAdminShellIsPublicButContainsNoCredentials(t *testing.T) {
 	}
 }
 
-func TestAdminUsesCanonicalRouteAndNoSPAFallback(t *testing.T) {
+func TestPublicSiteAndAdminUseSeparateCanonicalRoutes(t *testing.T) {
 	handler := testHandler(t, fakeProjectService{}, fakeEventReader{})
 
 	rootRequest := httptest.NewRequest(http.MethodGet, "/", nil)
 	rootResponse := httptest.NewRecorder()
 	handler.ServeHTTP(rootResponse, rootRequest)
-	if rootResponse.Code != http.StatusPermanentRedirect ||
-		rootResponse.Header().Get("Location") != "/admin/" {
+	if rootResponse.Code != http.StatusOK ||
+		!strings.Contains(rootResponse.Body.String(), `id="site-root"`) {
 		t.Fatalf(
-			"root redirect status=%d location=%q",
+			"public site status=%d location=%q body=%s",
 			rootResponse.Code,
 			rootResponse.Header().Get("Location"),
+			rootResponse.Body.String(),
 		)
 	}
 
@@ -908,7 +951,16 @@ func TestAdminUsesCanonicalRouteAndNoSPAFallback(t *testing.T) {
 		)
 	}
 
-	missingRequest := httptest.NewRequest(http.MethodGet, "/admin/not-an-asset", nil)
+	routeRequest := httptest.NewRequest(http.MethodGet, "/admin/workspaces/018f784a/overview", nil)
+	routeRequest.Header.Set("Accept", "text/html")
+	routeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(routeResponse, routeRequest)
+	if routeResponse.Code != http.StatusOK || !strings.Contains(routeResponse.Body.String(), `id="root"`) {
+		t.Fatalf("SPA route status = %d, body = %s", routeResponse.Code, routeResponse.Body.String())
+	}
+
+	missingRequest := httptest.NewRequest(http.MethodGet, "/admin/assets/not-an-asset.js", nil)
+	missingRequest.Header.Set("Accept", "text/html")
 	missingResponse := httptest.NewRecorder()
 	handler.ServeHTTP(missingResponse, missingRequest)
 	if missingResponse.Code != http.StatusNotFound {
@@ -1458,6 +1510,46 @@ func TestListEventsPassesCursorAndLimit(t *testing.T) {
 	}
 }
 
+func TestListEventsSupportsReverseHistoryAndSearch(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	service := fakeProjectService{
+		get: func(_ context.Context, id string) (projects.Project, error) {
+			return projects.Project{ID: id}, nil
+		},
+	}
+	reader := fakeEventReader{
+		listRecent: func(_ context.Context, organizationID, id string, before *int64, limit int, query string) ([]eventlog.Event, error) {
+			if organizationID != "00000000-0000-4000-8000-000000000001" || id != projectID || before == nil || *before != 80 || limit != 21 || query != "deploy" {
+				t.Fatalf("ListRecent(org=%q, project=%q, before=%v, limit=%d, query=%q)", organizationID, id, before, limit, query)
+			}
+			return []eventlog.Event{{ProjectSequence: 79, Type: "pact.deploy.completed.v1"}}, nil
+		},
+	}
+	handler := testHandler(t, service, reader)
+	request := authenticatedRequest(http.MethodGet, "/v1/projects/"+projectID+"/events?order=desc&before=80&limit=20&q=deploy", "")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Events []struct {
+				Sequence string `json:"sequence"`
+			} `json:"events"`
+			NextCursor *string `json:"next_cursor"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.Events) != 1 || body.Data.Events[0].Sequence != "79" || body.Data.NextCursor == nil || *body.Data.NextCursor != "79" {
+		t.Fatalf("page = %#v", body.Data)
+	}
+}
+
 func TestStreamReplaysFromLastEventIDAndStopsOnCancellation(t *testing.T) {
 	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1523,6 +1615,224 @@ func TestStreamReplaysFromLastEventIDAndStopsOnCancellation(t *testing.T) {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("stream body does not contain %q: %s", expected, body)
 		}
+	}
+}
+
+func TestStreamStopsWhenCredentialIsRevoked(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	principal := access.Principal{
+		ID:               "018f784a-68c1-7b0f-8f2a-cfc255f99e20",
+		OrganizationID:   "00000000-0000-4000-8000-000000000001",
+		DisplayName:      "Stream viewer",
+		PrincipalType:    "human",
+		OrganizationRole: "member",
+	}
+
+	for _, kind := range []string{"web", "device"} {
+		t.Run(kind, func(t *testing.T) {
+			var revoked atomic.Bool
+			revocationChecked := make(chan struct{}, 1)
+			authorizationTicks := make(chan time.Time, 1)
+			session := authn.WebSession{
+				ID:        "018f784a-68c1-7b0f-8f2a-cfc255f99e21",
+				Principal: principal,
+				ExpiresAt: time.Now().Add(time.Hour),
+			}
+			device := authn.DevicePrincipal{
+				CredentialID: "018f784a-68c1-7b0f-8f2a-cfc255f99e22",
+				Principal:    principal,
+			}
+			authentication := fakeAccessService{
+				authenticateWeb: func(_ context.Context, credential string) (authn.WebSession, error) {
+					if credential != "pact_web_test_secret" || revoked.Load() {
+						select {
+						case revocationChecked <- struct{}{}:
+						default:
+						}
+						return authn.WebSession{}, authn.ErrUnauthorized
+					}
+					return session, nil
+				},
+				authenticateDevice: func(_ context.Context, credential string) (authn.DevicePrincipal, error) {
+					if credential != testToken || revoked.Load() {
+						select {
+						case revocationChecked <- struct{}{}:
+						default:
+						}
+						return authn.DevicePrincipal{}, authn.ErrUnauthorized
+					}
+					return device, nil
+				},
+			}
+			streamStarted := make(chan struct{}, 1)
+			handler := New(Config{
+				Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+				OrganizationID: principal.OrganizationID,
+				ProjectService: fakeProjectService{get: func(_ context.Context, id string) (projects.Project, error) {
+					return projects.Project{ID: id}, nil
+				}},
+				AuthenticationService: authentication,
+				AccessService:         authentication,
+				EventReader: fakeEventReader{list: func(context.Context, string, string, int64, int) ([]eventlog.Event, error) {
+					select {
+					case streamStarted <- struct{}{}:
+					default:
+					}
+					return nil, nil
+				}},
+				StreamPollInterval:       time.Hour,
+				StreamHeartbeatEvery:     time.Hour,
+				streamAuthorizationTicks: authorizationTicks,
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			request := authenticatedRequest(http.MethodGet, "/v1/projects/"+projectID+"/events/stream", "").WithContext(ctx)
+			if kind == "web" {
+				request.Header.Del("Authorization")
+				request.AddCookie(&http.Cookie{Name: authn.WebSessionCookie, Value: "pact_web_test_secret"})
+			}
+			response := httptest.NewRecorder()
+			done := make(chan struct{})
+			go func() {
+				handler.ServeHTTP(response, request)
+				close(done)
+			}()
+
+			select {
+			case <-streamStarted:
+			case <-time.After(2 * time.Second):
+				cancel()
+				<-done
+				t.Fatal("stream did not start")
+			}
+			revoked.Store(true)
+			authorizationTicks <- time.Now()
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				cancel()
+				<-done
+				t.Fatal("stream did not stop after credential revocation")
+			}
+			cancel()
+			select {
+			case <-revocationChecked:
+			default:
+				t.Fatal("credential was not revalidated after the stream opened")
+			}
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+			if body := response.Body.String(); body != ": pact event stream\n\n" {
+				t.Fatalf("stream wrote data after revocation: %q", body)
+			}
+		})
+	}
+}
+
+func TestStreamStopsWhenViewerRoleIsRevoked(t *testing.T) {
+	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	principal := access.Principal{
+		ID:               "018f784a-68c1-7b0f-8f2a-cfc255f99e20",
+		OrganizationID:   "00000000-0000-4000-8000-000000000001",
+		DisplayName:      "Stream viewer",
+		PrincipalType:    "human",
+		OrganizationRole: "member",
+	}
+	device := authn.DevicePrincipal{
+		CredentialID: "018f784a-68c1-7b0f-8f2a-cfc255f99e22",
+		Principal:    principal,
+	}
+	var revoked atomic.Bool
+	revocationChecked := make(chan struct{}, 1)
+	authorizationTicks := make(chan time.Time, 1)
+	authentication := fakeAccessService{
+		authenticateDevice: func(_ context.Context, credential string) (authn.DevicePrincipal, error) {
+			if credential != testToken {
+				return authn.DevicePrincipal{}, authn.ErrUnauthorized
+			}
+			freshDevice := device
+			if revoked.Load() {
+				freshDevice.Principal.OrganizationRole = "member-after-revalidation"
+			}
+			return freshDevice, nil
+		},
+		require: func(_ context.Context, checkedPrincipal access.Principal, id, role string) error {
+			if id != projectID || role != "viewer" {
+				return fmt.Errorf("unexpected role check: project %q, role %q", id, role)
+			}
+			if revoked.Load() {
+				if checkedPrincipal.OrganizationRole != "member-after-revalidation" {
+					return fmt.Errorf("role check used stale principal with organization role %q", checkedPrincipal.OrganizationRole)
+				}
+				select {
+				case revocationChecked <- struct{}{}:
+				default:
+				}
+				return access.ErrForbidden
+			}
+			return nil
+		},
+	}
+	streamStarted := make(chan struct{}, 1)
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: principal.OrganizationID,
+		ProjectService: fakeProjectService{get: func(_ context.Context, id string) (projects.Project, error) {
+			return projects.Project{ID: id}, nil
+		}},
+		AuthenticationService: authentication,
+		AccessService:         authentication,
+		EventReader: fakeEventReader{list: func(context.Context, string, string, int64, int) ([]eventlog.Event, error) {
+			select {
+			case streamStarted <- struct{}{}:
+			default:
+			}
+			return nil, nil
+		}},
+		StreamPollInterval:       time.Hour,
+		StreamHeartbeatEvery:     time.Hour,
+		streamAuthorizationTicks: authorizationTicks,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	request := authenticatedRequest(http.MethodGet, "/v1/projects/"+projectID+"/events/stream", "").WithContext(ctx)
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(response, request)
+		close(done)
+	}()
+
+	select {
+	case <-streamStarted:
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("stream did not start")
+	}
+	revoked.Store(true)
+	authorizationTicks <- time.Now()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("stream did not stop after role revocation")
+	}
+	cancel()
+	select {
+	case <-revocationChecked:
+	default:
+		t.Fatal("viewer role was not revalidated after the stream opened")
+	}
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if body := response.Body.String(); body != ": pact event stream\n\n" {
+		t.Fatalf("stream wrote data after role revocation: %q", body)
 	}
 }
 
@@ -1615,7 +1925,7 @@ func testHandlerWithAccess(t *testing.T, projectService ProjectService, accessSe
 func authenticatedRequest(method, target, body string) *http.Request {
 	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
 	request.Header.Set("Authorization", "Bearer "+testToken)
-	if method == http.MethodPost {
+	if body != "" && method != http.MethodGet && method != http.MethodHead {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	return request
