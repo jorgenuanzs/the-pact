@@ -257,7 +257,7 @@ jobs:
             & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $certificate /p $env:WINDOWS_CERTIFICATE_PASSWORD $binary
             Push-Location "desktop/build/windows/nsis"
             try {
-              & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DARG_WAILS_AMD64_BINARY=..\..\..\bin\PACT.exe" "/DWAILS_INSTALL_SCOPE=user" "/DREQUEST_EXECUTION_LEVEL=user" project.nsi
+              & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DARG_WAILS_AMD64_BINARY=..\..\bin\PACT.exe" "/DWAILS_INSTALL_SCOPE=user" "/DREQUEST_EXECUTION_LEVEL=user" project.nsi
             } finally {
               Pop-Location
             }
