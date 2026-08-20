@@ -58,6 +58,7 @@ function ReleaseDownloads() {
 
   const macDesktop = asset(release, ["PACT-macOS-arm64.zip", "PACT-macOS-arm64.dmg"]);
   const windowsDesktop = asset(release, ["PACT-Windows-amd64-installer.exe", "PACT-amd64-installer.exe"]);
+  const selfHostedServer = asset(release, ["pact-server-self-host.zip"]);
   const cli = platform === "windows"
     ? asset(release, ["pact_windows_amd64.zip"])
     : platform === "linux"
@@ -104,7 +105,11 @@ function ReleaseDownloads() {
           <span className="site-platform-kicker">Infrastructure</span>
           <h3>PACT Server</h3>
           <p>Host the shared source of truth on your computer, a VM, or your own cloud account.</p>
-          <a href="#self-host">Self-hosting options <span>↓</span></a>
+          {selfHostedServer ? (
+            <a href={selfHostedServer.browser_download_url}>Download {release?.tag_name} <Arrow /></a>
+          ) : (
+            <a href="#self-host">Self-hosting options <span>↓</span></a>
+          )}
         </article>
       </div>
     </section>
