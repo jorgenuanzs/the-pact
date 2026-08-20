@@ -26,16 +26,18 @@ VM address are managed outside this repository.
 ## Deploy
 
 The normal production path is asynchronous. From a clean, synchronized `main`
-branch, dispatch the protected GitHub Actions workflow and return immediately:
+branch, push an auditable deployment tag and return immediately:
 
 ```sh
 ./scripts/deploy-production.sh
 # or: make deploy-production
 ```
 
-The workflow accepts only `main`, serializes production deployments, builds an
-immutable release on GitHub, activates it through the existing rollback-safe
-server script, and verifies `https://pact.nuanzs.com/readyz`. A dedicated
+The script uses the existing Git remote credential; it does not require an
+active GitHub CLI session. The workflow accepts only `main` or deployment tags
+created from it, serializes production deployments, builds an immutable release
+on GitHub, activates it through the existing rollback-safe server script, and
+verifies `https://pact.nuanzs.com/readyz`. A dedicated
 self-hosted runner on the PACT VM receives this job over outbound HTTPS and
 deploys locally. GitHub stores no SSH credential and the VM does not expose SSH
 to GitHub-hosted runner ranges. The runner carries the additional

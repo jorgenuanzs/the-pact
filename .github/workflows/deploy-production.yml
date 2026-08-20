@@ -2,6 +2,9 @@ name: Deploy PACT Production
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "deploy-production-*"
 
 permissions:
   contents: read
@@ -20,10 +23,13 @@ jobs:
       - name: Require main
         shell: bash
         run: |
-          [[ "${GITHUB_REF}" == "refs/heads/main" ]] || {
-            echo "Production deployments must run from main, not ${GITHUB_REF}." >&2
-            exit 1
-          }
+          case "${GITHUB_REF}" in
+            refs/heads/main|refs/tags/deploy-production-*) ;;
+            *)
+              echo "Unsupported production deployment ref: ${GITHUB_REF}." >&2
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@v7
         with:
           ref: main
