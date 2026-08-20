@@ -59,6 +59,11 @@ function ReleaseDownloads() {
   const macDesktop = asset(release, ["PACT-macOS-arm64.zip", "PACT-macOS-arm64.dmg"]);
   const windowsDesktop = asset(release, ["PACT-Windows-amd64-installer.exe", "PACT-amd64-installer.exe"]);
   const selfHostedServer = asset(release, ["pact-server-self-host.zip"]);
+  const desktopChannel = asset(release, ["desktop-channel-signed.txt"])
+    ? "signed"
+    : asset(release, ["desktop-channel-preview.txt"])
+      ? "preview"
+      : undefined;
   const cli = platform === "windows"
     ? asset(release, ["pact_windows_amd64.zip"])
     : platform === "linux"
@@ -66,6 +71,15 @@ function ReleaseDownloads() {
       : asset(release, ["pact_darwin_arm64.tar.gz"]);
 
   const preferredDesktop = platform === "windows" ? windowsDesktop : macDesktop;
+  const desktopTrustMessage = loading
+    ? "Checking the latest release…"
+    : !preferredDesktop
+      ? "Desktop preview installers are being prepared. CLI downloads are available today."
+      : desktopChannel === "signed"
+        ? "Signed for macOS and Windows. Updates are additionally verified with checksums and a pinned Ed25519 key."
+        : desktopChannel === "preview"
+          ? "Preview: this build has no Apple or Windows publisher signature yet. In-app updates are still verified with checksums and a pinned Ed25519 key."
+          : "Published through the PACT release pipeline. Verify it with the release checksums.";
 
   return (
     <section className="site-section site-downloads" id="download">
@@ -91,7 +105,7 @@ function ReleaseDownloads() {
               Desktop preview builds <Arrow />
             </a>
           )}
-          <small>{loading ? "Checking the latest release…" : preferredDesktop ? "Published through the PACT release pipeline. Verify it with the release checksums." : "Desktop preview installers are being prepared. CLI downloads are available today."}</small>
+          <small className={desktopChannel === "preview" ? "site-download-warning" : undefined}>{desktopTrustMessage}</small>
         </article>
 
         <article className="site-download-card">

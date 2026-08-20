@@ -87,8 +87,10 @@ PACT uses two independent signature layers:
    release publishes a detached `.sig` for each native update archive and the
    application requires both that signature and `checksums.txt`.
 
-Stable Desktop releases fail closed unless every platform credential exists.
-GitHub Actions expects these repository secrets:
+Desktop releases may temporarily ship without native publisher signing, but
+their manifest is marked `preview` and the landing page warns users before
+download. Incomplete signing configurations still fail closed. GitHub Actions
+uses these repository secrets when native signing is enabled:
 
 - `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`,
   `MACOS_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`;
@@ -96,6 +98,6 @@ GitHub Actions expects these repository secrets:
 - `PACT_UPDATER_PRIVATE_KEY`, containing the base64-encoded PKCS#8 Ed25519
   private key whose public half is pinned in `update.go`.
 
-The private keys never enter the repository. Preview tags may omit the
-operating-system certificates, but update archives always require the Ed25519
-release signature. The stable updater ignores prereleases.
+The private keys never enter the repository. Operating-system certificates may
+be omitted temporarily, but update archives always require the Ed25519 release
+signature. The stable updater ignores prereleases.
