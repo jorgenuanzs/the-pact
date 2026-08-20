@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "@/components/ui";
 import type { DesktopBridge } from "@/platform/desktop";
 import type { LocalComputerStatus } from "@/platform/desktop";
+import { WorkspaceContextProvider } from "@/features/workspaces/WorkspaceContext";
 
 import { LocalComputerPage } from "./LocalComputerPage";
 
@@ -17,6 +18,8 @@ function installBridge(): DesktopBridge {
     OpenExternalURL: vi.fn(),
     Disconnect: vi.fn(),
     APIRequest: vi.fn(),
+    StartWorkspaceDirectoryStream: vi.fn(),
+    StopWorkspaceDirectoryStream: vi.fn(),
     StartProjectEventStream: vi.fn(),
     StopProjectEventStream: vi.fn(),
     LocalComputerStatus: vi.fn().mockResolvedValue({
@@ -63,6 +66,29 @@ function installBridge(): DesktopBridge {
   return bridge;
 }
 
+function renderPage(view: "overview" | "agents" = "overview") {
+  return render(
+    <MemoryRouter>
+      <ToastProvider>
+        <WorkspaceContextProvider value={{
+          workspaces: [{
+            id: "workspace-1",
+            name: "Footfall",
+            slug: "footfall",
+            projects: [{ id: "project-1", name: "footfall-web", workspace_id: "workspace-1" }],
+          }],
+          projects: [{ id: "project-1", name: "footfall-web", workspace_id: "workspace-1" }],
+          workspaceProjects: [],
+          stream: { status: "idle", events: [] },
+          refreshDirectory: vi.fn().mockResolvedValue(undefined),
+        }}>
+          <LocalComputerPage view={view} />
+        </WorkspaceContextProvider>
+      </ToastProvider>
+    </MemoryRouter>,
+  );
+}
+
 afterEach(() => {
   cleanup();
   delete window.go;
@@ -81,11 +107,7 @@ describe("LocalComputerPage", () => {
       folders: null,
     } as unknown as LocalComputerStatus);
 
-    render(
-      <MemoryRouter>
-        <ToastProvider><LocalComputerPage /></ToastProvider>
-      </MemoryRouter>,
-    );
+    renderPage();
 
     expect(await screen.findByText("Mac de Jorge")).toBeInTheDocument();
     expect(screen.getByText("Checkouts recordados por este computador")).toBeInTheDocument();
@@ -94,23 +116,19 @@ describe("LocalComputerPage", () => {
   it("conecta Codex a una carpeta elegida por el usuario", async () => {
     const user = userEvent.setup();
     const bridge = installBridge();
-    render(
-      <MemoryRouter>
-        <ToastProvider><LocalComputerPage view="agents" /></ToastProvider>
-      </MemoryRouter>,
-    );
+    renderPage("agents");
 
     expect(await screen.findByText("Codex")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Conectar" })[0]);
     await user.click(screen.getByRole("button", { name: /Elegir carpeta/ }));
 
     expect((await screen.findAllByText("Footfall")).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Instalar integración" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Conectar cliente" }));
 
     expect(bridge.ConnectLocalAgent).toHaveBeenCalledWith({
       client: "codex",
       project_root: "/projects/footfall",
     });
-    expect(await screen.findByText("Agente conectado")).toBeInTheDocument();
+    expect(await screen.findByText("Cliente conectado")).toBeInTheDocument();
   });
 });

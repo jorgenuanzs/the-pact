@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -300,6 +301,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("POST /v1/projects", api.requireAuth(http.HandlerFunc(api.handleCreateProject)))
 	mux.Handle("GET /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleListWorkspaces)))
 	mux.Handle("POST /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleCreateWorkspace)))
+	mux.Handle("GET /v1/workspaces/events/stream", api.requireAuth(http.HandlerFunc(api.handleWorkspaceDirectoryStream)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleGetWorkspace)))
 	mux.Handle("PATCH /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleUpdateWorkspace)))
 	mux.Handle("PUT /v1/workspaces/{workspaceID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspaceProject)))
@@ -361,6 +363,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/admin/", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/workspaces/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch))
 	mux.Handle("/v1/workspaces/{workspaceID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut))
 	mux.Handle("/v1/admin/users", api.methodNotAllowed(http.MethodGet))
@@ -1828,45 +1831,186 @@ func (a *API) revalidateStreamAuthorization(
 	authentication requestAuthentication,
 	projectID string,
 ) error {
+	principal, err := a.revalidateStreamPrincipal(ctx, authentication)
+	if err != nil {
+		return err
+	}
+	return a.access.RequireProjectRole(ctx, principal, projectID, "viewer")
+}
+
+func (a *API) revalidateStreamPrincipal(
+	ctx context.Context,
+	authentication requestAuthentication,
+) (access.Principal, error) {
 	if a.authentication == nil || a.access == nil || strings.TrimSpace(authentication.Credential) == "" {
-		return authn.ErrUnauthorized
+		return access.Principal{}, authn.ErrUnauthorized
 	}
 
 	var principal access.Principal
 	switch authentication.Kind {
 	case "web":
 		if authentication.Web == nil {
-			return authn.ErrUnauthorized
+			return access.Principal{}, authn.ErrUnauthorized
 		}
 		session, err := a.authentication.AuthenticateWeb(ctx, authentication.Credential)
 		if err != nil {
-			return err
+			return access.Principal{}, err
 		}
 		if session.ID != authentication.Web.ID ||
 			session.Principal.ID != authentication.Web.Principal.ID ||
 			session.Principal.OrganizationID != authentication.Web.Principal.OrganizationID {
-			return authn.ErrUnauthorized
+			return access.Principal{}, authn.ErrUnauthorized
 		}
 		principal = session.Principal
 	case "device":
 		if authentication.Device == nil {
-			return authn.ErrUnauthorized
+			return access.Principal{}, authn.ErrUnauthorized
 		}
 		device, err := a.authentication.AuthenticateDevice(ctx, authentication.Credential)
 		if err != nil {
-			return err
+			return access.Principal{}, err
 		}
 		if device.CredentialID != authentication.Device.CredentialID ||
 			device.Principal.ID != authentication.Device.Principal.ID ||
 			device.Principal.OrganizationID != authentication.Device.Principal.OrganizationID {
-			return authn.ErrUnauthorized
+			return access.Principal{}, authn.ErrUnauthorized
 		}
 		principal = device.Principal
 	default:
-		return authn.ErrUnauthorized
+		return access.Principal{}, authn.ErrUnauthorized
 	}
 
-	return a.access.RequireProjectRole(ctx, principal, projectID, "viewer")
+	return principal, nil
+}
+
+func (a *API) workspaceDirectoryFingerprint(ctx context.Context, principal access.Principal) ([sha256.Size]byte, error) {
+	if a.workspaces == nil || a.access == nil {
+		return [sha256.Size]byte{}, errors.New("workspace directory is not configured")
+	}
+	workspaceList, err := a.workspaces.List(ctx)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	visible, err := a.access.VisibleProjectIDs(ctx, principal)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	body, err := json.Marshal(filterVisibleWorkspaces(workspaceList, visible))
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("encode workspace directory fingerprint: %w", err)
+	}
+	return sha256.Sum256(body), nil
+}
+
+func (a *API) handleWorkspaceDirectoryStream(w http.ResponseWriter, r *http.Request) {
+	authentication, ok := authenticationFromContext(r.Context())
+	if !ok {
+		a.writeDomainError(w, r, authn.ErrUnauthorized)
+		return
+	}
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		a.writeDomainError(w, r, authn.ErrUnauthorized)
+		return
+	}
+	fingerprint, err := a.workspaceDirectoryFingerprint(r.Context(), principal)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeProblem(w, r, http.StatusInternalServerError, "stream_unsupported", "Streaming unavailable", "The HTTP connection does not support streaming.")
+		return
+	}
+	controller := http.NewResponseController(w)
+	writeDeadlineSupported := true
+	refreshWriteDeadline := func() bool {
+		if !writeDeadlineSupported {
+			return true
+		}
+		err := controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if errors.Is(err, http.ErrNotSupported) {
+			writeDeadlineSupported = false
+			return true
+		}
+		if err != nil {
+			a.logger.WarnContext(r.Context(), "could not set workspace stream write deadline", "error", err)
+			return false
+		}
+		return true
+	}
+	if !refreshWriteDeadline() {
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, ": pact workspace directory stream\n\n")
+	flusher.Flush()
+
+	poll := time.NewTicker(a.streamPollInterval)
+	defer poll.Stop()
+	heartbeat := time.NewTicker(a.streamHeartbeatEvery)
+	defer heartbeat.Stop()
+	authorizationTicks := a.streamAuthorizationTicks
+	var authorization *time.Ticker
+	if authorizationTicks == nil {
+		authorization = time.NewTicker(a.streamAuthorizationEvery)
+		authorizationTicks = authorization.C
+		defer authorization.Stop()
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-a.streamShutdown:
+			return
+		case <-authorizationTicks:
+			validated, authErr := a.revalidateStreamPrincipal(r.Context(), authentication)
+			if authErr != nil {
+				a.logger.InfoContext(r.Context(), "workspace directory stream authorization is no longer valid", "error", authErr)
+				return
+			}
+			principal = validated
+		case <-heartbeat.C:
+			if !refreshWriteDeadline() {
+				return
+			}
+			if _, writeErr := io.WriteString(w, ": keepalive\n\n"); writeErr != nil {
+				return
+			}
+			flusher.Flush()
+		case <-poll.C:
+			next, listErr := a.workspaceDirectoryFingerprint(r.Context(), principal)
+			if listErr != nil {
+				a.logger.ErrorContext(r.Context(), "workspace directory stream query failed", "error", listErr)
+				return
+			}
+			if next == fingerprint {
+				continue
+			}
+			if !refreshWriteDeadline() {
+				return
+			}
+			body, marshalErr := json.Marshal(map[string]any{
+				"type":        "pact.workspace.directory.updated.v1",
+				"occurred_at": time.Now().UTC(),
+			})
+			if marshalErr != nil {
+				return
+			}
+			if _, writeErr := fmt.Fprintf(w, "event: pact.workspace.directory.updated.v1\ndata: %s\n\n", body); writeErr != nil {
+				return
+			}
+			fingerprint = next
+			flusher.Flush()
+		}
+	}
 }
 
 func (a *API) handleStreamEvents(w http.ResponseWriter, r *http.Request) {

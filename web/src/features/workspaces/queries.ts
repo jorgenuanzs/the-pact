@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 
 import { idempotencyKey, requestData } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
@@ -23,6 +24,21 @@ export function useControlDirectory() {
     queryFn: () => requestData<Principal>("/v1/me"),
   });
 
+  const refetch = useCallback(async () => {
+    const [workspaceResult, projectResult, githubResult, principalResult] = await Promise.all([
+      workspaces.refetch(),
+      projects.refetch(),
+      github.refetch(),
+      principal.refetch(),
+    ]);
+    return {
+      workspaces: workspaceResult.data || [],
+      projects: projectResult.data || [],
+      github: githubResult.data,
+      principal: principalResult.data,
+    };
+  }, [github.refetch, principal.refetch, projects.refetch, workspaces.refetch]);
+
   return {
     workspaces: workspaces.data || [],
     projects: projects.data || [],
@@ -30,12 +46,7 @@ export function useControlDirectory() {
     principal: principal.data,
     isPending: workspaces.isPending || projects.isPending || principal.isPending,
     error: workspaces.error || projects.error || principal.error,
-    refetch: async () => Promise.all([
-      workspaces.refetch(),
-      projects.refetch(),
-      github.refetch(),
-      principal.refetch(),
-    ]),
+    refetch,
   };
 }
 

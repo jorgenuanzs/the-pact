@@ -5,7 +5,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 
 const entries: ReadonlyArray<{ path: string; label: string; icon: IconName; end?: boolean }> = [
   { path: "/local", label: "Resumen local", icon: "home", end: true },
-  { path: "/local/agents", label: "Agentes y clientes", icon: "people" },
+  { path: "/local/agents", label: "Clientes de IA", icon: "people" },
   { path: "/local/folders", label: "Carpetas", icon: "folder" },
   { path: "/local/service", label: "Runtime local", icon: "server" },
 ];

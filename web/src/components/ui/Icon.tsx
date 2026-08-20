@@ -5,6 +5,7 @@ import { cx } from "./utils";
 export type IconName =
   | "access"
   | "activity"
+  | "arrowRight"
   | "close"
   | "computer"
   | "context"
@@ -31,6 +32,7 @@ export interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name"> {
 const paths: Record<IconName, ReactNode> = {
   access: <><path d="M12 3.25 18.5 6v4.75c0 4.15-2.65 7.65-6.5 9-3.85-1.35-6.5-4.85-6.5-9V6L12 3.25Z" /><path d="m9.25 11.75 1.75 1.75 3.75-4" /></>,
   activity: <><path d="M5 6.5h14M5 12h14M5 17.5h9" /><circle cx="3" cy="6.5" r=".6" fill="currentColor" stroke="none" /><circle cx="3" cy="12" r=".6" fill="currentColor" stroke="none" /><circle cx="3" cy="17.5" r=".6" fill="currentColor" stroke="none" /></>,
+  arrowRight: <><path d="M4.5 12h15M14 6.5l5.5 5.5-5.5 5.5" /></>,
   close: <><path d="m6.5 6.5 11 11M17.5 6.5l-11 11" /></>,
   computer: <><rect x="3.5" y="4.5" width="17" height="12" rx="1.5" /><path d="M8 20h8M12 16.5V20" /></>,
   context: <><path d="M5 4.5h10.25A3.75 3.75 0 0 1 19 8.25V19.5H8.75A3.75 3.75 0 0 1 5 15.75V4.5Z" /><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.5" /></>,

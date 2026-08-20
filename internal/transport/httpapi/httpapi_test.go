@@ -1618,6 +1618,62 @@ func TestStreamReplaysFromLastEventIDAndStopsOnCancellation(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDirectoryStreamNotifiesChanges(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	workspaceID := "018f784a-68c1-7b0f-8f2a-cfc255f99e30"
+	call := 0
+	current := workspaces.Workspace{
+		ID: workspaceID, Name: "Footfall", Slug: "footfall", Status: "active", Version: 1,
+		Projects: []workspaces.Project{},
+	}
+	service := fakeWorkspaceService{
+		list: func(context.Context) ([]workspaces.Workspace, error) {
+			call++
+			switch call {
+			case 1:
+				return []workspaces.Workspace{current}, nil
+			case 2:
+				current.Version = 2
+				current.Name = "Footfall actualizado"
+				return []workspaces.Workspace{current}, nil
+			default:
+				cancel()
+				return []workspaces.Workspace{current}, nil
+			}
+		},
+	}
+	handler := New(Config{
+		Logger:               slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID:       "00000000-0000-4000-8000-000000000001",
+		Build:                buildinfo.Info{Version: "test"},
+		Readiness:            func(context.Context) error { return nil },
+		ProjectService:       fakeProjectService{},
+		WorkspaceService:     service,
+		AccessService:        fakeAccessService{},
+		BackofficeReader:     fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:          fakeEventReader{},
+		StreamPollInterval:   time.Millisecond,
+		StreamHeartbeatEvery: time.Hour,
+	})
+	request := authenticatedRequest(http.MethodGet, "/v1/workspaces/events/stream", "").WithContext(ctx)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{
+		"event: pact.workspace.directory.updated.v1\n",
+		`"type":"pact.workspace.directory.updated.v1"`,
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("workspace stream body does not contain %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
 func TestStreamStopsWhenCredentialIsRevoked(t *testing.T) {
 	const projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
 	principal := access.Principal{
