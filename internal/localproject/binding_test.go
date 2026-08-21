@@ -1,10 +1,10 @@
 package localproject
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -212,9 +212,6 @@ func TestSeparateWorktreeCanBindAnotherServer(t *testing.T) {
 }
 
 func TestFailedAtomicRebindKeepsPreviousBinding(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory write permissions differ on Windows")
-	}
 	root := newBindingTestRepository(t, "https://github.com/example/atomic.git")
 	result, err := Init(InitOptions{StartPath: root, ServerURL: "https://one.pact.example.com"})
 	if err != nil {
@@ -227,19 +224,14 @@ func TestFailedAtomicRebindKeepsPreviousBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := readFile(t, result.LocalConfigPath)
-	localPath := filepath.Dir(result.LocalConfigPath)
-	if err := os.Chmod(localPath, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	_, bindErr := Bind(root, BindOptions{
+	_, bindErr := bind(root, BindOptions{
 		ServerURL: "https://two.pact.example.com", WorkspaceID: bindingWorkspaceIDTwo,
 		RepositoryID: bindingRepositoryIDTwo, ProjectID: bindingProjectIDTwo, Rebind: true,
+	}, func(string, localConfig) error {
+		return errors.New("simulated interrupted binding write")
 	})
-	if err := os.Chmod(localPath, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if bindErr == nil {
-		t.Fatal("Bind succeeded while the local directory was read-only")
+	if bindErr == nil || !strings.Contains(bindErr.Error(), "simulated interrupted binding write") {
+		t.Fatalf("Bind write error = %v", bindErr)
 	}
 	if after := readFile(t, result.LocalConfigPath); after != before {
 		t.Fatalf("failed atomic write changed binding:\nbefore=%s\nafter=%s", before, after)
