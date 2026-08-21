@@ -8,6 +8,8 @@ as the basis for the GitHub release notes.
 
 ## Unreleased
 
+## v0.16.7 — 2026-08-21
+
 ### Added
 
 - Added a five-step Desktop flow for connecting a Git checkout: folder,
