@@ -157,7 +157,9 @@ func (d *Desktop) PollDeviceLogin(serverURL, deviceCode string) (DeviceLoginResu
 	if err != nil {
 		return DeviceLoginResult{}, fmt.Errorf("verify authorized device: %w", err)
 	}
-	if _, err := userconfig.Save(normalized, exchange.DeviceCredential); err != nil {
+	if _, err := userconfig.SaveAuthorized(normalized, exchange.DeviceCredential, userconfig.PrincipalMetadata{
+		ID: principal.ID, Label: principal.DisplayName,
+	}); err != nil {
 		return DeviceLoginResult{}, err
 	}
 	result.Connected = true

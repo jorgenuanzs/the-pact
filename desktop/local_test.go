@@ -40,6 +40,7 @@ func TestLocalRuntimeIsExtractedAsAWorkingCLI(t *testing.T) {
 func TestLocalComputerStatusUsesEmptyJSONArrays(t *testing.T) {
 	t.Setenv("PACT_DESKTOP_CONFIG_DIR", t.TempDir())
 	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 
 	status := NewDesktop().LocalComputerStatus()
 	payload, err := json.Marshal(status)
@@ -63,6 +64,7 @@ func TestConnectLocalAgentWritesProjectScopedCodexConfiguration(t *testing.T) {
 	userConfig := t.TempDir()
 	t.Setenv("PACT_DESKTOP_CONFIG_DIR", desktopConfig)
 	t.Setenv("PACT_CONFIG_DIR", userConfig)
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 	const serverURL = "https://pact.example.com"
 	if _, err := userconfig.Save(serverURL, "pact_device_"+strings.Repeat("a", 64)); err != nil {
 		t.Fatalf("save device login: %v", err)

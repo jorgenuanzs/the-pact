@@ -1,8 +1,10 @@
 # PACT Desktop multi-servidor — Plan de implementación
 
-**Estado:** plan propuesto  
+**Estado:** en ejecución
 **ADR:** [ADR-0019](../adr/0019-desktop-multi-server-and-folder-bindings.md)  
 **Fecha:** 21 de agosto de 2026
+
+**Progreso:** Hito 1 implementado; Hito 2 pendiente.
 
 ## Resultado esperado
 
@@ -70,6 +72,8 @@ Antes de comenzar:
 
 ## Hito 1 — Registro de perfiles y almacén seguro
 
+**Estado:** implementado el 21 de agosto de 2026.
+
 ### Paquetes
 
 Crear una frontera compartida, por ejemplo:
@@ -122,10 +126,13 @@ El archivo local nuevo contiene metadatos, nunca secretos:
 
 1. Leer v2 sin modificarla.
 2. Crear ID estable y escribir la credencial en el almacén nativo.
-3. Leerla nuevamente y validar el principal contra `/v1/me`.
+3. Leerla nuevamente y comprobar que el valor coincide; los flujos nuevos ya
+   validan el principal contra `/v1/me` antes de guardar y una configuración
+   migrada lo revalida en su primera operación remota.
 4. Escribir el registro v3 mediante rename atómico.
-5. Eliminar el secreto del archivo anterior.
-6. Conservar únicamente un backup sin credenciales y un marcador de migración.
+5. Sustituir el archivo anterior sin conservar ninguna copia que contenga el
+   secreto.
+6. El registro v3 actúa como marcador durable de migración.
 
 Si cualquier paso falla, v2 permanece utilizable y la siguiente apertura
 reanuda el proceso.
@@ -609,4 +616,3 @@ El trabajo se considera completo cuando:
 12. Rebinding y retiro requieren decisiones explícitas y recuperables.
 13. macOS y Windows superan el recorrido de instalación, migración y uso.
 14. Las notas de release explican el nuevo modelo y sus límites.
-

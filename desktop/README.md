@@ -28,11 +28,13 @@ PACT Desktop supports remote and local PACT Servers:
   pinned Ed25519 signature, install atomically, and restart into the new
   version.
 
-The CLI, the bundled local runtime, and Desktop share the per-user PACT device
-configuration. No credential is written into a project checkout. Desktop keeps
-only absolute local paths and client bindings in its own device-local registry.
-Codex and Claude launch the bundled runtime on demand; it is not coupled to the
-GUI process.
+The CLI, the bundled local runtime, and Desktop share a per-user PACT Server
+profile registry. The registry contains metadata only; each profile's device
+credential lives in macOS Keychain, Windows Credential Manager, or the native
+user keyring. No credential is written into `config.json` or a project
+checkout. Desktop keeps only absolute local paths and client bindings in its
+own device-local registry. Codex and Claude launch the bundled runtime on
+demand; it is not coupled to the GUI process.
 
 Desktop keeps server administration separate from this computer's agent and
 checkout configuration. Remote mode connects this computer to a team server;

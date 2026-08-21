@@ -1,130 +1,142 @@
 package userconfig
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jorgenuanzs/the-pact/internal/credentialstore"
+	"github.com/jorgenuanzs/the-pact/internal/serverprofile"
 )
 
-const schemaVersion = 2
+const schemaVersion = serverprofile.SchemaVersion
 
+// Config is the compatibility view used by existing CLI, Desktop and runtime
+// code. It is never persisted directly: the registry stores profile metadata
+// and the device credential remains in CredentialStore.
 type Config struct {
 	SchemaVersion    int    `json:"schema_version"`
 	ServerURL        string `json:"server_url"`
-	DeviceCredential string `json:"device_credential"`
-	LegacyAPIToken   string `json:"api_token,omitempty"`
+	DeviceCredential string `json:"-"`
+}
+
+type PrincipalMetadata struct {
+	ID    string
+	Label string
 }
 
 func Load() (Config, error) {
-	path, err := configPath()
+	manager, _, err := profileManager()
 	if err != nil {
 		return Config{}, err
 	}
-	content, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	profile, err := manager.Active()
+	if errors.Is(err, serverprofile.ErrNoActiveProfile) {
 		return Config{}, errors.New("not logged in; run pact login --server <url>")
 	}
 	if err != nil {
-		return Config{}, fmt.Errorf("read Pact user configuration: %w", err)
-	}
-	var config Config
-	decoder := json.NewDecoder(strings.NewReader(string(content)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&config); err != nil {
-		return Config{}, fmt.Errorf("decode Pact user configuration: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return Config{}, errors.New("decode Pact user configuration: unexpected trailing data")
-	}
-	if config.SchemaVersion == 1 || config.LegacyAPIToken != "" {
-		return Config{}, errors.New("the stored token belongs to Pact's retired authentication model; run pact login --server <url> again")
-	}
-	if config.SchemaVersion != schemaVersion {
-		return Config{}, fmt.Errorf("unsupported Pact user configuration version %d", config.SchemaVersion)
-	}
-	normalized, err := NormalizeServerURL(config.ServerURL)
-	if err != nil {
 		return Config{}, err
 	}
-	if !strings.HasPrefix(config.DeviceCredential, "pact_device_") || len(config.DeviceCredential) < 40 {
-		return Config{}, errors.New("stored Pact device credential is invalid")
-	}
-	config.ServerURL = normalized
-	if err := os.Chmod(path, 0o600); err != nil {
-		return Config{}, fmt.Errorf("secure Pact user configuration: %w", err)
-	}
-	return config, nil
+	return Config{
+		SchemaVersion:    schemaVersion,
+		ServerURL:        profile.ServerURL,
+		DeviceCredential: profile.DeviceCredential,
+	}, nil
 }
 
 func Save(serverURL, deviceCredential string) (string, error) {
-	normalized, err := NormalizeServerURL(serverURL)
+	return SaveAuthorized(serverURL, deviceCredential, PrincipalMetadata{})
+}
+
+func SaveAuthorized(serverURL, deviceCredential string, principal PrincipalMetadata) (string, error) {
+	manager, path, err := profileManager()
 	if err != nil {
 		return "", err
 	}
-	deviceCredential = strings.TrimSpace(deviceCredential)
-	if !strings.HasPrefix(deviceCredential, "pact_device_") || len(deviceCredential) < 40 {
-		return "", errors.New("Pact device credential is invalid")
-	}
-	path, err := configPath()
-	if err != nil {
-		return "", err
-	}
-	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return "", fmt.Errorf("create Pact configuration directory: %w", err)
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return "", fmt.Errorf("secure Pact configuration directory: %w", err)
-	}
-	payload, err := json.MarshalIndent(Config{
-		SchemaVersion:    schemaVersion,
-		ServerURL:        normalized,
+	if _, err := manager.UpsertAuthorized(serverprofile.AuthorizedInput{
+		ServerURL:        serverURL,
+		PrincipalID:      strings.TrimSpace(principal.ID),
+		PrincipalLabel:   strings.TrimSpace(principal.Label),
 		DeviceCredential: deviceCredential,
-	}, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("encode Pact user configuration: %w", err)
-	}
-	payload = append(payload, '\n')
-	if err := writeAtomic(path, payload, 0o600); err != nil {
-		return "", fmt.Errorf("write Pact user configuration: %w", err)
+	}); err != nil {
+		return "", err
 	}
 	return path, nil
 }
 
+// Delete removes only the active profile. Other authorized servers remain
+// available and the most recently used remaining profile becomes active.
 func Delete() error {
-	path, err := configPath()
+	manager, _, err := profileManager()
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("delete Pact user configuration: %w", err)
+	active, err := manager.Active()
+	if errors.Is(err, serverprofile.ErrNoActiveProfile) {
+		return nil
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	return manager.Remove(active.ID)
+}
+
+func ListProfiles() ([]serverprofile.Profile, error) {
+	manager, _, err := profileManager()
+	if err != nil {
+		return nil, err
+	}
+	return manager.List()
+}
+
+func FindProfileByURL(serverURL string) (serverprofile.Profile, error) {
+	manager, _, err := profileManager()
+	if err != nil {
+		return serverprofile.Profile{}, err
+	}
+	return manager.FindByURL(serverURL)
+}
+
+func AuthorizedForServer(serverURL string) (serverprofile.AuthorizedProfile, error) {
+	manager, _, err := profileManager()
+	if err != nil {
+		return serverprofile.AuthorizedProfile{}, err
+	}
+	return manager.AuthorizedForURL(serverURL)
+}
+
+func SetActiveProfile(identifier string) error {
+	manager, _, err := profileManager()
+	if err != nil {
+		return err
+	}
+	return manager.SetActive(identifier)
+}
+
+func RemoveProfile(identifier string) error {
+	manager, _, err := profileManager()
+	if err != nil {
+		return err
+	}
+	return manager.Remove(identifier)
 }
 
 func NormalizeServerURL(raw string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return serverprofile.NormalizeServerURL(raw)
+}
+
+func profileManager() (*serverprofile.Manager, string, error) {
+	path, err := configPath()
 	if err != nil {
-		return "", fmt.Errorf("invalid Pact Server URL: %w", err)
+		return nil, "", err
 	}
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return "", errors.New("Pact Server URL must be an absolute http or https URL")
+	store, err := credentialstore.Default(filepath.Dir(path))
+	if err != nil {
+		return nil, "", err
 	}
-	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("Pact Server URL must not contain credentials, a query, or a fragment")
-	}
-	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
-		return "", errors.New("remote Pact Server URLs must use https")
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	return strings.TrimRight(parsed.String(), "/"), nil
+	return serverprofile.NewManager(path, store), path, nil
 }
 
 func configPath() (string, error) {
@@ -136,33 +148,4 @@ func configPath() (string, error) {
 		return filepath.Join(absolute, "config.json"), nil
 	}
 	return defaultConfigPath()
-}
-
-func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	address := net.ParseIP(host)
-	return address != nil && address.IsLoopback()
-}
-
-func writeAtomic(path string, content []byte, mode os.FileMode) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".pact-user-config-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer func() { _ = os.Remove(temporaryPath) }()
-	if err := temporary.Chmod(mode); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(content); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
 }

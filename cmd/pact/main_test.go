@@ -145,6 +145,7 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	if err := run(
@@ -236,6 +237,7 @@ func TestEnableCodexConfiguresConnectedProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 	if _, err := userconfig.Save(serverURL, cliTestToken); err != nil {
 		t.Fatal(err)
 	}
@@ -283,6 +285,7 @@ func TestEnableClaudeConfiguresConnectedProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 	if _, err := userconfig.Save(serverURL, cliTestToken); err != nil {
 		t.Fatal(err)
 	}
