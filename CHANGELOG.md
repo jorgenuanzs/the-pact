@@ -8,6 +8,10 @@ as the basis for the GitHub release notes.
 
 ## Unreleased
 
+No user-visible changes have been recorded yet.
+
+## v0.16.6 — 2026-08-21
+
 ### Added
 
 - Added the shared multi-server profile registry foundation for Desktop, CLI,
