@@ -389,7 +389,9 @@ printf '%s' "$PACT_INVITATION" | pact join \
 ```
 
 `pact login` then asks the signed-in account to approve this computer and
-stores a separate revocable device credential outside the repository.
+stores a separate revocable device credential in macOS Keychain, Windows
+Credential Manager, or the platform-native user keyring. `config.json` keeps
+only non-secret server profile metadata.
 
 `pact connect` requires the `pact.yaml` created by the owner and connects only
 to an existing remote project. It never creates a project silently. SSH and
@@ -577,8 +579,10 @@ Pact is designed around several boundaries:
 - passwords are hashed with Argon2id and never available to the CLI;
 - PostgreSQL stores only digests of invitations, web sessions, CSRF secrets,
   device codes, and device credentials;
-- user credentials live outside repositories in `~/.config/pact/config.json`
-  on macOS/Linux and `%APPDATA%\Pact\config.json` on Windows;
+- server profile metadata lives outside repositories in
+  `~/.config/pact/config.json` on macOS/Linux and
+  `%APPDATA%\Pact\config.json` on Windows, while device credentials live in the
+  operating system's credential store;
 - `.pact/` contains machine-local state and is ignored by Git;
 - private agent conversations, prompts, stdin, stdout, and command output are not captured; only messages deliberately posted to a Workspace room are stored;
 - Git observations do not upload file names, diffs, or source contents;
@@ -595,7 +599,9 @@ Current limitations matter:
 - observer mode does not prevent someone from bypassing Pact and changing Git
   directly;
 - room mentions create durable inbox items but do not wake or run an agent by themselves;
-- device credentials are permission-protected files, not yet OS keychain entries;
+- native credential stores protect secrets at rest, but they do not sandbox or
+  defend against hostile code already running as the same operating-system
+  user;
 - the one-time setup code must be removed from the server environment after
   the first owner account is created;
 - production deployment requires HTTPS, backups, monitoring, and appropriate

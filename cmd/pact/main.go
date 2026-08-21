@@ -971,7 +971,9 @@ authorized:
 	if err != nil {
 		return fmt.Errorf("verify device login with %s: %w", normalizedServer, err)
 	}
-	path, err := userconfig.Save(normalizedServer, exchange.DeviceCredential)
+	path, err := userconfig.SaveAuthorized(normalizedServer, exchange.DeviceCredential, userconfig.PrincipalMetadata{
+		ID: principal.ID, Label: principal.DisplayName,
+	})
 	if err != nil {
 		return err
 	}

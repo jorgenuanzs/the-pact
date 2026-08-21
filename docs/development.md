@@ -223,14 +223,18 @@ Las respuestas exitosas utilizan un sobre `data`, por ejemplo:
 ## Autenticación para ejemplos de API
 
 Las operaciones de proyecto aceptan la credencial del dispositivo emitida por
-`pact login`. Para utilizar los ejemplos con `curl`, léela desde la
-configuración privada del usuario:
+`pact login`. PACT la guarda en el almacén seguro del sistema operativo y no la
+expone desde `config.json` ni mediante un comando de exportación.
+
+Los ejemplos de bajo nivel con `curl` que aparecen más adelante esperan una
+credencial efímera proporcionada explícitamente por un fixture de integración:
 
 ```sh
-export PACT_DEVICE_CREDENTIAL="$(jq -r .device_credential ~/.config/pact/config.json)"
+export PACT_DEVICE_CREDENTIAL="pact_device_<integration-fixture-only>"
 ```
 
-No copies esta credencial en documentación, logs, commits ni historiales compartidos.
+No utilices una credencial real de Desktop o CLI para estos ejemplos ni la
+copies en documentación, logs, commits o historiales compartidos.
 
 ## Backoffice local
 

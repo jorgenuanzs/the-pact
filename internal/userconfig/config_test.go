@@ -11,6 +11,7 @@ import (
 func TestSaveAndLoadDeviceCredential(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("PACT_CONFIG_DIR", directory)
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 	credential := "pact_device_" + strings.Repeat("a", 48)
 
 	path, err := Save("https://pact.example.com/", credential)
@@ -24,6 +25,13 @@ func TestSaveAndLoadDeviceCredential(t *testing.T) {
 	if loaded.SchemaVersion != schemaVersion || loaded.ServerURL != "https://pact.example.com" || loaded.DeviceCredential != credential {
 		t.Fatalf("Load() = %#v", loaded)
 	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(content), credential) || strings.Contains(string(content), "device_credential") {
+		t.Fatalf("profile registry contains credential material: %s", content)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
@@ -36,6 +44,7 @@ func TestSaveAndLoadDeviceCredential(t *testing.T) {
 func TestLoadRejectsRetiredPersonalTokenConfiguration(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("PACT_CONFIG_DIR", directory)
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
 	legacy := `{"schema_version":1,"server_url":"https://pact.example.com","api_token":"pact_pat_retired"}`
 	if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(legacy), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)

@@ -1,6 +1,6 @@
 # ADR-0019 — PACT Desktop multi-servidor y vínculos locales por carpeta
 
-**Estado:** propuesto  
+**Estado:** aceptado
 **Fecha:** 21 de agosto de 2026  
 **Propone reemplazar parcialmente:** ADR-0005, en lo relativo a una única
 conexión de usuario por computador  
@@ -144,6 +144,14 @@ implementaciones:
 El registro de perfiles conserva únicamente `credential_ref`. Ninguna
 credencial aparece en `.pact/`, configuración MCP, eventos, logs, exportaciones
 o respuestas entregadas al frontend.
+
+La primera implementación comparte un servicio del almacén nativo entre
+Desktop, CLI y `pact-local`. En macOS usa Keychain; en Windows, Credential
+Manager; en sistemas compatibles de CLI, el keyring de la sesión. Estos
+almacenes protegen el secreto en reposo y frente a otros usuarios del equipo,
+pero no son una barrera contra código hostil que ya se ejecuta como el mismo
+usuario. El fallback de archivo requiere seleccionar explícitamente
+`PACT_CREDENTIAL_STORE=file`; nunca se activa de forma silenciosa.
 
 ### 4. Cada checkout tiene un único binding
 
@@ -406,4 +414,3 @@ esta decisión.
 
 La secuencia, contratos, migraciones, pruebas y criterios de salida están en
 [Desktop multi-servidor — Plan de implementación](../plans/desktop-multi-server-implementation.md).
-
