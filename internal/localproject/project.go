@@ -4,20 +4,30 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode"
 
+	"github.com/jorgenuanzs/the-pact/internal/gitremote"
 	"gopkg.in/yaml.v3"
 )
 
-var scpRemotePattern = regexp.MustCompile(`^[^/@:]+@([^/:]+):(.+)$`)
-
 type Descriptor struct {
+	Root              string
+	Name              string
+	Slug              string
+	RemoteURL         string
+	DefaultBranch     string
+	CanonicalRevision string
+	ObjectFormat      string
+}
+
+// Checkout describes the Git facts PACT needs before a local manifest or
+// binding exists. Desktop onboarding uses it to resolve a checkout against a
+// selected PACT Server without requiring users to run the CLI first.
+type Checkout struct {
 	Root              string
 	Name              string
 	Slug              string
@@ -92,6 +102,39 @@ func Describe(startPath string) (Descriptor, error) {
 	}, nil
 }
 
+func InspectCheckout(startPath string) (Checkout, error) {
+	root, err := FindRoot(startPath)
+	if err != nil {
+		return Checkout{}, err
+	}
+	remote, err := gitOutput(root, "config", "--get", "remote.origin.url")
+	if err != nil || strings.TrimSpace(remote) == "" {
+		return Checkout{}, errors.New("el repositorio Git necesita un remote origin antes de conectarse a PACT")
+	}
+	remote, err = NormalizeGitRemote(remote)
+	if err != nil {
+		return Checkout{}, err
+	}
+	revision, err := gitOutput(root, "rev-parse", "HEAD")
+	if err != nil {
+		return Checkout{}, errors.New("el repositorio Git necesita al menos un commit antes de conectarse a PACT")
+	}
+	objectFormat, err := gitOutput(root, "rev-parse", "--show-object-format")
+	if err != nil || (objectFormat != "sha1" && objectFormat != "sha256") {
+		objectFormat = "sha1"
+	}
+	branch, err := gitOutput(root, "branch", "--show-current")
+	if err != nil || strings.TrimSpace(branch) == "" {
+		branch = "main"
+	}
+	name := filepath.Base(root)
+	return Checkout{
+		Root: root, Name: name, Slug: Slugify(name), RemoteURL: remote,
+		DefaultBranch: branch, CanonicalRevision: strings.ToLower(strings.TrimSpace(revision)),
+		ObjectFormat: objectFormat,
+	}, nil
+}
+
 func HasManifest(startPath string) (bool, error) {
 	root, err := FindRoot(startPath)
 	if err != nil {
@@ -108,34 +151,7 @@ func HasManifest(startPath string) (bool, error) {
 }
 
 func NormalizeGitRemote(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if matches := scpRemotePattern.FindStringSubmatch(raw); len(matches) == 3 {
-		raw = "https://" + matches[1] + "/" + matches[2]
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("parse Git remote origin: %w", err)
-	}
-	if parsed.Host == "" {
-		return "", errors.New("Git remote origin must be a network URL")
-	}
-	switch parsed.Scheme {
-	case "https", "http", "ssh", "git":
-	default:
-		return "", fmt.Errorf("unsupported Git remote scheme %q", parsed.Scheme)
-	}
-	if parsed.Scheme == "ssh" || parsed.Scheme == "git" {
-		parsed.Scheme = "https"
-	}
-	parsed.User = nil
-	parsed.Host = strings.ToLower(parsed.Host)
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	parsed.Path = strings.TrimSuffix(strings.TrimRight(parsed.Path, "/"), ".git")
-	if parsed.Path == "" || parsed.Path == "/" {
-		return "", errors.New("Git remote origin must identify a repository")
-	}
-	return parsed.String(), nil
+	return gitremote.Normalize(raw)
 }
 
 func Slugify(value string) string {

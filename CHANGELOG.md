@@ -8,7 +8,37 @@ as the basis for the GitHub release notes.
 
 ## Unreleased
 
-No user-visible changes have been recorded yet.
+### Added
+
+- Added a five-step Desktop flow for connecting a Git checkout: folder,
+  authorized PACT Server, workspace/repository, AI clients, and confirmation.
+- Added **Conexiones PACT** under **Este computador** to list authorized
+  servers, switch the server open in the remote UI, and authorize another
+  server without replacing existing folder connections.
+- Added the authorized `POST /v1/repository-bindings/resolve` contract so CLI
+  and Desktop can match HTTPS and SSH Git remotes without exposing local paths
+  or inaccessible repositories.
+- Added native Desktop operations to inspect unbound checkouts, resolve them
+  against any saved server profile, create or attach their PACT project, write
+  binding v2, and configure Codex and Claude in one operation.
+
+### Changed
+
+- Redesigned the local Desktop area with a cyan device surface and local-only
+  navigation, visually separating computer settings from shared PACT Server
+  workspaces and administration.
+- Local agent connections now resolve the credential named by the folder
+  binding. Changing the server open in the UI no longer affects Codex or
+  Claude sessions configured in another folder.
+- `pact init`, `pact connect`, and `pact status` now use the server-side
+  repository binding resolver instead of combining independent workspace and
+  repository requests on the client.
+
+### Fixed
+
+- Selecting a normal Git checkout in Desktop no longer fails with
+  `project is not connected; run pact init or pact connect`; an unbound folder
+  is now a supported onboarding state and can be connected without a terminal.
 
 ## v0.16.6 — 2026-08-21
 

@@ -4,7 +4,7 @@
 **ADR:** [ADR-0019](../adr/0019-desktop-multi-server-and-folder-bindings.md)  
 **Fecha:** 21 de agosto de 2026
 
-**Progreso:** Hitos 1, 2 y 3 implementados; Hito 4 pendiente.
+**Progreso:** Hitos 1 a 5 implementados; Hitos 6 a 8 en ejecución.
 
 ## Resultado esperado
 
@@ -209,6 +209,8 @@ servidor.
 
 ## Hito 4 — Resolución autorizada de repositorios
 
+**Estado:** implementado el 21 de agosto de 2026.
+
 Añadir un contrato servidor para resolver un remoto Git sin crear estado local.
 Nombre propuesto:
 
@@ -266,6 +268,8 @@ de administración y confirmación independiente.
 
 ## Hito 5 — Runtime y MCP multi-perfil
 
+**Estado:** implementado el 21 de agosto de 2026.
+
 Reemplazar `loginForServer` por resolución estricta:
 
 ```text
@@ -298,6 +302,9 @@ Reglas:
 
 ## Hito 6 — API nativa de Desktop y registro local v2
 
+**Estado:** en ejecución; resolución, binding, perfiles e índice v2
+implementados. Quedan renombrado/retiro seguro y reparación explícita.
+
 Desktop debe exponer al frontend operaciones orientadas a dominio:
 
 - listar, añadir, reautorizar, renombrar, seleccionar y retirar perfiles;
@@ -325,6 +332,10 @@ que requieren autenticación se ejecutan en Go.
 - el frontend no recibe secretos ni referencias canjeables.
 
 ## Hito 7 — Separación visual entre computador y servidor
+
+**Estado:** en ejecución; modo local y conexiones implementados. Queda permitir
+abrir toda la superficie local sin perfiles y completar el selector remoto del
+rail.
 
 ### Modo local
 
@@ -368,6 +379,9 @@ primera pantalla local ofrece:
 - accesibilidad por teclado y lectores de pantalla cubre el selector.
 
 ## Hito 8 — Nuevo flujo “Añadir carpeta a PACT”
+
+**Estado:** recorrido vertical implementado; quedan recuperación de fallos
+parciales por cliente y autorización de un perfil ausente sin cerrar el flujo.
 
 ### Paso 1 — Carpeta
 

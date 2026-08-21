@@ -1,4 +1,4 @@
-import type { PactEvent, Principal } from "@/api/types";
+import type { PactEvent, Principal, Workspace } from "@/api/types";
 import { Events, System } from "@wailsio/runtime";
 
 import * as NativeDesktop from "@/generated/desktop-bindings/github.com/jorgenuanzs/the-pact/desktop/desktop";
@@ -47,7 +47,10 @@ export interface LocalClientStatus {
 export interface LocalFolder {
   root: string;
   name: string;
+  profile_id?: string;
   server_url: string;
+  workspace_id?: string;
+  repository_id?: string;
   project_id: string;
   clients: string[];
   available: boolean;
@@ -64,6 +67,8 @@ export interface LocalComputerStatus {
   runtime_version?: string;
   runtime_error?: string;
   server_url?: string;
+  active_profile_id?: string;
+  profiles: DesktopServerProfile[];
   clients: LocalClientStatus[];
   folders: LocalFolder[];
   managed_server: LocalServerStatus;
@@ -100,10 +105,68 @@ export interface LocalFolderInspection {
   connected: boolean;
   root?: string;
   name?: string;
+  remote_url?: string;
+  branch?: string;
+  revision?: string;
+  profile_id?: string;
   server_url?: string;
+  workspace_id?: string;
+  repository_id?: string;
   project_id?: string;
   clients?: string[];
   error?: string;
+}
+
+export interface DesktopServerProfile {
+  id: string;
+  label: string;
+  server_url: string;
+  kind: "remote" | "managed_local" | string;
+  principal_label?: string;
+  active: boolean;
+}
+
+export interface RepositoryBindingMatch {
+  workspace_id: string;
+  workspace_name: string;
+  workspace_slug: string;
+  project_id: string;
+  project_name: string;
+  repository_id: string;
+  repository_name: string;
+  repository_slug: string;
+  primary: boolean;
+  match: string;
+  permission?: string;
+}
+
+export interface LocalFolderResolution {
+  folder: LocalFolderInspection;
+  profile: DesktopServerProfile;
+  workspaces: Workspace[];
+  matches: RepositoryBindingMatch[];
+}
+
+export interface ResolveLocalFolderInput {
+  project_root: string;
+  profile_id: string;
+}
+
+export interface BindLocalFolderInput {
+  project_root: string;
+  profile_id: string;
+  workspace_id: string;
+  project_id?: string;
+  repository_id?: string;
+  create_if_needed: boolean;
+  rebind: boolean;
+  clients: Array<"codex" | "claude">;
+}
+
+export interface BindLocalFolderResult {
+  folder: LocalFolderInspection;
+  clients: ConnectLocalAgentResult[];
+  created: boolean;
 }
 
 export interface ConnectLocalAgentInput {
@@ -150,9 +213,13 @@ export interface DesktopBridge {
   PollDeviceLogin(serverURL: string, deviceCode: string): Promise<DesktopDeviceLoginResult>;
   OpenExternalURL(address: string): Promise<void>;
   Disconnect(localOnly: boolean): Promise<void>;
+  ListServerProfiles(): Promise<DesktopServerProfile[]>;
+  UseServerProfile(identifier: string): Promise<DesktopStatus>;
   LocalComputerStatus(): Promise<LocalComputerStatus>;
   SelectLocalProjectFolder(): Promise<LocalFolderInspection>;
   InspectLocalProjectFolder(path: string): Promise<LocalFolderInspection>;
+  ResolveLocalFolder(input: ResolveLocalFolderInput): Promise<LocalFolderResolution>;
+  BindLocalFolder(input: BindLocalFolderInput): Promise<BindLocalFolderResult>;
   ConnectLocalAgent(input: ConnectLocalAgentInput): Promise<ConnectLocalAgentResult>;
   LocalServerStatus(): Promise<LocalServerStatus>;
   InstallLocalServer(input: LocalServerInstallInput): Promise<LocalServerInstallResult>;

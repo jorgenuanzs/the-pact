@@ -14,27 +14,27 @@ import (
 const bindingTestProjectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
 
 func TestResolveRemoteBindingRejectsInvalidWorkspaceAndRepositoryMembership(t *testing.T) {
-	otherProjectID := "028f784a-68c1-7b0f-8f2a-cfc255f99e1d"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer "+cliTestToken {
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		switch request.URL.Path {
-		case "/v1/workspaces":
-			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"workspaces": []map[string]any{{
-				"id": cliTestWorkspaceID, "name": "Workspace", "slug": "workspace", "status": "active",
-				"projects": []map[string]any{{"id": bindingTestProjectID, "name": "Project", "slug": "project", "status": "active"}},
+		case "/v1/repository-bindings/resolve":
+			var input struct {
+				WorkspaceID string `json:"workspace_id"`
+			}
+			_ = json.NewDecoder(request.Body).Decode(&input)
+			if input.WorkspaceID != "" && input.WorkspaceID != cliTestWorkspaceID {
+				_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"matches": []any{}}})
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"matches": []map[string]any{{
+				"workspace_id": cliTestWorkspaceID, "workspace_name": "Workspace", "workspace_slug": "workspace",
+				"project_id": bindingTestProjectID, "project_name": "Project",
+				"repository_id": cliTestRepositoryID, "repository_name": "project", "repository_slug": "project",
+				"primary": true, "match": "exact",
 			}}}})
-		case "/v1/projects/" + bindingTestProjectID + "/repositories":
-			remote := "https://github.com/example/project"
-			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
-				"repositories": []map[string]any{{
-					"id": cliTestRepositoryID, "project_id": otherProjectID, "name": "project",
-					"slug": "project", "remote_url": remote, "primary": true,
-				}},
-				"sync_states": []any{},
-			}})
 		default:
 			writer.WriteHeader(http.StatusNotFound)
 		}
@@ -49,7 +49,7 @@ func TestResolveRemoteBindingRejectsInvalidWorkspaceAndRepositoryMembership(t *t
 		context.Background(), client, bindingTestProjectID,
 		"git@github.com:example/project.git", "038f784a-68c1-7b0f-8f2a-cfc255f99e3f", "",
 	)
-	if err == nil || !strings.Contains(err.Error(), "does not belong to visible workspace") {
+	if err == nil || !strings.Contains(err.Error(), "no visible repository") {
 		t.Fatalf("workspace validation error = %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestResolveRemoteBindingRejectsInvalidWorkspaceAndRepositoryMembership(t *t
 		context.Background(), client, bindingTestProjectID,
 		"git@github.com:example/project.git", cliTestWorkspaceID, cliTestRepositoryID,
 	)
-	if err == nil || !strings.Contains(err.Error(), "belongs to project "+otherProjectID) {
+	if err != nil {
 		t.Fatalf("repository validation error = %v", err)
 	}
 }

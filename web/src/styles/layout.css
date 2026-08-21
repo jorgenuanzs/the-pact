@@ -134,6 +134,13 @@
 .connection-dot { width: 6px; height: 6px; background: var(--color-active); border-radius: 50%; }
 .local-sidebar-avatar { color: var(--color-ink); background: var(--accent-cyan); }
 .local-sidebar-navigation { margin-top: 22px; }
+.control-shell[data-local] { background: #f3f8f9; }
+.control-shell[data-local] .control-main { background: linear-gradient(180deg, #f4fafb 0, #fff 220px); }
+.control-shell[data-local] .local-sidebar { background: #edf5f6; border-right-color: #cddbdd; }
+.control-shell[data-local] .local-sidebar .workspace-sidebar-header { min-height: 78px; margin: 0 -1px; padding: 14px; background: #dff3f7; border-bottom: 1px solid #bad7dc; }
+.control-shell[data-local] .local-sidebar .workspace-nav-item.is-active { color: #082a31; background: #ccecf2; }
+.control-shell[data-local] .local-sidebar .workspace-nav-icon { color: #167087; }
+.control-shell[data-local] .global-local-button[data-selected] { color: #071b20; background: var(--accent-cyan); border-color: var(--accent-cyan); }
 
 .control-main { min-width: 0; min-height: 0; overflow: hidden; }
 .pact-page { display: grid; width: 100%; max-width: none; height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); margin: 0; padding: 0; overflow: hidden; }

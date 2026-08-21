@@ -17,6 +17,8 @@ function installBridge(): DesktopBridge {
     PollDeviceLogin: vi.fn(),
     OpenExternalURL: vi.fn(),
     Disconnect: vi.fn(),
+    ListServerProfiles: vi.fn(),
+    UseServerProfile: vi.fn(),
     APIRequest: vi.fn(),
     StartWorkspaceDirectoryStream: vi.fn(),
     StopWorkspaceDirectoryStream: vi.fn(),
@@ -30,6 +32,11 @@ function installBridge(): DesktopBridge {
       runtime_path: "/local/pact-runtime",
       runtime_version: "abc123",
       server_url: "https://pact.example.com",
+      active_profile_id: "profile-1",
+      profiles: [{
+        id: "profile-1", label: "PACT Example", server_url: "https://pact.example.com",
+        kind: "remote", principal_label: "Jorge", active: true,
+      }],
       clients: [
         { id: "codex", name: "Codex", detected: true, connected_folders: 0 },
         { id: "claude", name: "Claude Code", detected: false, connected_folders: 0 },
@@ -39,14 +46,39 @@ function installBridge(): DesktopBridge {
     }),
     SelectLocalProjectFolder: vi.fn().mockResolvedValue({
       canceled: false,
-      connected: true,
+      connected: false,
       root: "/projects/footfall",
       name: "Footfall",
-      server_url: "https://pact.example.com",
-      project_id: "project-1",
+      remote_url: "https://github.com/nuanzs/footfall",
+      branch: "main",
       clients: [],
     }),
     InspectLocalProjectFolder: vi.fn(),
+    ResolveLocalFolder: vi.fn().mockResolvedValue({
+      folder: {
+        canceled: false,
+        connected: false,
+        root: "/projects/footfall",
+        name: "Footfall",
+        remote_url: "https://github.com/nuanzs/footfall",
+      },
+      profile: { id: "profile-1", label: "PACT Example", server_url: "https://pact.example.com", kind: "remote", active: true },
+      workspaces: [{ id: "workspace-1", name: "Footfall", slug: "footfall" }],
+      matches: [{
+        workspace_id: "workspace-1", workspace_name: "Footfall", workspace_slug: "footfall",
+        project_id: "project-1", project_name: "footfall-web", repository_id: "repository-1",
+        repository_name: "footfall-web", repository_slug: "primary", primary: true, match: "exact",
+      }],
+    }),
+    BindLocalFolder: vi.fn().mockResolvedValue({
+      folder: { canceled: false, connected: true, root: "/projects/footfall", name: "Footfall" },
+      clients: [{
+        client: "codex", project_root: "/projects/footfall",
+        config_path: "/projects/footfall/.codex/config.toml", runtime_path: "/local/pact-runtime",
+        changed: true, restart_needed: true,
+      }],
+      created: false,
+    }),
     ConnectLocalAgent: vi.fn().mockResolvedValue({
       client: "codex",
       project_root: "/projects/footfall",
@@ -127,16 +159,26 @@ describe("LocalComputerPage", () => {
 
     expect(await screen.findByText("Codex")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Conectar" })[0]);
-    await user.click(screen.getByRole("button", { name: /Elegir carpeta/ }));
+    await user.click(screen.getByRole("button", { name: /Elegir carpeta Git/ }));
 
     expect((await screen.findAllByText("Footfall")).length).toBeGreaterThan(0);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Conectar cliente" }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.click(dialog.getByRole("button", { name: "Continuar" }));
+    await user.click(dialog.getByRole("button", { name: "Continuar" }));
+    expect(await dialog.findByText("footfall-web")).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "Continuar" }));
+    await user.click(dialog.getByRole("button", { name: "Continuar" }));
+    await user.click(dialog.getByRole("button", { name: "Conectar carpeta" }));
 
-    expect(bridge.ConnectLocalAgent).toHaveBeenCalledWith({
-      client: "codex",
+    expect(bridge.BindLocalFolder).toHaveBeenCalledWith(expect.objectContaining({
       project_root: "/projects/footfall",
-    });
-    expect(await screen.findByText("Cliente conectado")).toBeInTheDocument();
+      profile_id: "profile-1",
+      workspace_id: "workspace-1",
+      project_id: "project-1",
+      repository_id: "repository-1",
+      clients: ["codex"],
+    }));
+    expect(await screen.findByText("Carpeta conectada")).toBeInTheDocument();
   });
 
   it("permite comprobar una actualización firmada desde la aplicación", async () => {

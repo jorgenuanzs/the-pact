@@ -120,3 +120,61 @@ func TestConnectLocalAgentWritesProjectScopedCodexConfiguration(t *testing.T) {
 		t.Fatalf("expected Codex on the connected folder: %+v", status.Folders[0].Clients)
 	}
 }
+
+func TestConnectLocalAgentUsesFolderProfileInsteadOfActiveProfile(t *testing.T) {
+	t.Setenv("PACT_DESKTOP_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	const folderServer = "https://folder.pact.example.com"
+	if _, err := userconfig.Save(folderServer, "pact_device_"+strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := userconfig.Save("https://active.pact.example.com", "pact_device_"+strings.Repeat("b", 64)); err != nil {
+		t.Fatal(err)
+	}
+
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(filepath.Join(root, ".pact"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "init", "--quiet", root).CombinedOutput(); err != nil {
+		t.Fatalf("initialize Git repository: %v: %s", err, output)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"schema_version": 1, "server_url": folderServer,
+		"project_id": "019ffb8b-b422-7f7e-bf1a-54af07cba39d",
+	})
+	if err := os.WriteFile(filepath.Join(root, ".pact", "config.json"), payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := NewDesktop().ConnectLocalAgent(ConnectLocalAgentInput{Client: "codex", ProjectRoot: root}); err != nil {
+		t.Fatalf("folder profile must not depend on active profile: %v", err)
+	}
+}
+
+func TestInspectLocalFolderTreatsUnboundCheckoutAsOnboardingState(t *testing.T) {
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	root := filepath.Join(t.TempDir(), "project")
+	commands := [][]string{
+		{"init", "--quiet", root},
+		{"-C", root, "config", "user.email", "test@example.com"},
+		{"-C", root, "config", "user.name", "Test"},
+		{"-C", root, "commit", "--quiet", "--allow-empty", "-m", "initial"},
+		{"-C", root, "remote", "add", "origin", "git@github.com:nuanzs/project.git"},
+	}
+	for _, arguments := range commands {
+		if output, err := exec.Command("git", arguments...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", arguments, err, output)
+		}
+	}
+
+	inspection := inspectLocalFolder(root)
+	if inspection.Error != "" || inspection.Connected {
+		t.Fatalf("unbound checkout must be selectable without an error: %+v", inspection)
+	}
+	if inspection.RemoteURL != "https://github.com/nuanzs/project" {
+		t.Fatalf("unexpected checkout metadata: %+v", inspection)
+	}
+}

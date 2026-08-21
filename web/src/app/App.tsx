@@ -41,6 +41,7 @@ export function App() {
         <Route path="w/:workspaceId/settings" element={<WorkspaceSettingsPage />} />
         <Route path="organization/access" element={<OrganizationAccessPage />} />
         <Route path="local" element={<LocalComputerPage />} />
+        <Route path="local/connections" element={<LocalComputerPage view="connections" />} />
         <Route path="local/agents" element={<LocalComputerPage view="agents" />} />
         <Route path="local/folders" element={<LocalComputerPage view="folders" />} />
         <Route path="local/service" element={<LocalComputerPage view="service" />} />
