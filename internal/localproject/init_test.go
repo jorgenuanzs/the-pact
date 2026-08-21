@@ -58,7 +58,8 @@ func TestInitCreatesSharedManifestAndPrivateLocalState(t *testing.T) {
 	if err := json.Unmarshal([]byte(readFile(t, configPath)), &config); err != nil {
 		t.Fatalf("decode local config: %v", err)
 	}
-	if config.SchemaVersion != 1 || config.ServerURL != "https://pact.example.com" {
+	if config.SchemaVersion != LocalBindingSchemaVersion || config.ServerURL != "https://pact.example.com" ||
+		config.WorkspaceID != "" || config.RepositoryID != "" || config.ProjectID != "" {
 		t.Fatalf("local config = %#v", config)
 	}
 	if info, err := os.Stat(configPath); err != nil {
@@ -186,7 +187,7 @@ func TestFindBindingDistinguishesAbsentFromIncompleteState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, found, err := FindBinding(root); !found || err == nil || !strings.Contains(err.Error(), "valid remote project") {
+	if _, found, err := FindBinding(root); !found || err == nil || !strings.Contains(err.Error(), "binding is incomplete") {
 		t.Fatalf("FindBinding(incomplete) found=%v error=%v", found, err)
 	}
 	if err := os.Remove(result.LocalConfigPath); err != nil {

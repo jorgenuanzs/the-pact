@@ -4,7 +4,7 @@
 **ADR:** [ADR-0019](../adr/0019-desktop-multi-server-and-folder-bindings.md)  
 **Fecha:** 21 de agosto de 2026
 
-**Progreso:** Hitos 1 y 2 implementados; Hito 3 pendiente.
+**Progreso:** Hitos 1, 2 y 3 implementados; Hito 4 pendiente.
 
 ## Resultado esperado
 
@@ -177,6 +177,8 @@ Comportamiento:
 - los mensajes de error nombran el perfil o URL que falta autorizar.
 
 ## Hito 3 — Binding de carpeta v2
+
+**Estado:** implementado el 21 de agosto de 2026.
 
 Ampliar `internal/localproject.Binding` con:
 

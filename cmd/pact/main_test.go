@@ -23,6 +23,11 @@ import (
 
 const cliTestToken = "pact_device_this-is-a-long-cli-test-device-credential"
 
+const (
+	cliTestWorkspaceID  = "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
+	cliTestRepositoryID = "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+)
+
 func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	var (
 		lock                sync.Mutex
@@ -64,6 +69,29 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 				projectList = append(projectList, *remoteProject)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"projects": projectList}})
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/workspaces":
+			workspaceList := make([]map[string]any, 0)
+			if remoteProject != nil {
+				workspaceList = append(workspaceList, map[string]any{
+					"id": cliTestWorkspaceID, "name": "Footfall", "slug": "footfall", "status": "active",
+					"projects": []map[string]any{{
+						"id": remoteProject.ID, "name": remoteProject.Name, "slug": remoteProject.Slug, "status": "active",
+					}},
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workspaces": workspaceList}})
+		case request.Method == http.MethodGet && remoteProject != nil && request.URL.Path == "/v1/projects/"+remoteProject.ID+"/repositories":
+			remote := ""
+			if remoteProject.RootRepository != nil && remoteProject.RootRepository.RemoteURL != nil {
+				remote = *remoteProject.RootRepository.RemoteURL
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"repositories": []map[string]any{{
+					"id": cliTestRepositoryID, "project_id": remoteProject.ID,
+					"name": "Primary", "slug": "primary", "remote_url": remote, "primary": true,
+				}},
+				"sync_states": []any{},
+			}})
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/projects":
 			var input projects.CreateInput
 			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
@@ -307,7 +335,10 @@ func TestBoundFolderUsesItsProfileWithoutActiveFallback(t *testing.T) {
 	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, ServerURL: firstURL}); err != nil {
 		t.Fatal(err)
 	}
-	if err := localproject.Bind(root, firstURL, "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"); err != nil {
+	if _, err := localproject.Bind(root, localproject.BindOptions{
+		ServerURL: firstURL, WorkspaceID: cliTestWorkspaceID, RepositoryID: cliTestRepositoryID,
+		ProjectID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	login, err := loginForProjectOrActive(root, "")
@@ -426,10 +457,12 @@ func TestStatusReportsBoundServerWorkspaceAndRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := newRealGitRepository(t, remoteURL+".git")
-	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, Name: "Status project", ServerURL: server.URL}); err != nil {
+	initResult, err := localproject.Init(localproject.InitOptions{StartPath: root, Name: "Status project", ServerURL: server.URL})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := localproject.Bind(root, server.URL, projectID); err != nil {
+	legacy := `{"schema_version":1,"server_url":"` + server.URL + `","project_id":"` + projectID + `"}`
+	if err := os.WriteFile(initResult.LocalConfigPath, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout bytes.Buffer
@@ -444,6 +477,46 @@ func TestStatusReportsBoundServerWorkspaceAndRepository(t *testing.T) {
 	if status.Server.URL != server.URL || status.Workspace == nil || status.Workspace.ID != workspaceID || status.Repository == nil || status.Repository.ID != repositoryID {
 		t.Fatalf("status = %#v", status)
 	}
+	migrated, err := localproject.LoadBinding(root)
+	if err != nil || migrated.SchemaVersion != localproject.LocalBindingSchemaVersion ||
+		migrated.WorkspaceID != workspaceID || migrated.RepositoryID != repositoryID || migrated.NeedsMigration {
+		t.Fatalf("migrated status binding = %#v, %v", migrated, err)
+	}
+}
+
+func TestStatusDefersLegacyMigrationWhileServerIsOffline(t *testing.T) {
+	const (
+		serverURL = "http://127.0.0.1:1"
+		projectID = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+		remoteURL = "https://github.com/example/offline-status"
+	)
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	if _, err := userconfig.SaveAuthorizedProfile(serverURL, cliTestToken, userconfig.AuthorizedMetadata{ProfileLabel: "Offline Server"}); err != nil {
+		t.Fatal(err)
+	}
+	root := newRealGitRepository(t, remoteURL+".git")
+	result, err := localproject.Init(localproject.InitOptions{StartPath: root, Name: "Offline", ServerURL: serverURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"schema_version":1,"server_url":"` + serverURL + `","project_id":"` + projectID + `"}`)
+	if err := os.WriteFile(result.LocalConfigPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := run([]string{"status", "--path", root}, strings.NewReader(""), &stdout, &stderr); err == nil {
+		t.Fatal("status unexpectedly succeeded while the bound server was offline")
+	}
+	after, err := os.ReadFile(result.LocalConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, legacy) {
+		t.Fatalf("offline status changed the legacy binding:\nbefore=%s\nafter=%s", legacy, after)
+	}
 }
 
 func TestEnableCodexConfiguresConnectedProject(t *testing.T) {
@@ -452,7 +525,10 @@ func TestEnableCodexConfiguresConnectedProject(t *testing.T) {
 	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, ServerURL: serverURL}); err != nil {
 		t.Fatal(err)
 	}
-	if err := localproject.Bind(root, serverURL, "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"); err != nil {
+	if _, err := localproject.Bind(root, localproject.BindOptions{
+		ServerURL: serverURL, WorkspaceID: cliTestWorkspaceID, RepositoryID: cliTestRepositoryID,
+		ProjectID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
@@ -500,7 +576,10 @@ func TestEnableClaudeConfiguresConnectedProject(t *testing.T) {
 	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, ServerURL: serverURL}); err != nil {
 		t.Fatal(err)
 	}
-	if err := localproject.Bind(root, serverURL, "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"); err != nil {
+	if _, err := localproject.Bind(root, localproject.BindOptions{
+		ServerURL: serverURL, WorkspaceID: cliTestWorkspaceID, RepositoryID: cliTestRepositoryID,
+		ProjectID: "018f784a-68c1-7b0f-8f2a-cfc255f99e1d",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PACT_CONFIG_DIR", t.TempDir())

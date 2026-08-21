@@ -60,13 +60,15 @@ pact.yaml          manifiesto compartido, debe versionarse con Git
 .pact/config.json  vínculo de esta máquina, está ignorado por Git
 ```
 
-La configuración del checkout contiene la URL de Pact Server y el UUID remoto
-del proyecto, pero no contraseñas ni credenciales de PostgreSQL. El registro
-global contiene solo metadatos de los perfiles. Las credenciales revocables de
-dispositivo se guardan en macOS Keychain, Windows Credential Manager o el
-keyring nativo del usuario. Un comando ejecutado dentro de un checkout resuelve
-siempre el perfil indicado por `.pact/config.json`; nunca utiliza en silencio
-la credencial de otro servidor activo.
+La configuración del checkout contiene la URL de Pact Server, los UUID de
+workspace, repositorio y proyecto, la fecha de configuración y un fingerprint
+SHA-256 del remoto Git normalizado. No contiene la URL Git original,
+contraseñas ni credenciales de PostgreSQL. El registro global contiene solo
+metadatos de los perfiles. Las credenciales revocables de dispositivo se
+guardan en macOS Keychain, Windows Credential Manager o el keyring nativo del
+usuario. Un comando ejecutado dentro de un checkout resuelve siempre el perfil
+indicado por `.pact/config.json`; nunca utiliza en silencio la credencial de
+otro servidor activo.
 
 Para conectar otro checkout que recibió `pact.yaml` mediante Git:
 
@@ -75,10 +77,13 @@ Para conectar otro checkout que recibió `pact.yaml` mediante Git:
 ```
 
 `pact connect` no crea proyectos. Compara el remoto Git normalizado con los
-proyectos existentes del servidor. Consulta
+repositorios existentes y valida que el repositorio pertenezca al workspace
+seleccionado. Usa `--workspace UUID` o `--repository UUID` para desambiguar.
+Cambiar un vínculo existente requiere `--rebind`; la escritura es atómica y la
+identidad del nodo rota cuando cambia el servidor. Consulta
 [ADR-0004](adr/0004-local-project-bootstrap.md) y
-[ADR-0005](adr/0005-cli-onboarding-and-machine-connection.md) para conocer la
-separación de responsabilidades.
+[ADR-0019](adr/0019-desktop-multi-server-and-folder-bindings.md) para conocer
+la separación de responsabilidades.
 
 Para registrar una sesión mientras se ejecuta un agente local:
 
