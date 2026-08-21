@@ -56,7 +56,9 @@ jobs:
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
         shell: pwsh
-        run: '[scriptblock]::Create((Get-Content -Raw scripts/install-windows.ps1)) | Out-Null'
+        run: |
+          [scriptblock]::Create((Get-Content -Raw scripts/install-windows.ps1)) | Out-Null
+          [scriptblock]::Create((Get-Content -Raw scripts/install-nsis.ps1)) | Out-Null
 
   build-cli:
     name: CLI (${{ matrix.goos }}/${{ matrix.goarch }})
@@ -147,9 +149,7 @@ jobs:
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          choco install nsis --yes --no-progress
-          "${env:ProgramFiles(x86)}\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: ./scripts/install-nsis.ps1
       - name: Install web dependencies
         working-directory: web
         run: npm ci
