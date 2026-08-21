@@ -72,6 +72,7 @@ A pull request should:
 - update `api/openapi.yaml` when the HTTP contract changes;
 - add or update an ADR for a durable architectural decision;
 - update user-facing documentation and examples;
+- record user-visible changes under `Unreleased` in [CHANGELOG.md](CHANGELOG.md);
 - pass CI on Windows, macOS, and Linux;
 - avoid generated, vendored, or binary files unless the change specifically
   requires them.
