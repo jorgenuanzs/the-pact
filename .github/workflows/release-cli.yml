@@ -399,6 +399,7 @@ jobs:
         shell: pwsh
         env:
           PACT_RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $installer = Join-Path $env:RUNNER_TEMP "install-pact.ps1"
           Invoke-WebRequest "https://github.com/${{ github.repository }}/releases/download/$env:PACT_RELEASE_TAG/install-pact.ps1" -OutFile $installer
