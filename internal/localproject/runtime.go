@@ -25,6 +25,24 @@ type NodeIdentity struct {
 	Name          string `json:"name"`
 }
 
+// FindBinding reports whether a Git checkout contains local PACT binding
+// state. A malformed or incomplete binding is returned as an error instead of
+// being treated as absent, so callers never fall back to another server.
+func FindBinding(startPath string) (Binding, bool, error) {
+	root, err := FindRoot(startPath)
+	if err != nil {
+		return Binding{}, false, nil
+	}
+	configPath := filepath.Join(root, localDirectory, localConfigName)
+	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
+		return Binding{}, false, nil
+	} else if err != nil {
+		return Binding{}, true, fmt.Errorf("inspect local Pact configuration: %w", err)
+	}
+	binding, err := LoadBinding(root)
+	return binding, true, err
+}
+
 func LoadBinding(startPath string) (Binding, error) {
 	root, err := FindRoot(startPath)
 	if err != nil {

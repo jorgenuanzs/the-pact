@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -149,12 +150,16 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	if err := run(
-		[]string{"login", "--server", server.URL, "--no-browser"},
+		[]string{"login", "--server", server.URL, "--name", "Local test", "--no-browser"},
 		strings.NewReader(""),
 		&stdout,
 		&stderr,
 	); err != nil {
 		t.Fatalf("login error = %v; stderr = %s", err, stderr.String())
+	}
+	profile, err := userconfig.FindProfileByURL(server.URL)
+	if err != nil || profile.Label != "Local test" {
+		t.Fatalf("login profile = %#v, %v", profile, err)
 	}
 
 	ownerRoot := newRealGitRepository(t, "https://github.com/example/footfall.git")
@@ -224,6 +229,220 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	err := run([]string{"destroy-everything"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown command") {
 		t.Fatalf("run() error = %v", err)
+	}
+}
+
+func TestServersLifecycleKeepsProfilesIndependent(t *testing.T) {
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	firstURL := "https://one.pact.example.com"
+	secondURL := "https://two.pact.example.com"
+	firstCredential := "pact_device_" + strings.Repeat("1", 48)
+	secondCredential := "pact_device_" + strings.Repeat("2", 48)
+	if _, err := userconfig.SaveAuthorizedProfile(firstURL, firstCredential, userconfig.AuthorizedMetadata{
+		ProfileLabel: "Client One", PrincipalID: "one", PrincipalLabel: "One User",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := userconfig.SaveAuthorizedProfile(secondURL, secondCredential, userconfig.AuthorizedMetadata{
+		ProfileLabel: "Client Two", PrincipalID: "two", PrincipalLabel: "Two User",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := run([]string{"servers", "list", "--json"}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatalf("servers list error = %v; stderr = %s", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "credential_ref") || strings.Contains(stdout.String(), firstCredential) || strings.Contains(stdout.String(), secondCredential) {
+		t.Fatalf("servers list exposed credential material: %s", stdout.String())
+	}
+	var profiles []serverProfileOutput
+	if err := json.Unmarshal(stdout.Bytes(), &profiles); err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 2 || !profiles[0].Active || profiles[0].ServerURL != secondURL {
+		t.Fatalf("profiles = %#v", profiles)
+	}
+
+	stdout.Reset()
+	if err := run([]string{"servers", "use", firstURL}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	active, err := userconfig.Load()
+	if err != nil || active.ServerURL != firstURL || active.DeviceCredential != firstCredential {
+		t.Fatalf("active after use = %#v, %v", active, err)
+	}
+	if err := run([]string{"servers", "remove", "--local-only", firstURL}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	active, err = userconfig.Load()
+	if err != nil || active.ServerURL != secondURL || active.DeviceCredential != secondCredential {
+		t.Fatalf("active after remove = %#v, %v", active, err)
+	}
+	if err := run([]string{"logout", "--server", secondURL, "--local-only"}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := userconfig.ListProfiles()
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("remaining profiles = %#v, %v", remaining, err)
+	}
+}
+
+func TestBoundFolderUsesItsProfileWithoutActiveFallback(t *testing.T) {
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	firstURL := "https://folder.pact.example.com"
+	secondURL := "https://active.pact.example.com"
+	firstCredential := "pact_device_" + strings.Repeat("3", 48)
+	secondCredential := "pact_device_" + strings.Repeat("4", 48)
+	if _, err := userconfig.Save(firstURL, firstCredential); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := userconfig.Save(secondURL, secondCredential); err != nil {
+		t.Fatal(err)
+	}
+	root := newRealGitRepository(t, "https://github.com/example/multi-server.git")
+	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, ServerURL: firstURL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localproject.Bind(root, firstURL, "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"); err != nil {
+		t.Fatal(err)
+	}
+	login, err := loginForProjectOrActive(root, "")
+	if err != nil || login.ServerURL != firstURL || login.DeviceCredential != firstCredential {
+		t.Fatalf("folder login = %#v, %v", login, err)
+	}
+	var wait sync.WaitGroup
+	errorsFound := make(chan error, 32)
+	for index := 0; index < 16; index++ {
+		for _, expected := range []struct {
+			url        string
+			credential string
+		}{{firstURL, firstCredential}, {secondURL, secondCredential}} {
+			wait.Add(1)
+			go func(expectedURL, expectedCredential string) {
+				defer wait.Done()
+				resolved, resolveErr := loginForServer(expectedURL)
+				if resolveErr != nil {
+					errorsFound <- resolveErr
+					return
+				}
+				if resolved.ServerURL != expectedURL || resolved.DeviceCredential != expectedCredential {
+					errorsFound <- fmt.Errorf("resolved %#v for %s", resolved, expectedURL)
+				}
+			}(expected.url, expected.credential)
+		}
+	}
+	wait.Wait()
+	close(errorsFound)
+	for concurrentErr := range errorsFound {
+		t.Error(concurrentErr)
+	}
+	if err := userconfig.RemoveProfile(firstURL); err != nil {
+		t.Fatal(err)
+	}
+	login, err = loginForProjectOrActive(root, "")
+	if err == nil || login.ServerURL != "" || !strings.Contains(err.Error(), firstURL) || !strings.Contains(err.Error(), "pact login --server") {
+		t.Fatalf("missing bound profile login = %#v, %v", login, err)
+	}
+	active, err := userconfig.Load()
+	if err != nil || active.ServerURL != secondURL {
+		t.Fatalf("active profile changed = %#v, %v", active, err)
+	}
+}
+
+func TestLogoutRevokesOnlyRequestedServer(t *testing.T) {
+	firstRevoked := false
+	firstCredential := "pact_device_" + strings.Repeat("5", 48)
+	firstServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodDelete || request.URL.Path != "/v1/auth/device/current" || request.Header.Get("Authorization") != "Bearer "+firstCredential {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		firstRevoked = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer firstServer.Close()
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	if _, err := userconfig.Save(firstServer.URL, firstCredential); err != nil {
+		t.Fatal(err)
+	}
+	secondURL := "https://active.pact.example.com"
+	if _, err := userconfig.Save(secondURL, "pact_device_"+strings.Repeat("6", 48)); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"logout", "--server", firstServer.URL}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !firstRevoked {
+		t.Fatal("requested server was not revoked")
+	}
+	active, err := userconfig.Load()
+	if err != nil || active.ServerURL != secondURL {
+		t.Fatalf("active = %#v, %v", active, err)
+	}
+}
+
+func TestStatusReportsBoundServerWorkspaceAndRepository(t *testing.T) {
+	credential := "pact_device_" + strings.Repeat("7", 48)
+	projectID := "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+	repositoryID := "018f784a-68c1-7b0f-8f2a-cfc255f99e2e"
+	workspaceID := "018f784a-68c1-7b0f-8f2a-cfc255f99e3f"
+	remoteURL := "https://github.com/example/status"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+credential {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/projects":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"projects": []map[string]any{{
+				"id": projectID, "name": "Status project", "slug": "status-project", "status": "active",
+			}}}})
+		case "/v1/workspaces":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workspaces": []map[string]any{{
+				"id": workspaceID, "name": "Status workspace", "slug": "status-workspace", "status": "active",
+				"projects": []map[string]any{{"id": projectID, "name": "Status project", "slug": "status-project", "status": "active"}},
+			}}}})
+		case "/v1/projects/" + projectID + "/repositories":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"repositories": []map[string]any{{
+					"id": repositoryID, "project_id": projectID, "name": "status", "slug": "status",
+					"remote_url": remoteURL, "primary": true, "required": true, "status": "active",
+				}},
+				"sync_states": []any{},
+			}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("PACT_CONFIG_DIR", t.TempDir())
+	t.Setenv("PACT_CREDENTIAL_STORE", "memory")
+	if _, err := userconfig.SaveAuthorizedProfile(server.URL, credential, userconfig.AuthorizedMetadata{ProfileLabel: "Status Server"}); err != nil {
+		t.Fatal(err)
+	}
+	root := newRealGitRepository(t, remoteURL+".git")
+	if _, err := localproject.Init(localproject.InitOptions{StartPath: root, Name: "Status project", ServerURL: server.URL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localproject.Bind(root, server.URL, projectID); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := run([]string{"status", "--path", root, "--json"}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatalf("status error = %v; stderr = %s", err, stderr.String())
+	}
+	var status folderStatusOutput
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Server.URL != server.URL || status.Workspace == nil || status.Workspace.ID != workspaceID || status.Repository == nil || status.Repository.ID != repositoryID {
+		t.Fatalf("status = %#v", status)
 	}
 }
 

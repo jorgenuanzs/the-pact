@@ -180,6 +180,23 @@ func TestFindRootSupportsGitWorktreeMetadata(t *testing.T) {
 	}
 }
 
+func TestFindBindingDistinguishesAbsentFromIncompleteState(t *testing.T) {
+	root := newGitRepository(t, "ref: refs/heads/main\n")
+	result, err := Init(InitOptions{StartPath: root, ServerURL: "https://pact.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := FindBinding(root); !found || err == nil || !strings.Contains(err.Error(), "valid remote project") {
+		t.Fatalf("FindBinding(incomplete) found=%v error=%v", found, err)
+	}
+	if err := os.Remove(result.LocalConfigPath); err != nil {
+		t.Fatal(err)
+	}
+	if binding, found, err := FindBinding(root); err != nil || found || binding.ServerURL != "" {
+		t.Fatalf("FindBinding(absent) = %#v, %v, %v", binding, found, err)
+	}
+}
+
 func newGitRepository(t *testing.T, head string) string {
 	t.Helper()
 	root := t.TempDir()

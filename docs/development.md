@@ -37,6 +37,16 @@ dispositivo con tu cuenta:
 ./bin/pact login --server http://127.0.0.1:8080
 ```
 
+El mismo computador puede mantener varios perfiles autorizados. El perfil
+activo es solamente la preferencia para comandos que no se ejecutan dentro de
+un checkout vinculado:
+
+```sh
+./bin/pact login --server https://pact.example.com --name "Equipo remoto"
+./bin/pact servers list
+./bin/pact servers use http://127.0.0.1:8080
+```
+
 Después ejecuta:
 
 ```sh
@@ -50,12 +60,13 @@ pact.yaml          manifiesto compartido, debe versionarse con Git
 .pact/config.json  vínculo de esta máquina, está ignorado por Git
 ```
 
-La configuración local contiene la URL de Pact Server y el UUID remoto del
-proyecto, pero no contraseñas ni credenciales de PostgreSQL. La credencial
-revocable del dispositivo se guarda fuera de todos los repositorios en
-`~/.config/pact/config.json` en macOS y Linux, o en
-`%APPDATA%\Pact\config.json` en Windows. Unix aplica permisos `0600`; Windows
-protege el archivo mediante las ACL heredadas del perfil privado del usuario.
+La configuración del checkout contiene la URL de Pact Server y el UUID remoto
+del proyecto, pero no contraseñas ni credenciales de PostgreSQL. El registro
+global contiene solo metadatos de los perfiles. Las credenciales revocables de
+dispositivo se guardan en macOS Keychain, Windows Credential Manager o el
+keyring nativo del usuario. Un comando ejecutado dentro de un checkout resuelve
+siempre el perfil indicado por `.pact/config.json`; nunca utiliza en silencio
+la credencial de otro servidor activo.
 
 Para conectar otro checkout que recibió `pact.yaml` mediante Git:
 
@@ -114,8 +125,9 @@ Puede comprobar y retirar su identidad así:
 
 ```sh
 ./bin/pact login --server http://127.0.0.1:8080
+./bin/pact servers list
 ./bin/pact whoami
-./bin/pact logout
+./bin/pact logout --server http://127.0.0.1:8080
 ```
 
 PostgreSQL conserva solamente digests de invitaciones, sesiones y credenciales

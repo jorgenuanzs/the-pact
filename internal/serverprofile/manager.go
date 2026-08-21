@@ -70,22 +70,43 @@ func (m *Manager) FindByURL(serverURL string) (Profile, error) {
 }
 
 func (m *Manager) Active() (AuthorizedProfile, error) {
-	state, err := m.load()
+	profile, err := m.ActiveMetadata()
 	if err != nil {
 		return AuthorizedProfile{}, err
 	}
+	return m.authorize(profile)
+}
+
+// ActiveMetadata returns the preferred profile without reading its secret.
+// Listing and selecting profiles must keep working even when a native
+// credential store entry has been removed outside PACT.
+func (m *Manager) ActiveMetadata() (Profile, error) {
+	state, err := m.load()
+	if err != nil {
+		return Profile{}, err
+	}
 	if state.ActiveProfileID == "" {
-		return AuthorizedProfile{}, ErrNoActiveProfile
+		return Profile{}, ErrNoActiveProfile
 	}
 	index, err := profileIndex(state, state.ActiveProfileID)
 	if err != nil {
-		return AuthorizedProfile{}, ErrNoActiveProfile
+		return Profile{}, ErrNoActiveProfile
 	}
-	return m.authorize(state.Profiles[index])
+	return state.Profiles[index], nil
 }
 
 func (m *Manager) AuthorizedForURL(serverURL string) (AuthorizedProfile, error) {
 	profile, err := m.FindByURL(serverURL)
+	if err != nil {
+		return AuthorizedProfile{}, err
+	}
+	return m.authorize(profile)
+}
+
+// Authorized resolves a profile ID or normalized server URL and retrieves its
+// device credential. It never falls back to the active profile.
+func (m *Manager) Authorized(identifier string) (AuthorizedProfile, error) {
+	profile, err := m.Get(identifier)
 	if err != nil {
 		return AuthorizedProfile{}, err
 	}
