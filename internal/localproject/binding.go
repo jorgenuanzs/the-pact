@@ -53,6 +53,14 @@ type BindOptions struct {
 // the resolved project is unchanged; changing any existing destination
 // requires the explicit Rebind option.
 func Bind(startPath string, options BindOptions) (Binding, error) {
+	return bind(startPath, options, writeLocalConfig)
+}
+
+func bind(
+	startPath string,
+	options BindOptions,
+	writeConfig func(string, localConfig) error,
+) (Binding, error) {
 	root, err := FindRoot(startPath)
 	if err != nil {
 		return Binding{}, err
@@ -145,7 +153,7 @@ func Bind(startPath string, options BindOptions) (Binding, error) {
 		GitRemoteFingerprint: fingerprint,
 		ConfiguredAt:         &configuredAt,
 	}
-	if err := writeLocalConfig(configPath, target); err != nil {
+	if err := writeConfig(configPath, target); err != nil {
 		return Binding{}, fmt.Errorf("write local Pact binding: %w", err)
 	}
 	if err := reconcileExistingNodeIdentity(root, serverURL, serverChanged); err != nil {
