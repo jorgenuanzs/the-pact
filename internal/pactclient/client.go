@@ -21,6 +21,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorybinding"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
@@ -97,6 +98,23 @@ func (c *Client) ListProjects(ctx context.Context) ([]projects.Project, error) {
 		response.Data.Projects = make([]projects.Project, 0)
 	}
 	return response.Data.Projects, nil
+}
+
+func (c *Client) ResolveRepositoryBinding(
+	ctx context.Context, input repositorybinding.ResolveInput,
+) ([]repositorybinding.Match, error) {
+	var response struct {
+		Data struct {
+			Matches []repositorybinding.Match `json:"matches"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/repository-bindings/resolve", "application/json", request{Body: input}, &response); err != nil {
+		return nil, err
+	}
+	if response.Data.Matches == nil {
+		response.Data.Matches = make([]repositorybinding.Match, 0)
+	}
+	return response.Data.Matches, nil
 }
 
 func (c *Client) GetRepositorySync(ctx context.Context, projectID string) (repositorysync.State, error) {

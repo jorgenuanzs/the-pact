@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import {
   desktopBridge,
   type DesktopDeviceLogin,
+  type DesktopServerProfile,
   type DesktopStatus,
   type LocalServerStatus,
 } from "@/platform/desktop";
@@ -18,6 +19,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
   const [serverURL, setServerURL] = useState("");
   const [authorization, setAuthorization] = useState<DesktopDeviceLogin | null>(null);
   const [localServer, setLocalServer] = useState<LocalServerStatus | null>(null);
+  const [profiles, setProfiles] = useState<DesktopServerProfile[]>([]);
   const [localSetupCode, setLocalSetupCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,9 +29,12 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     setPhase("checking");
     setError("");
     try {
-      const [current, local] = await Promise.all([native.Status(), native.LocalServerStatus()]);
+      const [current, local, profileList] = await Promise.all([
+        native.Status(), native.LocalServerStatus(), native.ListServerProfiles(),
+      ]);
       setStatus(current);
       setLocalServer(local);
+      setProfiles(profileList || []);
       setServerURL(current.server_url || current.default_url || "");
       if (current.connected) return;
       setPhase(current.configured ? "unreachable" : "server");
@@ -105,10 +110,22 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     setError("");
     try {
       await native.Disconnect(true);
-      setStatus(null);
-      setPhase("server");
+      await checkStatus();
     } catch (disconnectError) {
       setError(message(disconnectError, "No se pudo eliminar la conexión local."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const useProfile = async (profileID: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await native.UseServerProfile(profileID);
+      await checkStatus();
+    } catch (profileError) {
+      setError(message(profileError, "No se pudo abrir esa conexión PACT."));
     } finally {
       setBusy(false);
     }
@@ -191,7 +208,12 @@ export function DesktopGate({ children }: { children: ReactNode }) {
             <p>Este computador está vinculado con <strong>{status?.server_url}</strong>, pero el servidor no respondió o la autorización dejó de ser válida.</p>
             <p className={styles.error}>{status?.error || error}</p>
             <button className={styles.primary} type="button" disabled={busy} onClick={() => void checkStatus()}>Intentar nuevamente</button>
-            <button className={styles.secondary} type="button" disabled={busy} onClick={() => void forgetConnection()}>Conectar otro servidor</button>
+            {profiles.filter((profile) => !profile.active).map((profile) => (
+              <button key={profile.id} className={styles.secondary} type="button" disabled={busy} onClick={() => void useProfile(profile.id)}>
+                Abrir {profile.label}
+              </button>
+            ))}
+            <button className={styles.secondary} type="button" disabled={busy} onClick={() => void forgetConnection()}>Olvidar esta conexión</button>
           </div>
         ) : (
           <form className={styles.card} onSubmit={(event) => void beginLogin(event)}>

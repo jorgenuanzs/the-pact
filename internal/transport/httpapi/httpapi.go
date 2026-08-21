@@ -29,6 +29,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/platform/eventlog"
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorybinding"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi/adminui"
@@ -57,6 +58,10 @@ type ProjectRepositoryService interface {
 	List(context.Context, string) ([]projectrepo.Repository, error)
 	ListAvailable(context.Context, string) ([]projectrepo.AvailableRepository, error)
 	Attach(context.Context, string, string, projectrepo.AttachInput) (projectrepo.Repository, error)
+}
+
+type RepositoryBindingService interface {
+	Resolve(context.Context, repositorybinding.ResolveInput) ([]repositorybinding.Match, error)
 }
 
 type GitHubAppService interface {
@@ -174,6 +179,7 @@ type Config struct {
 	ProjectService           ProjectService
 	RepositorySyncService    RepositorySyncService
 	ProjectRepositoryService ProjectRepositoryService
+	RepositoryBindingService RepositoryBindingService
 	GitHubAppService         GitHubAppService
 	WorkspaceService         WorkspaceService
 	KnowledgeService         KnowledgeService
@@ -202,6 +208,7 @@ type API struct {
 	projects                 ProjectService
 	repositorySync           RepositorySyncService
 	projectRepositories      ProjectRepositoryService
+	repositoryBindings       RepositoryBindingService
 	githubApp                GitHubAppService
 	workspaces               WorkspaceService
 	knowledge                KnowledgeService
@@ -244,6 +251,7 @@ func New(cfg Config) http.Handler {
 		projects:                 cfg.ProjectService,
 		repositorySync:           cfg.RepositorySyncService,
 		projectRepositories:      cfg.ProjectRepositoryService,
+		repositoryBindings:       cfg.RepositoryBindingService,
 		githubApp:                cfg.GitHubAppService,
 		workspaces:               cfg.WorkspaceService,
 		knowledge:                cfg.KnowledgeService,
@@ -300,6 +308,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("POST /v1/admin/invitations", api.requireAuth(http.HandlerFunc(api.handleAdminCreateInvitation)))
 	mux.Handle("DELETE /v1/admin/invitations/{invitationID}", api.requireAuth(http.HandlerFunc(api.handleAdminRevokeInvitation)))
 	mux.Handle("GET /v1/projects", api.requireAuth(http.HandlerFunc(api.handleListProjects)))
+	mux.Handle("POST /v1/repository-bindings/resolve", api.requireAuth(http.HandlerFunc(api.handleResolveRepositoryBinding)))
 	mux.Handle("POST /v1/projects", api.requireAuth(http.HandlerFunc(api.handleCreateProject)))
 	mux.Handle("GET /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleListWorkspaces)))
 	mux.Handle("POST /v1/workspaces", api.requireAuth(http.HandlerFunc(api.handleCreateWorkspace)))
@@ -365,6 +374,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/admin", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/admin/", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/projects", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
+	mux.Handle("/v1/repository-bindings/resolve", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/workspaces", api.methodNotAllowed(http.MethodGet+", "+http.MethodPost))
 	mux.Handle("/v1/workspaces/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch))
@@ -2235,6 +2245,7 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	var repositorySyncValidationErr *repositorysync.ValidationError
 	var providerErr *repositorysync.ProviderError
 	var projectRepositoryValidationErr *projectrepo.ValidationError
+	var repositoryBindingValidationErr *repositorybinding.ValidationError
 	var githubProviderErr *githubapp.ProviderError
 	var userAdminValidationErr *useradmin.ValidationError
 	var scopeConflictErr *coordination.ScopeConflictError
@@ -2261,6 +2272,8 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", repositorySyncValidationErr.Error())
 	case errors.As(err, &projectRepositoryValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", projectRepositoryValidationErr.Error())
+	case errors.As(err, &repositoryBindingValidationErr):
+		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", repositoryBindingValidationErr.Error())
 	case errors.As(err, &userAdminValidationErr):
 		writeProblem(w, r, http.StatusBadRequest, "validation_error", "Invalid request", userAdminValidationErr.Error())
 	case errors.As(err, &githubProviderErr):

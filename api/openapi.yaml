@@ -116,6 +116,39 @@ paths:
             text/html:
               schema:
                 type: string
+  /v1/repository-bindings/resolve:
+    post:
+      tags:
+        - Repositories
+      operationId: resolveRepositoryBinding
+      summary: Resuelve un remoto Git contra repositorios visibles
+      description: |
+        Compara una identidad Git normalizada con los repositorios vinculados
+        a workspaces visibles para la identidad autenticada. Nunca recibe ni
+        devuelve rutas locales y no revela coincidencias sin acceso.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveRepositoryBindingRequest"
+      responses:
+        "200":
+          description: Coincidencias visibles, posiblemente vacías.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveRepositoryBindingResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/projects:
     get:
       tags:
@@ -3706,6 +3739,77 @@ components:
         status:
           type: string
           enum: [read, responded, dismissed]
+    ResolveRepositoryBindingRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - remote_url
+      properties:
+        remote_url:
+          type: string
+          minLength: 1
+          description: Remoto Git SSH, HTTPS, ssh:// o git://, limpiado antes de registrarse.
+          example: git@github.com:nuanzs/footfall-api.git
+        workspace_id:
+          type: string
+          format: uuid
+          description: Filtro opcional por workspace visible.
+    ResolveRepositoryBindingResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          required:
+            - matches
+          properties:
+            matches:
+              type: array
+              items:
+                $ref: "#/components/schemas/RepositoryBindingMatch"
+    RepositoryBindingMatch:
+      type: object
+      required:
+        - workspace_id
+        - workspace_name
+        - workspace_slug
+        - project_id
+        - project_name
+        - repository_id
+        - repository_name
+        - repository_slug
+        - primary
+        - match
+        - permission
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        workspace_name:
+          type: string
+        workspace_slug:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+        project_name:
+          type: string
+        repository_id:
+          type: string
+          format: uuid
+        repository_name:
+          type: string
+        repository_slug:
+          type: string
+        primary:
+          type: boolean
+        match:
+          type: string
+          enum: [exact]
+        permission:
+          type: string
+          enum: [viewer, contributor, maintainer, owner]
     CreateProjectRequest:
       type: object
       additionalProperties: false

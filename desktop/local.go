@@ -18,13 +18,27 @@ import (
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/agentconfig"
+	"github.com/jorgenuanzs/the-pact/internal/gitremote"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/localserver"
+	"github.com/jorgenuanzs/the-pact/internal/pactclient"
+	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorybinding"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-const localStateSchemaVersion = 1
+const localStateSchemaVersion = 2
+
+type DesktopServerProfile struct {
+	ID             string `json:"id"`
+	Label          string `json:"label"`
+	ServerURL      string `json:"server_url"`
+	Kind           string `json:"kind"`
+	PrincipalLabel string `json:"principal_label,omitempty"`
+	Active         bool   `json:"active"`
+}
 
 type LocalClientStatus struct {
 	ID               string `json:"id"`
@@ -35,39 +49,79 @@ type LocalClientStatus struct {
 }
 
 type LocalFolder struct {
-	Root       string   `json:"root"`
-	Name       string   `json:"name"`
-	ServerURL  string   `json:"server_url"`
-	ProjectID  string   `json:"project_id"`
-	Clients    []string `json:"clients"`
-	Available  bool     `json:"available"`
-	Status     string   `json:"status,omitempty"`
-	Configured string   `json:"configured_at,omitempty"`
+	Root         string   `json:"root"`
+	Name         string   `json:"name"`
+	ProfileID    string   `json:"profile_id,omitempty"`
+	ServerURL    string   `json:"server_url"`
+	WorkspaceID  string   `json:"workspace_id,omitempty"`
+	RepositoryID string   `json:"repository_id,omitempty"`
+	ProjectID    string   `json:"project_id"`
+	Clients      []string `json:"clients"`
+	Available    bool     `json:"available"`
+	Status       string   `json:"status,omitempty"`
+	Configured   string   `json:"configured_at,omitempty"`
 }
 
 type LocalComputerStatus struct {
-	Hostname        string              `json:"hostname"`
-	OperatingSystem string              `json:"operating_system"`
-	Architecture    string              `json:"architecture"`
-	RuntimeReady    bool                `json:"runtime_ready"`
-	RuntimePath     string              `json:"runtime_path,omitempty"`
-	RuntimeVersion  string              `json:"runtime_version,omitempty"`
-	RuntimeError    string              `json:"runtime_error,omitempty"`
-	ServerURL       string              `json:"server_url,omitempty"`
-	Clients         []LocalClientStatus `json:"clients"`
-	Folders         []LocalFolder       `json:"folders"`
-	ManagedServer   localserver.Status  `json:"managed_server"`
+	Hostname        string                 `json:"hostname"`
+	OperatingSystem string                 `json:"operating_system"`
+	Architecture    string                 `json:"architecture"`
+	RuntimeReady    bool                   `json:"runtime_ready"`
+	RuntimePath     string                 `json:"runtime_path,omitempty"`
+	RuntimeVersion  string                 `json:"runtime_version,omitempty"`
+	RuntimeError    string                 `json:"runtime_error,omitempty"`
+	ServerURL       string                 `json:"server_url,omitempty"`
+	ActiveProfileID string                 `json:"active_profile_id,omitempty"`
+	Profiles        []DesktopServerProfile `json:"profiles"`
+	Clients         []LocalClientStatus    `json:"clients"`
+	Folders         []LocalFolder          `json:"folders"`
+	ManagedServer   localserver.Status     `json:"managed_server"`
 }
 
 type LocalFolderInspection struct {
-	Canceled  bool     `json:"canceled"`
-	Connected bool     `json:"connected"`
-	Root      string   `json:"root,omitempty"`
-	Name      string   `json:"name,omitempty"`
-	ServerURL string   `json:"server_url,omitempty"`
-	ProjectID string   `json:"project_id,omitempty"`
-	Clients   []string `json:"clients,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	Canceled     bool     `json:"canceled"`
+	Connected    bool     `json:"connected"`
+	Root         string   `json:"root,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	RemoteURL    string   `json:"remote_url,omitempty"`
+	Branch       string   `json:"branch,omitempty"`
+	Revision     string   `json:"revision,omitempty"`
+	ProfileID    string   `json:"profile_id,omitempty"`
+	ServerURL    string   `json:"server_url,omitempty"`
+	WorkspaceID  string   `json:"workspace_id,omitempty"`
+	RepositoryID string   `json:"repository_id,omitempty"`
+	ProjectID    string   `json:"project_id,omitempty"`
+	Clients      []string `json:"clients,omitempty"`
+	Error        string   `json:"error,omitempty"`
+}
+
+type ResolveLocalFolderInput struct {
+	ProjectRoot string `json:"project_root"`
+	ProfileID   string `json:"profile_id"`
+}
+
+type LocalFolderResolution struct {
+	Folder     LocalFolderInspection     `json:"folder"`
+	Profile    DesktopServerProfile      `json:"profile"`
+	Workspaces []workspaces.Workspace    `json:"workspaces"`
+	Matches    []repositorybinding.Match `json:"matches"`
+}
+
+type BindLocalFolderInput struct {
+	ProjectRoot    string   `json:"project_root"`
+	ProfileID      string   `json:"profile_id"`
+	WorkspaceID    string   `json:"workspace_id"`
+	ProjectID      string   `json:"project_id,omitempty"`
+	RepositoryID   string   `json:"repository_id,omitempty"`
+	CreateIfNeeded bool     `json:"create_if_needed"`
+	Rebind         bool     `json:"rebind"`
+	Clients        []string `json:"clients"`
+}
+
+type BindLocalFolderResult struct {
+	Folder  LocalFolderInspection     `json:"folder"`
+	Clients []ConnectLocalAgentResult `json:"clients"`
+	Created bool                      `json:"created"`
 }
 
 type ConnectLocalAgentInput struct {
@@ -92,7 +146,10 @@ type localState struct {
 type localRecord struct {
 	Root         string   `json:"root"`
 	Name         string   `json:"name"`
+	ProfileID    string   `json:"profile_id,omitempty"`
 	ServerURL    string   `json:"server_url"`
+	WorkspaceID  string   `json:"workspace_id,omitempty"`
+	RepositoryID string   `json:"repository_id,omitempty"`
 	ProjectID    string   `json:"project_id"`
 	Clients      []string `json:"clients"`
 	ConfiguredAt string   `json:"configured_at"`
@@ -107,11 +164,20 @@ func (d *Desktop) LocalComputerStatus() LocalComputerStatus {
 		Hostname:        hostname,
 		OperatingSystem: goruntime.GOOS,
 		Architecture:    goruntime.GOARCH,
+		Profiles:        make([]DesktopServerProfile, 0),
 		Clients:         make([]LocalClientStatus, 0),
 		Folders:         make([]LocalFolder, 0),
 	}
-	if config, loadErr := userconfig.Load(); loadErr == nil {
-		result.ServerURL = config.ServerURL
+	if profiles, profileErr := userconfig.ListProfiles(); profileErr == nil {
+		active, _ := userconfig.ActiveProfile()
+		result.ActiveProfileID = active.ID
+		for _, profile := range profiles {
+			presentation := desktopServerProfile(profile.ID, profile.Label, profile.ServerURL, string(profile.Kind), profile.PrincipalLabel, profile.ID == active.ID)
+			result.Profiles = append(result.Profiles, presentation)
+			if presentation.Active {
+				result.ServerURL = presentation.ServerURL
+			}
+		}
 	}
 	runtimePath, runtimeVersion, runtimeErr := ensureLocalRuntime()
 	if runtimeErr != nil {
@@ -147,7 +213,7 @@ func (d *Desktop) SelectLocalProjectFolder() (LocalFolderInspection, error) {
 		return LocalFolderInspection{}, errors.New("desktop window is not ready")
 	}
 	selected, err := app.Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
-		Title:                "Selecciona una carpeta Git conectada a PACT",
+		Title:                "Selecciona una carpeta Git",
 		CanChooseDirectories: true,
 		CanChooseFiles:       false,
 		CanCreateDirectories: false,
@@ -166,6 +232,136 @@ func (d *Desktop) InspectLocalProjectFolder(path string) LocalFolderInspection {
 	return inspectLocalFolder(path)
 }
 
+func (d *Desktop) ListServerProfiles() ([]DesktopServerProfile, error) {
+	profiles, err := userconfig.ListProfiles()
+	if err != nil {
+		return nil, err
+	}
+	active, _ := userconfig.ActiveProfile()
+	result := make([]DesktopServerProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		result = append(result, desktopServerProfile(
+			profile.ID, profile.Label, profile.ServerURL, string(profile.Kind),
+			profile.PrincipalLabel, profile.ID == active.ID,
+		))
+	}
+	return result, nil
+}
+
+func (d *Desktop) UseServerProfile(identifier string) (DesktopStatus, error) {
+	if err := userconfig.SetActiveProfile(strings.TrimSpace(identifier)); err != nil {
+		return DesktopStatus{}, err
+	}
+	return d.Status(), nil
+}
+
+func (d *Desktop) ResolveLocalFolder(input ResolveLocalFolderInput) (LocalFolderResolution, error) {
+	inspection := inspectLocalFolder(input.ProjectRoot)
+	if inspection.Error != "" {
+		return LocalFolderResolution{}, errors.New(inspection.Error)
+	}
+	profile, err := userconfig.AuthorizedProfile(strings.TrimSpace(input.ProfileID))
+	if err != nil {
+		return LocalFolderResolution{}, fmt.Errorf("la conexión PACT seleccionada no está autorizada: %w", err)
+	}
+	client, err := pactclient.New(profile.ServerURL, profile.DeviceCredential)
+	if err != nil {
+		return LocalFolderResolution{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	workspaceList, err := client.ListWorkspaces(ctx)
+	if err != nil {
+		return LocalFolderResolution{}, fmt.Errorf("cargar workspaces de %s: %w", profile.Label, err)
+	}
+	matches, err := client.ResolveRepositoryBinding(ctx, repositorybinding.ResolveInput{RemoteURL: inspection.RemoteURL})
+	if err != nil {
+		return LocalFolderResolution{}, fmt.Errorf("resolver repositorio en %s: %w", profile.Label, err)
+	}
+	inspection.ProfileID = profile.ID
+	return LocalFolderResolution{
+		Folder:     inspection,
+		Profile:    desktopServerProfile(profile.ID, profile.Label, profile.ServerURL, string(profile.Kind), profile.PrincipalLabel, true),
+		Workspaces: workspaceList,
+		Matches:    matches,
+	}, nil
+}
+
+func (d *Desktop) BindLocalFolder(input BindLocalFolderInput) (BindLocalFolderResult, error) {
+	checkout, err := localproject.InspectCheckout(strings.TrimSpace(input.ProjectRoot))
+	if err != nil {
+		return BindLocalFolderResult{}, err
+	}
+	profile, err := userconfig.AuthorizedProfile(strings.TrimSpace(input.ProfileID))
+	if err != nil {
+		return BindLocalFolderResult{}, fmt.Errorf("la conexión PACT seleccionada no está autorizada: %w", err)
+	}
+	client, err := pactclient.New(profile.ServerURL, profile.DeviceCredential)
+	if err != nil {
+		return BindLocalFolderResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	repositoryID := strings.TrimSpace(input.RepositoryID)
+	created := false
+	if projectID == "" || repositoryID == "" {
+		if !input.CreateIfNeeded {
+			return BindLocalFolderResult{}, errors.New("selecciona un repositorio registrado o autoriza su creación en el workspace")
+		}
+		project, wasCreated, resolveErr := ensureDesktopProject(ctx, client, checkout)
+		if resolveErr != nil {
+			return BindLocalFolderResult{}, resolveErr
+		}
+		if _, attachErr := client.AttachWorkspaceProject(ctx, strings.TrimSpace(input.WorkspaceID), project.ID); attachErr != nil {
+			return BindLocalFolderResult{}, fmt.Errorf("vincular proyecto al workspace: %w", attachErr)
+		}
+		if project.RootRepository == nil {
+			return BindLocalFolderResult{}, errors.New("el proyecto PACT no tiene un repositorio raíz")
+		}
+		projectID = project.ID
+		repositoryID = project.RootRepository.ID
+		created = wasCreated
+	} else {
+		matches, resolveErr := client.ResolveRepositoryBinding(ctx, repositorybinding.ResolveInput{
+			RemoteURL: checkout.RemoteURL, WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		})
+		if resolveErr != nil {
+			return BindLocalFolderResult{}, resolveErr
+		}
+		if !containsBindingMatch(matches, projectID, repositoryID) {
+			return BindLocalFolderResult{}, errors.New("el repositorio seleccionado ya no coincide con esta carpeta o ya no es accesible")
+		}
+	}
+
+	if _, err := localproject.Init(localproject.InitOptions{
+		StartPath: checkout.Root, Name: checkout.Name, ServerURL: profile.ServerURL,
+		AllowServerChange: input.Rebind,
+	}); err != nil {
+		return BindLocalFolderResult{}, err
+	}
+	binding, err := localproject.Bind(checkout.Root, localproject.BindOptions{
+		ServerURL: profile.ServerURL, WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		RepositoryID: repositoryID, ProjectID: projectID, Rebind: input.Rebind,
+	})
+	if err != nil {
+		return BindLocalFolderResult{}, err
+	}
+	results := make([]ConnectLocalAgentResult, 0, len(input.Clients))
+	for _, clientID := range uniqueLocalClients(input.Clients) {
+		configured, configureErr := connectLocalAgent(binding, clientID)
+		if configureErr != nil {
+			return BindLocalFolderResult{}, fmt.Errorf("configurar %s: %w", clientID, configureErr)
+		}
+		results = append(results, configured)
+	}
+	if err := rememberLocalBinding(binding, profile.ID, uniqueLocalClients(input.Clients)); err != nil {
+		return BindLocalFolderResult{}, err
+	}
+	return BindLocalFolderResult{Folder: inspectLocalFolder(binding.Root), Clients: results, Created: created}, nil
+}
+
 func (d *Desktop) ConnectLocalAgent(input ConnectLocalAgentInput) (ConnectLocalAgentResult, error) {
 	clientID := strings.ToLower(strings.TrimSpace(input.Client))
 	if clientID != "codex" && clientID != "claude" {
@@ -175,13 +371,21 @@ func (d *Desktop) ConnectLocalAgent(input ConnectLocalAgentInput) (ConnectLocalA
 	if err != nil {
 		return ConnectLocalAgentResult{}, err
 	}
-	login, err := userconfig.Load()
+	profile, err := userconfig.FindProfileByURL(binding.ServerURL)
 	if err != nil {
-		return ConnectLocalAgentResult{}, errors.New("PACT Desktop is not connected to a server")
+		return ConnectLocalAgentResult{}, fmt.Errorf("esta carpeta pertenece a %s, pero este computador no tiene una conexión autorizada para ese servidor", binding.ServerURL)
 	}
-	if binding.ServerURL != login.ServerURL {
-		return ConnectLocalAgentResult{}, fmt.Errorf("this folder belongs to %s, but PACT Desktop is connected to %s", binding.ServerURL, login.ServerURL)
+	result, err := connectLocalAgent(binding, clientID)
+	if err != nil {
+		return ConnectLocalAgentResult{}, err
 	}
+	if err := rememberLocalBinding(binding, profile.ID, configuredClients(binding.Root)); err != nil {
+		return ConnectLocalAgentResult{}, err
+	}
+	return result, nil
+}
+
+func connectLocalAgent(binding localproject.Binding, clientID string) (ConnectLocalAgentResult, error) {
 	runtimePath, _, err := ensureLocalRuntime()
 	if err != nil {
 		return ConnectLocalAgentResult{}, err
@@ -215,36 +419,45 @@ func (d *Desktop) ConnectLocalAgent(input ConnectLocalAgentInput) (ConnectLocalA
 		result.ConfigPath = configured.ConfigPath
 		result.Changed = configured.Changed
 	}
-	if err := rememberLocalConnection(binding, clientID); err != nil {
-		return ConnectLocalAgentResult{}, err
-	}
 	return result, nil
 }
 
 func inspectLocalFolder(path string) LocalFolderInspection {
-	root, err := localproject.FindRoot(strings.TrimSpace(path))
+	checkout, err := localproject.InspectCheckout(strings.TrimSpace(path))
 	if err != nil {
 		return LocalFolderInspection{Error: err.Error()}
 	}
-	result := LocalFolderInspection{Root: root, Name: filepath.Base(root)}
-	if descriptor, describeErr := localproject.Describe(root); describeErr == nil && strings.TrimSpace(descriptor.Name) != "" {
+	result := LocalFolderInspection{
+		Root: checkout.Root, Name: checkout.Name, RemoteURL: checkout.RemoteURL,
+		Branch: checkout.DefaultBranch, Revision: checkout.CanonicalRevision,
+		Clients: configuredClients(checkout.Root),
+	}
+	if descriptor, describeErr := localproject.Describe(checkout.Root); describeErr == nil && strings.TrimSpace(descriptor.Name) != "" {
 		result.Name = descriptor.Name
 	}
-	binding, err := localproject.LoadBinding(root)
+	binding, found, err := localproject.FindBinding(checkout.Root)
+	if !found {
+		return result
+	}
 	if err != nil {
 		result.Error = err.Error()
 		return result
 	}
 	result.Connected = true
 	result.ServerURL = binding.ServerURL
+	result.WorkspaceID = binding.WorkspaceID
+	result.RepositoryID = binding.RepositoryID
 	result.ProjectID = binding.ProjectID
-	result.Clients = configuredClients(root)
+	if profile, profileErr := userconfig.FindProfileByURL(binding.ServerURL); profileErr == nil {
+		result.ProfileID = profile.ID
+	}
 	return result
 }
 
 func inspectLocalRecord(record localRecord) LocalFolder {
 	result := LocalFolder{
-		Root: record.Root, Name: record.Name, ServerURL: record.ServerURL,
+		Root: record.Root, Name: record.Name, ProfileID: record.ProfileID, ServerURL: record.ServerURL,
+		WorkspaceID: record.WorkspaceID, RepositoryID: record.RepositoryID,
 		ProjectID: record.ProjectID, Clients: append([]string(nil), record.Clients...),
 		Configured: record.ConfiguredAt,
 	}
@@ -260,7 +473,10 @@ func inspectLocalRecord(record localRecord) LocalFolder {
 	}
 	result.Available = true
 	result.Name = inspection.Name
+	result.ProfileID = inspection.ProfileID
 	result.ServerURL = inspection.ServerURL
+	result.WorkspaceID = inspection.WorkspaceID
+	result.RepositoryID = inspection.RepositoryID
 	result.ProjectID = inspection.ProjectID
 	result.Clients = inspection.Clients
 	return result
@@ -360,7 +576,7 @@ func ensureLocalRuntime() (string, string, error) {
 	return path, version, nil
 }
 
-func rememberLocalConnection(binding localproject.Binding, clientID string) error {
+func rememberLocalBinding(binding localproject.Binding, profileID string, clients []string) error {
 	state, err := loadLocalState()
 	if err != nil {
 		return err
@@ -374,13 +590,13 @@ func rememberLocalConnection(binding localproject.Binding, clientID string) erro
 	if descriptor, describeErr := localproject.Describe(binding.Root); describeErr == nil && descriptor.Name != "" {
 		record.Name = descriptor.Name
 	}
+	record.ProfileID = profileID
 	record.ServerURL = binding.ServerURL
+	record.WorkspaceID = binding.WorkspaceID
+	record.RepositoryID = binding.RepositoryID
 	record.ProjectID = binding.ProjectID
 	record.ConfiguredAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if !containsString(record.Clients, clientID) {
-		record.Clients = append(record.Clients, clientID)
-		sort.Strings(record.Clients)
-	}
+	record.Clients = uniqueLocalClients(append(record.Clients, clients...))
 	state.Folders[binding.Root] = record
 	return saveLocalState(state)
 }
@@ -398,14 +614,13 @@ func loadLocalState() (localState, error) {
 		return localState{}, fmt.Errorf("read desktop local state: %w", err)
 	}
 	var state localState
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&state); err != nil {
+	if err := json.Unmarshal(content, &state); err != nil {
 		return localState{}, fmt.Errorf("decode desktop local state: %w", err)
 	}
-	if state.SchemaVersion != localStateSchemaVersion {
+	if state.SchemaVersion != 1 && state.SchemaVersion != localStateSchemaVersion {
 		return localState{}, fmt.Errorf("unsupported desktop local state version %d", state.SchemaVersion)
 	}
+	state.SchemaVersion = localStateSchemaVersion
 	if state.Folders == nil {
 		state.Folders = make(map[string]localRecord)
 	}
@@ -484,13 +699,69 @@ func writeLocalAtomic(path string, payload []byte, mode os.FileMode) error {
 	return nil
 }
 
-func containsString(values []string, expected string) bool {
+func uniqueLocalClients(values []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(values))
 	for _, value := range values {
-		if value == expected {
+		clientID := strings.ToLower(strings.TrimSpace(value))
+		if (clientID != "codex" && clientID != "claude") || seen[clientID] {
+			continue
+		}
+		seen[clientID] = true
+		result = append(result, clientID)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func desktopServerProfile(id, label, serverURL, kind, principalLabel string, active bool) DesktopServerProfile {
+	return DesktopServerProfile{
+		ID: id, Label: label, ServerURL: serverURL, Kind: kind,
+		PrincipalLabel: principalLabel, Active: active,
+	}
+}
+
+func containsBindingMatch(matches []repositorybinding.Match, projectID, repositoryID string) bool {
+	for _, match := range matches {
+		if match.ProjectID == projectID && match.RepositoryID == repositoryID {
 			return true
 		}
 	}
 	return false
+}
+
+func ensureDesktopProject(
+	ctx context.Context,
+	client *pactclient.Client,
+	checkout localproject.Checkout,
+) (projects.Project, bool, error) {
+	projectList, err := client.ListProjects(ctx)
+	if err != nil {
+		return projects.Project{}, false, err
+	}
+	for _, project := range projectList {
+		if project.RootRepository == nil || project.RootRepository.RemoteURL == nil {
+			continue
+		}
+		registered, normalizeErr := gitremote.Normalize(*project.RootRepository.RemoteURL)
+		if normalizeErr == nil && registered == checkout.RemoteURL {
+			return project, false, nil
+		}
+	}
+	revision := checkout.CanonicalRevision
+	input := projects.CreateInput{
+		Name: checkout.Name, Slug: checkout.Slug, CanonicalRevision: &revision,
+		RootRepository: &projects.SourceRepositoryInput{
+			Slug: "primary", Name: "Primary", RemoteURL: checkout.RemoteURL,
+			DefaultBranch: checkout.DefaultBranch, ObjectFormat: checkout.ObjectFormat,
+		},
+	}
+	digest := sha256.Sum256([]byte("desktop.project.init\x00" + checkout.RemoteURL))
+	project, err := client.CreateProject(ctx, "pact-desktop-init-"+hex.EncodeToString(digest[:]), input)
+	if err != nil {
+		return projects.Project{}, false, fmt.Errorf("registrar repositorio en PACT Server: %w", err)
+	}
+	return project, true, nil
 }
 
 func joinLocalError(current, next string) string {

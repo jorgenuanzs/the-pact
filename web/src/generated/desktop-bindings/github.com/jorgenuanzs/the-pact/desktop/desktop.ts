@@ -25,6 +25,10 @@ export function BeginDeviceLogin(serverURL: string): $CancellablePromise<$models
     return $Call.ByID(2344082844, serverURL);
 }
 
+export function BindLocalFolder(input: $models.BindLocalFolderInput): $CancellablePromise<$models.BindLocalFolderResult> {
+    return $Call.ByID(2015124562, input);
+}
+
 export function CheckForUpdates(): $CancellablePromise<$models.DesktopUpdateStatus> {
     return $Call.ByID(4205336899);
 }
@@ -45,6 +49,10 @@ export function InstallLocalServer(input: $models.LocalServerInstallInput): $Can
     return $Call.ByID(366939033, input);
 }
 
+export function ListServerProfiles(): $CancellablePromise<$models.DesktopServerProfile[] | null> {
+    return $Call.ByID(2621517257);
+}
+
 export function LocalComputerStatus(): $CancellablePromise<$models.LocalComputerStatus> {
     return $Call.ByID(3391226512);
 }
@@ -59,6 +67,10 @@ export function OpenExternalURL(address: string): $CancellablePromise<void> {
 
 export function PollDeviceLogin(serverURL: string, deviceCode: string): $CancellablePromise<$models.DeviceLoginResult> {
     return $Call.ByID(4165907692, serverURL, deviceCode);
+}
+
+export function ResolveLocalFolder(input: $models.ResolveLocalFolderInput): $CancellablePromise<$models.LocalFolderResolution> {
+    return $Call.ByID(1233805295, input);
 }
 
 export function SelectLocalProjectFolder(): $CancellablePromise<$models.LocalFolderInspection> {
@@ -99,4 +111,8 @@ export function UpdateStatus(): $CancellablePromise<$models.DesktopUpdateStatus>
 
 export function UpgradeLocalServer(image: string): $CancellablePromise<$models.LocalServerUpgradeResult> {
     return $Call.ByID(3400160352, image);
+}
+
+export function UseServerProfile(identifier: string): $CancellablePromise<$models.DesktopStatus> {
+    return $Call.ByID(2672959473, identifier);
 }

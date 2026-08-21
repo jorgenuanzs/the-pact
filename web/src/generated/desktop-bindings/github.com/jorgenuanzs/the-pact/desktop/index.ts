@@ -7,10 +7,13 @@ export {
 };
 
 export type {
+    BindLocalFolderInput,
+    BindLocalFolderResult,
     ConnectLocalAgentInput,
     ConnectLocalAgentResult,
     DesktopAPIRequest,
     DesktopAPIResponse,
+    DesktopServerProfile,
     DesktopStatus,
     DesktopStreamMessage,
     DesktopUpdateStatus,
@@ -20,7 +23,9 @@ export type {
     LocalComputerStatus,
     LocalFolder,
     LocalFolderInspection,
+    LocalFolderResolution,
     LocalServerInstallInput,
     LocalServerInstallResult,
-    LocalServerUpgradeResult
+    LocalServerUpgradeResult,
+    ResolveLocalFolderInput
 } from "./models.js";

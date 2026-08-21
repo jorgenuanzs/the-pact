@@ -1,32 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import type { ProjectSummary, Workspace } from "@/api/types";
+import type { Workspace } from "@/api/types";
 import { Page } from "@/components/layout/Page";
 import {
   Button,
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Icon,
   StatusChip,
   useToast,
 } from "@/components/ui";
 import {
   desktopBridge,
-  type ConnectLocalAgentResult,
+  type BindLocalFolderResult,
+  type DesktopDeviceLogin,
   type DesktopUpdateStatus,
   type LocalClientStatus,
   type LocalComputerStatus,
-  type LocalFolderInspection,
 } from "@/platform/desktop";
 import { useWorkspace } from "@/features/workspaces/WorkspaceContext";
+import { LocalConnectionWizard } from "./LocalConnectionWizard";
 
-type LocalView = "overview" | "agents" | "folders" | "service";
+type LocalView = "overview" | "connections" | "agents" | "folders" | "service";
 type ClientID = "codex" | "claude";
 
 const viewCopy: Record<LocalView, { title: string; description: string }> = {
@@ -38,13 +32,17 @@ const viewCopy: Record<LocalView, { title: string; description: string }> = {
     title: "Clientes de IA",
     description: "Configura qué aplicaciones de IA pueden usar el contexto compartido de cada carpeta.",
   },
+  connections: {
+    title: "Conexiones PACT",
+    description: "Servidores autorizados en este computador. Cada carpeta conserva su propia conexión.",
+  },
   folders: {
     title: "Carpetas locales",
     description: "Checkouts de este equipo que ya tienen una integración local con PACT.",
   },
   service: {
-    title: "Runtime local",
-    description: "El componente nativo que los agentes ejecutan bajo demanda, separado de la interfaz de PACT Desktop.",
+    title: "Servidor y runtime local",
+    description: "Componentes que viven en este computador: el runtime para clientes y, opcionalmente, un PACT Server propio.",
   },
 };
 
@@ -64,6 +62,7 @@ function normalizeLocalStatus(status: LocalComputerStatus): LocalComputerStatus 
   return {
     ...status,
     managed_server: status.managed_server || { installed: false, running: false, ready: false },
+    profiles: Array.isArray(status.profiles) ? status.profiles : [],
     clients: Array.isArray(status.clients) ? status.clients : [],
     folders: Array.isArray(status.folders)
       ? status.folders.map((folder) => ({
@@ -116,11 +115,11 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
     setDialogOpen(true);
   };
 
-  const handleConnected = async (result: ConnectLocalAgentResult) => {
+  const handleConnected = async (result: BindLocalFolderResult) => {
     setDialogOpen(false);
     toast({
-      title: result.changed ? "Cliente conectado" : "La integración ya estaba actualizada",
-      description: result.restart_needed
+      title: result.created ? "Repositorio registrado y carpeta conectada" : "Carpeta conectada",
+      description: result.clients.some((client) => client.restart_needed)
         ? "Abre un chat nuevo en esa carpeta para que el cliente cargue PACT MCP."
         : undefined,
       tone: "success",
@@ -154,18 +153,21 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
             onConnect={openConnector}
           />
         ) : null}
+        {status && view === "connections" ? <LocalConnections status={status} onRefresh={refresh} /> : null}
         {status && view === "agents" ? <LocalAgents status={status} onConnect={openConnector} /> : null}
         {status && view === "folders" ? <LocalFolders status={status} onConnect={openConnector} /> : null}
         {status && view === "service" ? <LocalService status={status} updateStatus={updateStatus} onRefresh={refresh} /> : null}
       </div>
-      <ConnectAgentDialog
+      <LocalConnectionWizard
         open={dialogOpen}
         preferredClient={preferredClient}
-        currentServer={status?.server_url}
-        workspaces={directory.workspaces}
-        projects={directory.projects}
+        profiles={status?.profiles || []}
         onOpenChange={setDialogOpen}
         onConnected={(result) => void handleConnected(result)}
+        onManageConnections={() => {
+          setDialogOpen(false);
+          navigate("/local/connections");
+        }}
       />
     </Page>
   );
@@ -192,7 +194,7 @@ function LocalOverview({
           <span className="local-machine-icon"><Icon name="computer" size="lg" /></span>
           <span><strong>{status.hostname}</strong><small>{platformLabel(status)}</small></span>
         </div>
-        <div><span>PACT Server</span><strong>{status.server_url || "Sin conexión"}</strong></div>
+        <div><span>Conexiones PACT</span><strong>{status.profiles.length ? `${status.profiles.length} autorizada${status.profiles.length === 1 ? "" : "s"}` : "Sin conexiones"}</strong></div>
         <div><span>Runtime</span><StatusChip tone={status.runtime_ready ? "active" : "danger"}>{status.runtime_ready ? "Listo" : "No disponible"}</StatusChip></div>
       </section>
 
@@ -223,6 +225,11 @@ function LocalOverview({
           <small>Las rutas y los clientes no se copian a otros computadores.</small>
         </header>
         <div className="local-overview-grid">
+        <button type="button" onClick={() => onNavigate("connections")}>
+          <span><Icon name="server" /><strong>Conexiones PACT</strong></span>
+          <b>{status.profiles.length}</b>
+          <small>Servidores autorizados únicamente en este computador</small>
+        </button>
         <button type="button" onClick={() => onNavigate("agents")}>
           <span><Icon name="people" /><strong>Clientes de IA</strong></span>
           <b>{connectedClients} / {status.clients.length}</b>
@@ -234,7 +241,7 @@ function LocalOverview({
           <small>Checkouts recordados por este computador</small>
         </button>
         <button type="button" onClick={() => onNavigate("service")}>
-          <span><Icon name="server" /><strong>Runtime local</strong></span>
+          <span><Icon name="repository" /><strong>Servidor local</strong></span>
           <b>{status.runtime_ready ? "OK" : "Error"}</b>
           <small>Se inicia bajo demanda y no depende de la ventana</small>
         </button>
@@ -250,6 +257,104 @@ function LocalOverview({
         </div>
       </section>
     </>
+  );
+}
+
+function LocalConnections({ status, onRefresh }: { status: LocalComputerStatus; onRefresh: () => Promise<void> }) {
+  const bridge = desktopBridge();
+  const { toast } = useToast();
+  const [serverURL, setServerURL] = useState("");
+  const [authorization, setAuthorization] = useState<DesktopDeviceLogin | null>(null);
+  const [busy, setBusy] = useState("");
+  const [connectionError, setConnectionError] = useState("");
+
+  useEffect(() => {
+    if (!bridge || !authorization) return;
+    let active = true;
+    let timer = 0;
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const result = await bridge.PollDeviceLogin(authorization.server_url, authorization.device_code);
+        if (!active) return;
+        if (result.connected) {
+          setAuthorization(null);
+          toast({ title: "PACT Server conectado", description: authorization.server_url, tone: "success" });
+          window.location.reload();
+          return;
+        }
+        if (result.status !== "pending") {
+          setConnectionError(`La autorización terminó con estado ${result.status}.`);
+          setAuthorization(null);
+          return;
+        }
+      } catch (nextError) {
+        setConnectionError(errorMessage(nextError));
+      }
+      timer = window.setTimeout(poll, Math.max(1, authorization.interval_seconds) * 1_000);
+    };
+    timer = window.setTimeout(poll, Math.max(1, authorization.interval_seconds) * 1_000);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [authorization, bridge, toast]);
+
+  const connect = async () => {
+    if (!bridge || !serverURL.trim()) return;
+    setBusy("connect");
+    setConnectionError("");
+    try {
+      setAuthorization(await bridge.BeginDeviceLogin(serverURL));
+    } catch (nextError) {
+      setConnectionError(errorMessage(nextError));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const activate = async (profileID: string) => {
+    if (!bridge) return;
+    setBusy(profileID);
+    setConnectionError("");
+    try {
+      await bridge.UseServerProfile(profileID);
+      window.location.reload();
+    } catch (nextError) {
+      setConnectionError(errorMessage(nextError));
+      setBusy("");
+      await onRefresh();
+    }
+  };
+
+  return (
+    <div className="local-connections-layout">
+      <section className="local-section local-primary-section">
+        <header><div><span>CONEXIONES AUTORIZADAS</span><h2>PACT Servers de este computador</h2></div><small>{status.profiles.length} {status.profiles.length === 1 ? "conexión" : "conexiones"}</small></header>
+        <div className="local-profile-list">
+          {status.profiles.map((profile) => (
+            <article key={profile.id} data-active={profile.active || undefined}>
+              <span className="local-profile-server-icon"><Icon name="server" /></span>
+              <div><strong>{profile.label}</strong><code>{profile.server_url}</code><small>{profile.kind === "managed_local" ? "Servidor local administrado" : profile.principal_label || "Servidor remoto"}</small></div>
+              <StatusChip tone={profile.active ? "active" : "neutral"}>{profile.active ? "Abierto ahora" : "Autorizado"}</StatusChip>
+              {!profile.active ? <Button variant="secondary" size="sm" loading={busy === profile.id} onClick={() => void activate(profile.id)}>Abrir servidor</Button> : null}
+            </article>
+          ))}
+        </div>
+      </section>
+      <aside className="local-add-connection">
+        <p className="local-wizard-eyebrow">NUEVA CONEXIÓN</p>
+        <h2>Añadir PACT Server</h2>
+        <p>Autoriza este computador en otro servidor. Tus carpetas actuales no cambiarán de destino.</p>
+        <label>URL del servidor<input type="url" value={serverURL} placeholder="https://pact.example.com" onChange={(event) => setServerURL(event.target.value)} /></label>
+        <Button fullWidth loading={busy === "connect"} disabled={!serverURL.trim()} onClick={() => void connect()}>Conectar servidor</Button>
+        {authorization ? (
+          <div className="local-device-authorization">
+            <span>CÓDIGO DE AUTORIZACIÓN</span><strong>{authorization.user_code}</strong>
+            <small>Confirma el código en la ventana del navegador. PACT Desktop está esperando.</small>
+            <Button variant="secondary" size="sm" onClick={() => void bridge?.OpenExternalURL(authorization.verification_url)}>Abrir navegador</Button>
+          </div>
+        ) : null}
+        {connectionError ? <div className="local-inline-alert">{connectionError}</div> : null}
+      </aside>
+    </div>
   );
 }
 
@@ -456,143 +561,5 @@ function LocalService({
         <p>El runtime MCP y PACT Server son piezas diferentes. El runtime conecta agentes; el servidor mantiene el contexto y la coordinación compartida.</p>
       </aside>
     </div>
-  );
-}
-
-function ConnectAgentDialog({
-  open,
-  preferredClient,
-  currentServer,
-  workspaces,
-  projects,
-  onOpenChange,
-  onConnected,
-}: {
-  open: boolean;
-  preferredClient: ClientID;
-  currentServer?: string;
-  workspaces: Workspace[];
-  projects: ProjectSummary[];
-  onOpenChange: (open: boolean) => void;
-  onConnected: (result: ConnectLocalAgentResult) => void;
-}) {
-  const bridge = desktopBridge();
-  const [client, setClient] = useState<ClientID>(preferredClient);
-  const [folder, setFolder] = useState<LocalFolderInspection | null>(null);
-  const [selecting, setSelecting] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setClient(preferredClient);
-    setFolder(null);
-    setError("");
-    setSelecting(false);
-    setConnecting(false);
-  }, [open, preferredClient]);
-
-  const serverMatches = useMemo(() => Boolean(
-    folder?.connected && folder.server_url && currentServer && folder.server_url === currentServer,
-  ), [currentServer, folder]);
-  const project = useMemo(
-    () => projects.find((item) => item.id === folder?.project_id),
-    [folder?.project_id, projects],
-  );
-  const workspace = useMemo(
-    () => workspaces.find((item) => item.id === project?.workspace_id
-      || item.projects?.some((candidate) => candidate.id === folder?.project_id)),
-    [folder?.project_id, project?.workspace_id, workspaces],
-  );
-
-  const selectFolder = async () => {
-    if (!bridge) return;
-    setSelecting(true);
-    setError("");
-    try {
-      const selected = await bridge.SelectLocalProjectFolder();
-      if (!selected.canceled) setFolder(selected);
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-    } finally {
-      setSelecting(false);
-    }
-  };
-
-  const connect = async () => {
-    if (!bridge || !folder?.root || !serverMatches) return;
-    setConnecting(true);
-    setError("");
-    try {
-      onConnected(await bridge.ConnectLocalAgent({ client, project_root: folder.root }));
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" className="local-connect-dialog">
-        <DialogHeader>
-          <p className="pact-kicker">INTEGRACIÓN LOCAL</p>
-          <DialogTitle>Conectar un cliente a una carpeta</DialogTitle>
-          <DialogDescription>La carpeta define el workspace y el repositorio. Después eliges qué cliente puede utilizar PACT dentro de ese alcance.</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="local-wizard-step">
-            <span>1</span>
-            <div><strong>Selecciona la carpeta</strong><small>Debe ser un repositorio Git ya conectado al mismo PACT Server.</small></div>
-          </div>
-          <button type="button" className="local-folder-picker" onClick={() => void selectFolder()} disabled={selecting}>
-            <Icon name="folder" size="lg" />
-            <span>
-              <strong>{folder?.name || (selecting ? "Abriendo selector…" : "Elegir carpeta")}</strong>
-              <small>{folder?.root || "PACT no escanea tu disco; tú decides qué checkout conectar."}</small>
-            </span>
-            <b>{folder ? "Cambiar" : "Seleccionar"}</b>
-          </button>
-          {folder && !folder.connected ? <div className="local-inline-alert" role="alert">{folder.error || "Esta carpeta aún no está conectada a PACT."}</div> : null}
-          {folder?.connected && !serverMatches ? <div className="local-inline-alert" role="alert">La carpeta pertenece a {folder.server_url}, pero Desktop está conectado a {currentServer || "otro servidor"}.</div> : null}
-
-          <div className="local-wizard-step">
-            <span>2</span>
-            <div><strong>Elige el cliente</strong><small>Puedes conectar Codex y Claude por separado en esta misma carpeta.</small></div>
-          </div>
-          <div className="local-client-choice" role="radiogroup" aria-label="Cliente de IA">
-            {(["codex", "claude"] as const).map((candidate) => (
-              <button
-                key={candidate}
-                type="button"
-                role="radio"
-                aria-checked={client === candidate}
-                data-selected={client === candidate || undefined}
-                onClick={() => setClient(candidate)}
-              >
-                <span>{candidate === "codex" ? "CX" : "CL"}</span>
-                <strong>{candidate === "codex" ? "Codex" : "Claude Code"}</strong>
-                <small>Configuración MCP para esta carpeta</small>
-              </button>
-            ))}
-          </div>
-
-          {folder?.connected && serverMatches ? (
-            <div className="local-connection-preview">
-              <span><small>CARPETA</small><strong>{folder.name}</strong></span>
-              <span><small>WORKSPACE</small><strong>{workspace?.name || "Workspace vinculado"}</strong></span>
-              <span><small>REPOSITORIO</small><strong>{project?.name || folder.project_id || "Repositorio vinculado"}</strong></span>
-              <span><small>CLIENTE</small><strong>{client === "codex" ? "Codex" : "Claude Code"}</strong></span>
-              <span><small>PACT SERVER</small><code>{folder.server_url}</code></span>
-            </div>
-          ) : null}
-          {error ? <div className="local-inline-alert" role="alert">{error}</div> : null}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="secondary" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button disabled={!serverMatches} loading={connecting} onClick={() => void connect()}>Conectar cliente</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

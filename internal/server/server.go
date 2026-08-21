@@ -24,6 +24,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/projectrepo"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/repositorybinding"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
 	"github.com/jorgenuanzs/the-pact/internal/rooms"
 	"github.com/jorgenuanzs/the-pact/internal/transport/httpapi"
@@ -75,6 +76,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	projectService := projects.NewService(cfg.LocalOrganization, projectRepository)
 	projectRepositoryStore := projectrepo.NewPostgresRepository(pool)
 	projectRepositoryService := projectrepo.NewService(cfg.LocalOrganization, projectRepositoryStore)
+	repositoryBindingStore := repositorybinding.NewPostgresRepository(pool)
+	repositoryBindingService := repositorybinding.NewService(cfg.LocalOrganization, repositoryBindingStore)
 	githubAppRepository := githubapp.NewPostgresRepository(pool)
 	var githubAppClient *githubapp.Client
 	if cfg.GitHubAppConfigured() {
@@ -157,6 +160,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		ProjectService:           projectService,
 		RepositorySyncService:    repositorySyncService,
 		ProjectRepositoryService: projectRepositoryService,
+		RepositoryBindingService: repositoryBindingService,
 		GitHubAppService:         githubAppService,
 		WorkspaceService:         workspaceService,
 		KnowledgeService:         knowledgeService,

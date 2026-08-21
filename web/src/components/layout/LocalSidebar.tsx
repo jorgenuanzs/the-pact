@@ -5,9 +5,10 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 
 const entries: ReadonlyArray<{ path: string; label: string; icon: IconName; end?: boolean }> = [
   { path: "/local", label: "Resumen local", icon: "home", end: true },
-  { path: "/local/agents", label: "Clientes de IA", icon: "people" },
+  { path: "/local/connections", label: "Conexiones PACT", icon: "server" },
   { path: "/local/folders", label: "Carpetas", icon: "folder" },
-  { path: "/local/service", label: "Runtime local", icon: "server" },
+  { path: "/local/agents", label: "Clientes de IA", icon: "people" },
+  { path: "/local/service", label: "Servidor local", icon: "repository" },
 ];
 
 interface LocalSidebarProps {
@@ -31,12 +32,12 @@ export const LocalSidebar = forwardRef<HTMLElement, LocalSidebarProps>(function 
         <span className="workspace-sidebar-avatar local-sidebar-avatar" aria-hidden="true"><Icon name="computer" /></span>
         <span>
           <strong>Este computador</strong>
-          <small>Clientes, carpetas y runtime local</small>
+          <small>Configuración privada de este equipo</small>
         </span>
       </header>
       <nav className="workspace-sidebar-navigation local-sidebar-navigation">
         <section>
-          <p>PACT DESKTOP</p>
+          <p>MI COMPUTADOR</p>
           {entries.map((entry) => (
             <NavLink
               key={entry.path}

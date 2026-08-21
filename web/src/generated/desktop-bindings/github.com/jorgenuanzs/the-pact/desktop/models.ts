@@ -10,6 +10,29 @@ import * as access$0 from "../internal/access/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as localserver$0 from "../internal/localserver/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as repositorybinding$0 from "../internal/repositorybinding/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as workspaces$0 from "../internal/workspaces/models.js";
+
+export interface BindLocalFolderInput {
+    "project_root": string;
+    "profile_id": string;
+    "workspace_id": string;
+    "project_id"?: string;
+    "repository_id"?: string;
+    "create_if_needed": boolean;
+    "rebind": boolean;
+    "clients": string[] | null;
+}
+
+export interface BindLocalFolderResult {
+    "folder": LocalFolderInspection;
+    "clients": ConnectLocalAgentResult[] | null;
+    "created": boolean;
+}
 
 export interface ConnectLocalAgentInput {
     "client": string;
@@ -36,6 +59,15 @@ export interface DesktopAPIResponse {
     "status": number;
     "headers": { [_ in string]?: string } | null;
     "body": string;
+}
+
+export interface DesktopServerProfile {
+    "id": string;
+    "label": string;
+    "server_url": string;
+    "kind": string;
+    "principal_label"?: string;
+    "active": boolean;
 }
 
 export interface DesktopStatus {
@@ -99,6 +131,8 @@ export interface LocalComputerStatus {
     "runtime_version"?: string;
     "runtime_error"?: string;
     "server_url"?: string;
+    "active_profile_id"?: string;
+    "profiles": DesktopServerProfile[] | null;
     "clients": LocalClientStatus[] | null;
     "folders": LocalFolder[] | null;
     "managed_server": localserver$0.Status;
@@ -107,7 +141,10 @@ export interface LocalComputerStatus {
 export interface LocalFolder {
     "root": string;
     "name": string;
+    "profile_id"?: string;
     "server_url": string;
+    "workspace_id"?: string;
+    "repository_id"?: string;
     "project_id": string;
     "clients": string[] | null;
     "available": boolean;
@@ -120,10 +157,23 @@ export interface LocalFolderInspection {
     "connected": boolean;
     "root"?: string;
     "name"?: string;
+    "remote_url"?: string;
+    "branch"?: string;
+    "revision"?: string;
+    "profile_id"?: string;
     "server_url"?: string;
+    "workspace_id"?: string;
+    "repository_id"?: string;
     "project_id"?: string;
     "clients"?: string[] | null;
     "error"?: string;
+}
+
+export interface LocalFolderResolution {
+    "folder": LocalFolderInspection;
+    "profile": DesktopServerProfile;
+    "workspaces": workspaces$0.Workspace[] | null;
+    "matches": repositorybinding$0.Match[] | null;
 }
 
 export interface LocalServerInstallInput {
@@ -139,4 +189,9 @@ export interface LocalServerInstallResult {
 export interface LocalServerUpgradeResult {
     "status": localserver$0.Status;
     "backup": string;
+}
+
+export interface ResolveLocalFolderInput {
+    "project_root": string;
+    "profile_id": string;
 }

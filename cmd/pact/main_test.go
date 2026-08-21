@@ -80,6 +80,17 @@ func TestLoginInitAndConnectExistingProject(t *testing.T) {
 				})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workspaces": workspaceList}})
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/repository-bindings/resolve":
+			matches := make([]map[string]any, 0)
+			if remoteProject != nil && remoteProject.RootRepository != nil {
+				matches = append(matches, map[string]any{
+					"workspace_id": cliTestWorkspaceID, "workspace_name": "Footfall", "workspace_slug": "footfall",
+					"project_id": remoteProject.ID, "project_name": remoteProject.Name,
+					"repository_id": cliTestRepositoryID, "repository_name": "Primary", "repository_slug": "primary",
+					"primary": true, "match": "exact", "permission": "owner",
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"matches": matches}})
 		case request.Method == http.MethodGet && remoteProject != nil && request.URL.Path == "/v1/projects/"+remoteProject.ID+"/repositories":
 			remote := ""
 			if remoteProject.RootRepository != nil && remoteProject.RootRepository.RemoteURL != nil {
@@ -437,6 +448,13 @@ func TestStatusReportsBoundServerWorkspaceAndRepository(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"workspaces": []map[string]any{{
 				"id": workspaceID, "name": "Status workspace", "slug": "status-workspace", "status": "active",
 				"projects": []map[string]any{{"id": projectID, "name": "Status project", "slug": "status-project", "status": "active"}},
+			}}}})
+		case "/v1/repository-bindings/resolve":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"matches": []map[string]any{{
+				"workspace_id": workspaceID, "workspace_name": "Status workspace", "workspace_slug": "status-workspace",
+				"project_id": projectID, "project_name": "Status project",
+				"repository_id": repositoryID, "repository_name": "status", "repository_slug": "status",
+				"primary": true, "match": "exact", "permission": "owner",
 			}}}})
 		case "/v1/projects/" + projectID + "/repositories":
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
