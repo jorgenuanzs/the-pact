@@ -27,6 +27,12 @@ type PrincipalMetadata struct {
 	Label string
 }
 
+type AuthorizedMetadata struct {
+	ProfileLabel   string
+	PrincipalID    string
+	PrincipalLabel string
+}
+
 func Load() (Config, error) {
 	manager, _, err := profileManager()
 	if err != nil {
@@ -51,14 +57,21 @@ func Save(serverURL, deviceCredential string) (string, error) {
 }
 
 func SaveAuthorized(serverURL, deviceCredential string, principal PrincipalMetadata) (string, error) {
+	return SaveAuthorizedProfile(serverURL, deviceCredential, AuthorizedMetadata{
+		PrincipalID: principal.ID, PrincipalLabel: principal.Label,
+	})
+}
+
+func SaveAuthorizedProfile(serverURL, deviceCredential string, metadata AuthorizedMetadata) (string, error) {
 	manager, path, err := profileManager()
 	if err != nil {
 		return "", err
 	}
 	if _, err := manager.UpsertAuthorized(serverprofile.AuthorizedInput{
 		ServerURL:        serverURL,
-		PrincipalID:      strings.TrimSpace(principal.ID),
-		PrincipalLabel:   strings.TrimSpace(principal.Label),
+		Label:            strings.TrimSpace(metadata.ProfileLabel),
+		PrincipalID:      strings.TrimSpace(metadata.PrincipalID),
+		PrincipalLabel:   strings.TrimSpace(metadata.PrincipalLabel),
 		DeviceCredential: deviceCredential,
 	}); err != nil {
 		return "", err
@@ -91,6 +104,14 @@ func ListProfiles() ([]serverprofile.Profile, error) {
 	return manager.List()
 }
 
+func ActiveProfile() (serverprofile.Profile, error) {
+	manager, _, err := profileManager()
+	if err != nil {
+		return serverprofile.Profile{}, err
+	}
+	return manager.ActiveMetadata()
+}
+
 func FindProfileByURL(serverURL string) (serverprofile.Profile, error) {
 	manager, _, err := profileManager()
 	if err != nil {
@@ -99,12 +120,28 @@ func FindProfileByURL(serverURL string) (serverprofile.Profile, error) {
 	return manager.FindByURL(serverURL)
 }
 
+func FindProfile(identifier string) (serverprofile.Profile, error) {
+	manager, _, err := profileManager()
+	if err != nil {
+		return serverprofile.Profile{}, err
+	}
+	return manager.Get(identifier)
+}
+
 func AuthorizedForServer(serverURL string) (serverprofile.AuthorizedProfile, error) {
 	manager, _, err := profileManager()
 	if err != nil {
 		return serverprofile.AuthorizedProfile{}, err
 	}
 	return manager.AuthorizedForURL(serverURL)
+}
+
+func AuthorizedProfile(identifier string) (serverprofile.AuthorizedProfile, error) {
+	manager, _, err := profileManager()
+	if err != nil {
+		return serverprofile.AuthorizedProfile{}, err
+	}
+	return manager.Authorized(identifier)
 }
 
 func SetActiveProfile(identifier string) error {

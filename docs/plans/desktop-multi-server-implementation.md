@@ -4,7 +4,7 @@
 **ADR:** [ADR-0019](../adr/0019-desktop-multi-server-and-folder-bindings.md)  
 **Fecha:** 21 de agosto de 2026
 
-**Progreso:** Hito 1 implementado; Hito 2 pendiente.
+**Progreso:** Hitos 1 y 2 implementados; Hito 3 pendiente.
 
 ## Resultado esperado
 
@@ -146,6 +146,8 @@ reanuda el proceso.
 - migrar una configuración actual conserva la sesión.
 
 ## Hito 2 — CLI multi-servidor compatible
+
+**Estado:** implementado el 21 de agosto de 2026.
 
 Actualizar los comandos:
 

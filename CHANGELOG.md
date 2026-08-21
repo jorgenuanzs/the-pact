@@ -13,6 +13,15 @@ as the basis for the GitHub release notes.
 - Added the shared multi-server profile registry foundation for Desktop, CLI,
   and the local runtime, including stable profile IDs and per-server identity
   metadata.
+- Added `pact servers list`, `pact servers use`, `pact servers remove`,
+  server-specific logout, named profiles, and `pact status` for inspecting a
+  checkout's resolved server, workspace, project, and repository.
+
+### Changed
+
+- CLI, MCP, and runtime commands now resolve the credential named by the
+  checkout binding instead of comparing it with the active profile. The active
+  profile is only a preference for commands that have no bound folder.
 
 ### Security
 

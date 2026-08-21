@@ -306,6 +306,21 @@ pact login --server http://127.0.0.1:8080
 
 Remote non-loopback servers must use HTTPS.
 
+PACT can authorize several servers on the same computer. Give a server an
+optional local name and inspect or change the default preference with:
+
+```sh
+pact login --server https://pact.example.com --name "Client production"
+pact servers list
+pact servers use https://pact.example.com
+```
+
+`pact servers use` affects only commands executed without a connected
+checkout. Inside a connected repository, `.pact/config.json` always selects
+its own server and PACT retrieves that server's credential. It never falls
+back to a different active profile. This allows two terminals, repositories,
+or MCP clients to operate against different PACT Servers simultaneously.
+
 ### 2. Initialize the project
 
 Run this anywhere inside the Git repository:
@@ -348,8 +363,12 @@ navigation only; it never moves files, branches, or remotes.
 
 ```sh
 pact whoami
+pact status
 pact version
 ```
+
+`pact status` reports the server profile, workspace, project, and repository
+resolved for the current checkout. Use `pact status --json` for automation.
 
 ## Add another person or computer
 
@@ -613,9 +632,13 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 
 | Command | Description |
 |---|---|
-| `pact login --server URL` | Authorize this computer through the browser device flow |
+| `pact login --server URL [--name NAME]` | Add or reauthorize a server profile through the browser device flow |
+| `pact servers list [--json]` | List authorized server profiles without exposing credentials |
+| `pact servers use PROFILE_OR_URL` | Select the preference for commands without a bound folder |
+| `pact servers remove PROFILE_OR_URL` | Revoke and remove one server profile; use `--local-only` only for recovery |
 | `pact init [PATH]` | Create or recover a project and connect the owner checkout |
 | `pact connect [PATH]` | Connect another checkout to an existing Pact project |
+| `pact status [--path PATH] [--json]` | Show the server, workspace, project, and repository bound to a checkout |
 | `pact repository list` | Show the primary and additional project repositories and their verified revisions |
 | `pact repository status [--repository UUID]` | Show verified state for the primary or selected repository |
 | `pact repository sync [--repository UUID]` | Verify the primary or selected repository with GitHub |
@@ -624,7 +647,7 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 | `pact invite create --email EMAIL` | Create a one-time project invitation |
 | `pact join --server URL --invite-stdin` | Open an invitation registration URL in the browser |
 | `pact whoami` | Show the current identity and server |
-| `pact logout` | Revoke the current device and delete its local credential |
+| `pact logout [--server PROFILE_OR_URL]` | Revoke and remove one server profile; the current folder wins when omitted |
 | `pact agent run --client TYPE -- COMMAND` | Run and observe an agent process |
 | `pact node run` | Continuously observe human, IDE, and external Git changes |
 | `pact mcp serve --client TYPE` | Start the local MCP adapter over stdio |

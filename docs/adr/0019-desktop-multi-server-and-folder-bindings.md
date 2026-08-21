@@ -328,8 +328,9 @@ La migración se ejecuta una sola vez y es reintentable:
 
 Los comandos `pact init`, `pact connect`, `pact login` y `pact mcp serve`
 continúan disponibles. `pact login --server URL` añade o reautoriza un perfil
-en vez de reemplazar todos los demás. Se incorporarán comandos para listar,
-usar y retirar perfiles.
+en vez de reemplazar todos los demás. `pact servers list`, `pact servers use` y
+`pact servers remove` permiten administrarlos explícitamente, mientras que
+`pact status` muestra la resolución efectiva de una carpeta.
 
 ## Seguridad y privacidad
 

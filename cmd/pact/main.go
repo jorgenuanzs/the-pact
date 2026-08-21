@@ -29,6 +29,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
 	"github.com/jorgenuanzs/the-pact/internal/repositorysync"
+	"github.com/jorgenuanzs/the-pact/internal/serverprofile"
 	"github.com/jorgenuanzs/the-pact/internal/userconfig"
 	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
@@ -49,6 +50,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "login":
 		return runLogin(args[1:], stdin, stdout, stderr)
+	case "servers":
+		return runServers(args[1:], stdout, stderr)
 	case "init":
 		return runInit(args[1:], stdout, stderr)
 	case "connect":
@@ -65,6 +68,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runJoin(args[1:], stdin, stdout, stderr)
 	case "whoami":
 		return runWhoAmI(args[1:], stdout, stderr)
+	case "status":
+		return runStatus(args[1:], stdout, stderr)
 	case "logout":
 		return runLogout(args[1:], stdout, stderr)
 	case "agent":
@@ -358,7 +363,7 @@ func runWorkspace(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("expected pact workspace list, show, create, or add-project")
 	}
-	login, err := loginForServer("")
+	login, err := loginForProjectOrActive(".", "")
 	if err != nil {
 		return err
 	}
@@ -879,10 +884,119 @@ func maintainHeartbeat(
 	}
 }
 
+type serverProfileOutput struct {
+	ID             string             `json:"id"`
+	Label          string             `json:"label"`
+	ServerURL      string             `json:"server_url"`
+	Kind           serverprofile.Kind `json:"kind"`
+	PrincipalID    string             `json:"principal_id,omitempty"`
+	PrincipalLabel string             `json:"principal_label,omitempty"`
+	CreatedAt      time.Time          `json:"created_at"`
+	LastUsedAt     time.Time          `json:"last_used_at"`
+	Active         bool               `json:"active"`
+}
+
+func runServers(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("expected pact servers list, use, or remove")
+	}
+	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("pact servers list", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("pact servers list accepts no positional arguments")
+		}
+		profiles, err := userconfig.ListProfiles()
+		if err != nil {
+			return err
+		}
+		activeID := ""
+		if active, activeErr := userconfig.ActiveProfile(); activeErr == nil {
+			activeID = active.ID
+		} else if !errors.Is(activeErr, serverprofile.ErrNoActiveProfile) {
+			return activeErr
+		}
+		output := make([]serverProfileOutput, 0, len(profiles))
+		for _, profile := range profiles {
+			output = append(output, serverProfileOutput{
+				ID: profile.ID, Label: profile.Label, ServerURL: profile.ServerURL,
+				Kind: profile.Kind, PrincipalID: profile.PrincipalID,
+				PrincipalLabel: profile.PrincipalLabel, CreatedAt: profile.CreatedAt,
+				LastUsedAt: profile.LastUsedAt, Active: profile.ID == activeID,
+			})
+		}
+		if *jsonOutput {
+			return json.NewEncoder(stdout).Encode(output)
+		}
+		if len(output) == 0 {
+			fmt.Fprintln(stdout, "No PACT Server profiles are authorized. Run pact login --server URL.")
+			return nil
+		}
+		for _, profile := range output {
+			marker := " "
+			if profile.Active {
+				marker = "*"
+			}
+			fmt.Fprintf(stdout, "%s %s\n", marker, profile.Label)
+			fmt.Fprintf(stdout, "    URL        %s\n", profile.ServerURL)
+			fmt.Fprintf(stdout, "    profile ID %s\n", profile.ID)
+			if profile.PrincipalLabel != "" {
+				fmt.Fprintf(stdout, "    identity   %s\n", profile.PrincipalLabel)
+			}
+			fmt.Fprintf(stdout, "    last used  %s\n", profile.LastUsedAt.Format(time.RFC3339))
+		}
+		fmt.Fprintln(stdout, "* active preference for commands without a bound folder")
+		return nil
+	case "use":
+		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
+			return errors.New("expected pact servers use PROFILE_OR_URL")
+		}
+		if err := userconfig.SetActiveProfile(args[1]); err != nil {
+			return err
+		}
+		profile, err := userconfig.FindProfile(args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Using %s (%s) for commands without a bound folder.\n", profile.Label, profile.ServerURL)
+		return nil
+	case "remove":
+		flags := flag.NewFlagSet("pact servers remove", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		localOnly := flags.Bool("local-only", false, "remove the local profile without revoking the device")
+		if err := flags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if flags.NArg() != 1 {
+			return errors.New("expected pact servers remove PROFILE_OR_URL")
+		}
+		profile, err := removeServerProfile(flags.Arg(0), *localOnly)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Removed PACT Server profile %s (%s).\n", profile.Label, profile.ServerURL)
+		return nil
+	default:
+		return fmt.Errorf("unknown servers command %q", args[0])
+	}
+}
+
 func runLogin(args []string, _ io.Reader, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact login", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	serverURL := flags.String("server", "", "Pact Server URL")
+	profileName := flags.String("name", "", "local name for this PACT Server profile")
 	deviceName := flags.String("device-name", "", "name shown for this computer")
 	noBrowser := flags.Bool("no-browser", false, "print the verification URL without opening it")
 	if err := flags.Parse(args); err != nil {
@@ -971,8 +1085,8 @@ authorized:
 	if err != nil {
 		return fmt.Errorf("verify device login with %s: %w", normalizedServer, err)
 	}
-	path, err := userconfig.SaveAuthorized(normalizedServer, exchange.DeviceCredential, userconfig.PrincipalMetadata{
-		ID: principal.ID, Label: principal.DisplayName,
+	path, err := userconfig.SaveAuthorizedProfile(normalizedServer, exchange.DeviceCredential, userconfig.AuthorizedMetadata{
+		ProfileLabel: strings.TrimSpace(*profileName), PrincipalID: principal.ID, PrincipalLabel: principal.DisplayName,
 	})
 	if err != nil {
 		return err
@@ -1108,7 +1222,7 @@ func runWhoAmI(args []string, stdout, stderr io.Writer) error {
 	if flags.NArg() != 0 {
 		return errors.New("pact whoami accepts no arguments")
 	}
-	login, err := userconfig.Load()
+	login, err := loginForProjectOrActive(".", "")
 	if err != nil {
 		return err
 	}
@@ -1129,9 +1243,158 @@ func runWhoAmI(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+type folderStatusOutput struct {
+	Root       string                  `json:"root"`
+	Server     folderStatusServer      `json:"server"`
+	Workspace  *folderStatusEntity     `json:"workspace"`
+	Project    folderStatusEntity      `json:"project"`
+	Repository *folderStatusRepository `json:"repository"`
+}
+
+type folderStatusServer struct {
+	ProfileID string `json:"profile_id"`
+	Label     string `json:"label"`
+	URL       string `json:"url"`
+}
+
+type folderStatusEntity struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+type folderStatusRepository struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	RemoteURL string `json:"remote_url,omitempty"`
+	Primary   bool   `json:"primary"`
+}
+
+func runStatus(args []string, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("pact status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	projectPath := flags.String("path", ".", "path inside the connected Pact project")
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("pact status accepts no positional arguments")
+	}
+	binding, err := localproject.LoadBinding(*projectPath)
+	if err != nil {
+		return err
+	}
+	profile, err := userconfig.FindProfileByURL(binding.ServerURL)
+	if err != nil {
+		return fmt.Errorf(
+			"PACT Server %s required by this project is not authorized on this computer; run pact login --server %s: %w",
+			binding.ServerURL, binding.ServerURL, err,
+		)
+	}
+	login, err := loginForServer(binding.ServerURL)
+	if err != nil {
+		return err
+	}
+	client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	projectList, err := client.ListProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("load project status from %s: %w", binding.ServerURL, err)
+	}
+	var project *projects.Project
+	for index := range projectList {
+		if projectList[index].ID == binding.ProjectID {
+			project = &projectList[index]
+			break
+		}
+	}
+	if project == nil {
+		return fmt.Errorf("project %s bound to this folder is not visible on %s", binding.ProjectID, binding.ServerURL)
+	}
+	status := folderStatusOutput{
+		Root:    binding.Root,
+		Server:  folderStatusServer{ProfileID: profile.ID, Label: profile.Label, URL: profile.ServerURL},
+		Project: folderStatusEntity{ID: project.ID, Slug: project.Slug, Name: project.Name},
+	}
+	workspaceList, err := client.ListWorkspaces(ctx)
+	if err != nil {
+		return fmt.Errorf("load workspace status from %s: %w", binding.ServerURL, err)
+	}
+	for _, workspace := range workspaceList {
+		for _, candidate := range workspace.Projects {
+			if candidate.ID == binding.ProjectID {
+				status.Workspace = &folderStatusEntity{ID: workspace.ID, Slug: workspace.Slug, Name: workspace.Name}
+				break
+			}
+		}
+		if status.Workspace != nil {
+			break
+		}
+	}
+	repositories, err := client.ListProjectRepositories(ctx, binding.ProjectID)
+	if err != nil {
+		return fmt.Errorf("load repository status from %s: %w", binding.ServerURL, err)
+	}
+	descriptor, descriptorErr := localproject.Describe(binding.Root)
+	for _, repository := range repositories.Repositories {
+		remote := ""
+		if repository.RemoteURL != nil {
+			remote = *repository.RemoteURL
+		}
+		normalizedRemote, normalizeErr := localproject.NormalizeGitRemote(remote)
+		matchesLocal := descriptorErr == nil && normalizeErr == nil && normalizedRemote == descriptor.RemoteURL
+		if matchesLocal || (status.Repository == nil && repository.Primary) {
+			status.Repository = &folderStatusRepository{
+				ID: repository.ID, Name: repository.Name, RemoteURL: remote, Primary: repository.Primary,
+			}
+			if matchesLocal {
+				break
+			}
+		}
+	}
+	if status.Repository == nil && project.RootRepository != nil {
+		remote := ""
+		if project.RootRepository.RemoteURL != nil {
+			remote = *project.RootRepository.RemoteURL
+		}
+		status.Repository = &folderStatusRepository{
+			ID: project.RootRepository.ID, Name: project.RootRepository.Name, RemoteURL: remote, Primary: true,
+		}
+	}
+	if *jsonOutput {
+		return json.NewEncoder(stdout).Encode(status)
+	}
+	fmt.Fprintf(stdout, "Folder      %s\n", status.Root)
+	fmt.Fprintf(stdout, "PACT Server %s (%s)\n", status.Server.Label, status.Server.URL)
+	if status.Workspace == nil {
+		fmt.Fprintln(stdout, "Workspace   not attached")
+	} else {
+		fmt.Fprintf(stdout, "Workspace   %s (%s)\n", status.Workspace.Slug, status.Workspace.ID)
+	}
+	fmt.Fprintf(stdout, "Project     %s (%s)\n", status.Project.Slug, status.Project.ID)
+	if status.Repository == nil {
+		fmt.Fprintln(stdout, "Repository  not resolved")
+	} else {
+		fmt.Fprintf(stdout, "Repository  %s (%s)\n", status.Repository.Name, status.Repository.ID)
+		if status.Repository.RemoteURL != "" {
+			fmt.Fprintf(stdout, "Remote      %s\n", status.Repository.RemoteURL)
+		}
+	}
+	return nil
+}
+
 func runLogout(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("pact logout", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	server := flags.String("server", "", "PACT Server profile ID or URL")
 	localOnly := flags.Bool("local-only", false, "remove local login without revoking the device on the server")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -1139,27 +1402,50 @@ func runLogout(args []string, stdout, stderr io.Writer) error {
 	if flags.NArg() != 0 {
 		return errors.New("pact logout accepts no arguments")
 	}
-	if !*localOnly {
-		login, err := userconfig.Load()
+	identifier := strings.TrimSpace(*server)
+	if identifier == "" {
+		profile, err := profileForProjectOrActive(".")
 		if err != nil {
 			return err
 		}
-		client, err := pactclient.New(login.ServerURL, login.DeviceCredential)
+		identifier = profile.ID
+	}
+	profile, err := removeServerProfile(identifier, *localOnly)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Logged out of %s (%s) on this computer.\n", profile.Label, profile.ServerURL)
+	return nil
+}
+
+func removeServerProfile(identifier string, localOnly bool) (serverprofile.Profile, error) {
+	profile, err := userconfig.FindProfile(identifier)
+	if err != nil {
+		return serverprofile.Profile{}, err
+	}
+	if !localOnly {
+		authorized, err := userconfig.AuthorizedProfile(profile.ID)
 		if err != nil {
-			return err
+			return serverprofile.Profile{}, err
+		}
+		client, err := pactclient.New(authorized.ServerURL, authorized.DeviceCredential)
+		if err != nil {
+			return serverprofile.Profile{}, err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		err = client.RevokeCurrentDevice(ctx)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("revoke current device: %w (use --local-only only if the server is unavailable)", err)
+			return serverprofile.Profile{}, fmt.Errorf(
+				"revoke device from %s: %w (use --local-only only if the server is unavailable)",
+				profile.ServerURL, err,
+			)
 		}
 	}
-	if err := userconfig.Delete(); err != nil {
-		return err
+	if err := userconfig.RemoveProfile(profile.ID); err != nil {
+		return serverprofile.Profile{}, err
 	}
-	fmt.Fprintln(stdout, "Logged out of Pact on this computer.")
-	return nil
+	return profile, nil
 }
 
 func readSecret(reader io.Reader, name string) (string, error) {
@@ -1196,7 +1482,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		projectPath = flags.Arg(0)
 	}
 
-	login, err := loginForServer(*serverURL)
+	login, err := loginForProjectOrActive(projectPath, *serverURL)
 	if err != nil {
 		return err
 	}
@@ -1260,7 +1546,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 	if !hasManifest {
 		return errors.New("pact.yaml is missing; the project owner must run pact init first")
 	}
-	login, err := loginForServer(*serverURL)
+	login, err := loginForProjectOrActive(projectPath, *serverURL)
 	if err != nil {
 		return err
 	}
@@ -1295,25 +1581,60 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 }
 
 func loginForServer(requestedServer string) (userconfig.Config, error) {
-	login, err := userconfig.Load()
-	if err != nil {
-		return userconfig.Config{}, err
-	}
 	if strings.TrimSpace(requestedServer) == "" {
-		return login, nil
+		return userconfig.Load()
 	}
 	normalized, err := userconfig.NormalizeServerURL(requestedServer)
 	if err != nil {
 		return userconfig.Config{}, err
 	}
-	if normalized != login.ServerURL {
+	authorized, err := userconfig.AuthorizedForServer(normalized)
+	if err != nil {
 		return userconfig.Config{}, fmt.Errorf(
-			"logged in to %s, not %s; run pact login for the requested server",
-			login.ServerURL,
-			normalized,
+			"PACT Server %s is not authorized on this computer; run pact login --server %s: %w",
+			normalized, normalized, err,
 		)
 	}
-	return login, nil
+	return userconfig.Config{
+		SchemaVersion: serverprofile.SchemaVersion, ServerURL: authorized.ServerURL,
+		DeviceCredential: authorized.DeviceCredential,
+	}, nil
+}
+
+func loginForProjectOrActive(projectPath, requestedServer string) (userconfig.Config, error) {
+	if strings.TrimSpace(requestedServer) != "" {
+		return loginForServer(requestedServer)
+	}
+	binding, found, err := localproject.FindBinding(projectPath)
+	if err != nil {
+		return userconfig.Config{}, err
+	}
+	if found {
+		return loginForServer(binding.ServerURL)
+	}
+	return loginForServer("")
+}
+
+func profileForProjectOrActive(projectPath string) (serverprofile.Profile, error) {
+	binding, found, err := localproject.FindBinding(projectPath)
+	if err != nil {
+		return serverprofile.Profile{}, err
+	}
+	if found {
+		profile, err := userconfig.FindProfileByURL(binding.ServerURL)
+		if err != nil {
+			return serverprofile.Profile{}, fmt.Errorf(
+				"PACT Server %s required by this project is not authorized on this computer; run pact login --server %s: %w",
+				binding.ServerURL, binding.ServerURL, err,
+			)
+		}
+		return profile, nil
+	}
+	profile, err := userconfig.ActiveProfile()
+	if errors.Is(err, serverprofile.ErrNoActiveProfile) {
+		return serverprofile.Profile{}, errors.New("not logged in; run pact login --server <url>")
+	}
+	return profile, err
 }
 
 func resolveProject(
@@ -1429,9 +1750,13 @@ func printProjectBinding(
 
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "Usage:")
-	fmt.Fprintln(writer, "  pact login --server URL [--device-name NAME] [--no-browser]")
+	fmt.Fprintln(writer, "  pact login --server URL [--name NAME] [--device-name NAME] [--no-browser]")
+	fmt.Fprintln(writer, "  pact servers list [--json]")
+	fmt.Fprintln(writer, "  pact servers use PROFILE_OR_URL")
+	fmt.Fprintln(writer, "  pact servers remove [--local-only] PROFILE_OR_URL")
 	fmt.Fprintln(writer, "  pact init [--server URL] [--name NAME] [PATH]")
 	fmt.Fprintln(writer, "  pact connect [--server URL] [--project SLUG_OR_ID] [PATH]")
+	fmt.Fprintln(writer, "  pact status [--path PATH] [--json]")
 	fmt.Fprintln(writer, "  pact workspace list")
 	fmt.Fprintln(writer, "  pact workspace show SLUG_OR_ID")
 	fmt.Fprintln(writer, "  pact workspace create --name NAME --slug SLUG [--project UUID ...]")
@@ -1444,7 +1769,7 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact invite create --email EMAIL [--role ROLE] [--path PATH]")
 	fmt.Fprintln(writer, "  pact join --server URL --invite-stdin [--no-browser]")
 	fmt.Fprintln(writer, "  pact whoami")
-	fmt.Fprintln(writer, "  pact logout [--local-only]")
+	fmt.Fprintln(writer, "  pact logout [--server PROFILE_OR_URL] [--local-only]")
 	fmt.Fprintln(writer, "  pact agent run --client TYPE [--name NAME] [--path PATH] [-- COMMAND ...]")
 	fmt.Fprintln(writer, "  pact node run [--path PATH] [--interval 2s] [--once]")
 	fmt.Fprintln(writer, "  pact server install [--port 8080] [--image IMAGE]")

@@ -161,6 +161,31 @@ func TestSetActiveAndRemoveSelectMostRecentlyUsedRemainingProfile(t *testing.T) 
 	}
 }
 
+func TestActiveMetadataDoesNotDependOnCredentialAvailability(t *testing.T) {
+	manager, store := testManager(t)
+	profile, err := manager.UpsertAuthorized(AuthorizedInput{
+		ServerURL: "https://metadata.example.com", Label: "Metadata",
+		DeviceCredential: "pact_device_" + strings.Repeat("m", 48),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorized, err := manager.Authorized(profile.ID)
+	if err != nil || authorized.ID != profile.ID {
+		t.Fatalf("Authorized() = %#v, %v", authorized, err)
+	}
+	if err := store.Delete(profile.CredentialRef); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := manager.ActiveMetadata()
+	if err != nil || metadata.ID != profile.ID {
+		t.Fatalf("ActiveMetadata() = %#v, %v", metadata, err)
+	}
+	if _, err := manager.Active(); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("Active() error = %v", err)
+	}
+}
+
 func TestRegistryRefusesCredentialShapedMetadata(t *testing.T) {
 	manager, _ := testManager(t)
 	_, err := manager.UpsertAuthorized(AuthorizedInput{
