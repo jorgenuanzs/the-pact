@@ -67,9 +67,7 @@ jobs:
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          choco install nsis --yes --no-progress
-          "${env:ProgramFiles(x86)}\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: ./scripts/install-nsis.ps1
       - name: Install frontend dependencies
         working-directory: web
         run: npm ci
