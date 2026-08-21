@@ -1324,50 +1324,28 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 		Server:  folderStatusServer{ProfileID: profile.ID, Label: profile.Label, URL: profile.ServerURL},
 		Project: folderStatusEntity{ID: project.ID, Slug: project.Slug, Name: project.Name},
 	}
-	workspaceList, err := client.ListWorkspaces(ctx)
+	descriptor, err := localproject.Describe(binding.Root)
 	if err != nil {
-		return fmt.Errorf("load workspace status from %s: %w", binding.ServerURL, err)
+		return err
 	}
-	for _, workspace := range workspaceList {
-		for _, candidate := range workspace.Projects {
-			if candidate.ID == binding.ProjectID {
-				status.Workspace = &folderStatusEntity{ID: workspace.ID, Slug: workspace.Slug, Name: workspace.Name}
-				break
-			}
-		}
-		if status.Workspace != nil {
-			break
-		}
-	}
-	repositories, err := client.ListProjectRepositories(ctx, binding.ProjectID)
+	target, err := resolveRemoteBinding(
+		ctx, client, binding.ProjectID, descriptor.RemoteURL, binding.WorkspaceID, binding.RepositoryID,
+	)
 	if err != nil {
-		return fmt.Errorf("load repository status from %s: %w", binding.ServerURL, err)
+		return err
 	}
-	descriptor, descriptorErr := localproject.Describe(binding.Root)
-	for _, repository := range repositories.Repositories {
-		remote := ""
-		if repository.RemoteURL != nil {
-			remote = *repository.RemoteURL
-		}
-		normalizedRemote, normalizeErr := localproject.NormalizeGitRemote(remote)
-		matchesLocal := descriptorErr == nil && normalizeErr == nil && normalizedRemote == descriptor.RemoteURL
-		if matchesLocal || (status.Repository == nil && repository.Primary) {
-			status.Repository = &folderStatusRepository{
-				ID: repository.ID, Name: repository.Name, RemoteURL: remote, Primary: repository.Primary,
-			}
-			if matchesLocal {
-				break
-			}
-		}
+	migrated, err := localproject.Bind(binding.Root, localproject.BindOptions{
+		ServerURL: binding.ServerURL, WorkspaceID: target.WorkspaceID,
+		RepositoryID: target.RepositoryID, ProjectID: binding.ProjectID,
+	})
+	if err != nil {
+		return err
 	}
-	if status.Repository == nil && project.RootRepository != nil {
-		remote := ""
-		if project.RootRepository.RemoteURL != nil {
-			remote = *project.RootRepository.RemoteURL
-		}
-		status.Repository = &folderStatusRepository{
-			ID: project.RootRepository.ID, Name: project.RootRepository.Name, RemoteURL: remote, Primary: true,
-		}
+	status.Root = migrated.Root
+	status.Workspace = &folderStatusEntity{ID: target.WorkspaceID, Slug: target.WorkspaceSlug, Name: target.WorkspaceName}
+	status.Repository = &folderStatusRepository{
+		ID: target.RepositoryID, Name: target.RepositoryName,
+		RemoteURL: target.RepositoryRemote, Primary: target.RepositoryPrimary,
 	}
 	if *jsonOutput {
 		return json.NewEncoder(stdout).Encode(status)
@@ -1468,6 +1446,8 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	serverURL := flags.String("server", "", "Pact Server URL (defaults to the logged-in server)")
 	name := flags.String("name", "", "project name (defaults to the repository directory)")
+	workspaceID := flags.String("workspace", "", "workspace UUID when the project destination is ambiguous")
+	repositoryID := flags.String("repository", "", "repository UUID when the Git remote is ambiguous")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -1508,7 +1488,16 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := localproject.Bind(result.Root, login.ServerURL, project.ID); err != nil {
+	target, err := resolveRemoteBinding(
+		ctx, client, project.ID, descriptor.RemoteURL, *workspaceID, *repositoryID,
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := localproject.Bind(result.Root, localproject.BindOptions{
+		ServerURL: login.ServerURL, WorkspaceID: target.WorkspaceID,
+		RepositoryID: target.RepositoryID, ProjectID: project.ID,
+	}); err != nil {
 		return err
 	}
 
@@ -1517,7 +1506,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		state = "Created and connected"
 	}
 	fmt.Fprintf(stdout, "%s Pact project in %s\n", state, result.Root)
-	printProjectBinding(stdout, result.ManifestPath, result.LocalDirectory, login.ServerURL, project)
+	printProjectBinding(stdout, result.ManifestPath, result.LocalDirectory, login.ServerURL, project, target)
 	return nil
 }
 
@@ -1526,6 +1515,9 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	serverURL := flags.String("server", "", "Pact Server URL (defaults to the logged-in server)")
 	projectReference := flags.String("project", "", "existing remote project slug or ID")
+	workspaceID := flags.String("workspace", "", "workspace UUID when the project destination is ambiguous")
+	repositoryID := flags.String("repository", "", "repository UUID when the Git remote is ambiguous")
+	rebind := flags.Bool("rebind", false, "explicitly replace an existing folder binding")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -1551,8 +1543,7 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	result, err := localproject.Init(localproject.InitOptions{
-		StartPath: projectPath,
-		ServerURL: login.ServerURL,
+		StartPath: projectPath, ServerURL: login.ServerURL, AllowServerChange: *rebind,
 	})
 	if err != nil {
 		return err
@@ -1571,12 +1562,21 @@ func runConnect(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := localproject.Bind(result.Root, login.ServerURL, project.ID); err != nil {
+	target, err := resolveRemoteBinding(
+		ctx, client, project.ID, descriptor.RemoteURL, *workspaceID, *repositoryID,
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := localproject.Bind(result.Root, localproject.BindOptions{
+		ServerURL: login.ServerURL, WorkspaceID: target.WorkspaceID,
+		RepositoryID: target.RepositoryID, ProjectID: project.ID, Rebind: *rebind,
+	}); err != nil {
 		return err
 	}
 
 	fmt.Fprintf(stdout, "Connected existing Pact project in %s\n", result.Root)
-	printProjectBinding(stdout, result.ManifestPath, result.LocalDirectory, login.ServerURL, project)
+	printProjectBinding(stdout, result.ManifestPath, result.LocalDirectory, login.ServerURL, project, target)
 	return nil
 }
 
@@ -1740,11 +1740,14 @@ func printProjectBinding(
 	localDirectory string,
 	serverURL string,
 	project projects.Project,
+	target remoteBindingTarget,
 ) {
 	fmt.Fprintf(stdout, "  shared manifest  %s\n", manifestPath)
 	fmt.Fprintf(stdout, "  local runtime    %s\n", localDirectory)
 	fmt.Fprintf(stdout, "  Pact Server      %s\n", serverURL)
 	fmt.Fprintf(stdout, "  remote project   %s (%s)\n", project.Slug, project.ID)
+	fmt.Fprintf(stdout, "  workspace        %s (%s)\n", target.WorkspaceSlug, target.WorkspaceID)
+	fmt.Fprintf(stdout, "  repository       %s (%s)\n", target.RepositoryName, target.RepositoryID)
 	fmt.Fprintln(stdout, "No database credentials, passwords, or device credentials were written to the project.")
 }
 
@@ -1754,8 +1757,8 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  pact servers list [--json]")
 	fmt.Fprintln(writer, "  pact servers use PROFILE_OR_URL")
 	fmt.Fprintln(writer, "  pact servers remove [--local-only] PROFILE_OR_URL")
-	fmt.Fprintln(writer, "  pact init [--server URL] [--name NAME] [PATH]")
-	fmt.Fprintln(writer, "  pact connect [--server URL] [--project SLUG_OR_ID] [PATH]")
+	fmt.Fprintln(writer, "  pact init [--server URL] [--name NAME] [--workspace UUID] [--repository UUID] [PATH]")
+	fmt.Fprintln(writer, "  pact connect [--server URL] [--project SLUG_OR_ID] [--workspace UUID] [--repository UUID] [--rebind] [PATH]")
 	fmt.Fprintln(writer, "  pact status [--path PATH] [--json]")
 	fmt.Fprintln(writer, "  pact workspace list")
 	fmt.Fprintln(writer, "  pact workspace show SLUG_OR_ID")

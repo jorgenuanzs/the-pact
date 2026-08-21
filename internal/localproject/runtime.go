@@ -11,75 +11,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jorgenuanzs/the-pact/internal/atomicfile"
+	"github.com/jorgenuanzs/the-pact/internal/filelock"
 )
 
-type Binding struct {
-	Root      string
-	ServerURL string
-	ProjectID string
-}
+const nodeIdentitySchemaVersion = 2
 
 type NodeIdentity struct {
 	SchemaVersion int    `json:"schema_version"`
 	Key           string `json:"node_key"`
 	Name          string `json:"name"`
-}
-
-// FindBinding reports whether a Git checkout contains local PACT binding
-// state. A malformed or incomplete binding is returned as an error instead of
-// being treated as absent, so callers never fall back to another server.
-func FindBinding(startPath string) (Binding, bool, error) {
-	root, err := FindRoot(startPath)
-	if err != nil {
-		return Binding{}, false, nil
-	}
-	configPath := filepath.Join(root, localDirectory, localConfigName)
-	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		return Binding{}, false, nil
-	} else if err != nil {
-		return Binding{}, true, fmt.Errorf("inspect local Pact configuration: %w", err)
-	}
-	binding, err := LoadBinding(root)
-	return binding, true, err
-}
-
-func LoadBinding(startPath string) (Binding, error) {
-	root, err := FindRoot(startPath)
-	if err != nil {
-		return Binding{}, err
-	}
-	configPath := filepath.Join(root, localDirectory, localConfigName)
-	content, err := os.ReadFile(configPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return Binding{}, errors.New("project is not connected; run pact init or pact connect")
-	}
-	if err != nil {
-		return Binding{}, fmt.Errorf("read local Pact configuration: %w", err)
-	}
-	var config localConfig
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&config); err != nil {
-		return Binding{}, fmt.Errorf("decode local Pact configuration: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return Binding{}, errors.New("decode local Pact configuration: unexpected trailing data")
-	}
-	serverURL, err := normalizeServerURL(config.ServerURL)
-	if err != nil {
-		return Binding{}, err
-	}
-	if !validUUID(config.ProjectID) {
-		return Binding{}, errors.New("project is not connected to a valid remote project")
-	}
-	if err := ensurePlatformGitConfig(root); err != nil {
-		return Binding{}, err
-	}
-	if err := os.Chmod(configPath, 0o600); err != nil {
-		return Binding{}, fmt.Errorf("secure local Pact configuration: %w", err)
-	}
-	return Binding{Root: root, ServerURL: serverURL, ProjectID: config.ProjectID}, nil
+	ServerURL     string `json:"server_url"`
 }
 
 func EnsureNodeIdentity(startPath string) (NodeIdentity, error) {
@@ -88,6 +31,35 @@ func EnsureNodeIdentity(startPath string) (NodeIdentity, error) {
 		return NodeIdentity{}, err
 	}
 	path := filepath.Join(binding.Root, localDirectory, "node.json")
+	release, err := filelock.Acquire(path + ".lock")
+	if err != nil {
+		return NodeIdentity{}, fmt.Errorf("lock Pact node identity: %w", err)
+	}
+	defer release()
+	return ensureNodeIdentity(path, binding.ServerURL, false)
+}
+
+func reconcileExistingNodeIdentity(root, serverURL string, rotate bool) error {
+	path := filepath.Join(root, localDirectory, "node.json")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect Pact node identity: %w", err)
+	}
+	release, err := filelock.Acquire(path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock Pact node identity: %w", err)
+	}
+	defer release()
+	_, err = ensureNodeIdentity(path, serverURL, rotate)
+	return err
+}
+
+func ensureNodeIdentity(path, serverURL string, rotate bool) (NodeIdentity, error) {
+	serverURL, err := normalizeServerURL(serverURL)
+	if err != nil {
+		return NodeIdentity{}, err
+	}
 	content, err := os.ReadFile(path)
 	if err == nil {
 		var identity NodeIdentity
@@ -96,13 +68,36 @@ func EnsureNodeIdentity(startPath string) (NodeIdentity, error) {
 		if err := decoder.Decode(&identity); err != nil {
 			return NodeIdentity{}, fmt.Errorf("decode Pact node identity: %w", err)
 		}
-		if identity.SchemaVersion != 1 || !validUUID(identity.Key) || strings.TrimSpace(identity.Name) == "" {
+		var trailing any
+		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+			return NodeIdentity{}, errors.New("decode Pact node identity: unexpected trailing data")
+		}
+		if !validUUID(identity.Key) || strings.TrimSpace(identity.Name) == "" {
 			return NodeIdentity{}, errors.New("stored Pact node identity is invalid")
 		}
-		if err := os.Chmod(path, 0o600); err != nil {
-			return NodeIdentity{}, fmt.Errorf("secure Pact node identity: %w", err)
+		if identity.SchemaVersion == nodeIdentitySchemaVersion {
+			configuredServer, normalizeErr := normalizeServerURL(identity.ServerURL)
+			if normalizeErr != nil {
+				return NodeIdentity{}, errors.New("stored Pact node identity has an invalid server URL")
+			}
+			if configuredServer == serverURL && !rotate {
+				if err := os.Chmod(path, 0o600); err != nil {
+					return NodeIdentity{}, fmt.Errorf("secure Pact node identity: %w", err)
+				}
+				identity.ServerURL = configuredServer
+				return identity, nil
+			}
+		} else if identity.SchemaVersion == 1 && !rotate {
+			identity.SchemaVersion = nodeIdentitySchemaVersion
+			identity.ServerURL = serverURL
+			if err := writeNodeIdentity(path, identity); err != nil {
+				return NodeIdentity{}, err
+			}
+			return identity, nil
+		} else if identity.SchemaVersion != 1 {
+			return NodeIdentity{}, fmt.Errorf("unsupported Pact node identity schema version %d", identity.SchemaVersion)
 		}
-		return identity, nil
+		return writeNewNodeIdentity(path, identity.Name, serverURL)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return NodeIdentity{}, fmt.Errorf("read Pact node identity: %w", err)
@@ -111,24 +106,36 @@ func EnsureNodeIdentity(startPath string) (NodeIdentity, error) {
 	if err != nil || strings.TrimSpace(hostname) == "" {
 		hostname = "local-machine"
 	}
+	return writeNewNodeIdentity(path, hostname, serverURL)
+}
+
+func writeNewNodeIdentity(path, name, serverURL string) (NodeIdentity, error) {
 	nodeKey, err := newUUID()
 	if err != nil {
 		return NodeIdentity{}, err
 	}
 	identity := NodeIdentity{
-		SchemaVersion: 1,
+		SchemaVersion: nodeIdentitySchemaVersion,
 		Key:           nodeKey,
-		Name:          strings.TrimSpace(hostname),
+		Name:          strings.TrimSpace(name),
+		ServerURL:     serverURL,
 	}
-	payload, err := json.MarshalIndent(identity, "", "  ")
-	if err != nil {
-		return NodeIdentity{}, fmt.Errorf("encode Pact node identity: %w", err)
-	}
-	payload = append(payload, '\n')
-	if err := writeAtomic(path, payload, 0o600); err != nil {
-		return NodeIdentity{}, fmt.Errorf("write Pact node identity: %w", err)
+	if err := writeNodeIdentity(path, identity); err != nil {
+		return NodeIdentity{}, err
 	}
 	return identity, nil
+}
+
+func writeNodeIdentity(path string, identity NodeIdentity) error {
+	payload, err := json.MarshalIndent(identity, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode Pact node identity: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := atomicfile.Write(path, payload, 0o600); err != nil {
+		return fmt.Errorf("write Pact node identity: %w", err)
+	}
+	return nil
 }
 
 func newUUID() (string, error) {

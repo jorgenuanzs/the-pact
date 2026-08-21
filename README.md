@@ -336,12 +336,13 @@ server, and writes two different surfaces:
 | Path | Purpose | Git visibility |
 |---|---|---|
 | `pact.yaml` | Shared project manifest | Commit it |
-| `.pact/config.json` | Server URL and remote project UUID for this checkout | Ignored |
+| `.pact/config.json` | Server, workspace, repository, project and Git remote fingerprint for this checkout | Ignored |
 | `.pact/node.json` | Private machine identity, created when observation starts | Ignored |
 | `.pact/worktrees/` | Isolated Git worktrees created for coordinated work | Ignored |
 
 No password, device credential, PostgreSQL credential, or cloud secret is
-written into the repository.
+written into the repository. The private binding stores a SHA-256 fingerprint
+of the normalized Git remote rather than the raw URL.
 
 `pact init` also creates a default remote Workspace for a new project. Related
 projects can later be grouped without changing their Git repositories:
@@ -415,7 +416,20 @@ only non-secret server profile metadata.
 `pact connect` requires the `pact.yaml` created by the owner and connects only
 to an existing remote project. It never creates a project silently. SSH and
 HTTPS Git remotes are normalized before comparison, so different clone methods
-still resolve to the same Pact project.
+still resolve to the same Pact project. If a project or remote is visible in
+more than one destination, select it explicitly with `--workspace UUID` and
+`--repository UUID`.
+
+Changing an existing checkout to another server, workspace, repository, or Git
+remote is intentionally explicit:
+
+```sh
+pact connect --server https://other-pact.example.com --rebind
+```
+
+PACT validates the new destination before atomically replacing the binding.
+The local node identity rotates only when the server changes. A separate Git
+worktree may keep an independent binding to another server.
 
 ## Connect AI agents
 
@@ -636,8 +650,8 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 | `pact servers list [--json]` | List authorized server profiles without exposing credentials |
 | `pact servers use PROFILE_OR_URL` | Select the preference for commands without a bound folder |
 | `pact servers remove PROFILE_OR_URL` | Revoke and remove one server profile; use `--local-only` only for recovery |
-| `pact init [PATH]` | Create or recover a project and connect the owner checkout |
-| `pact connect [PATH]` | Connect another checkout to an existing Pact project |
+| `pact init [--workspace UUID] [--repository UUID] [PATH]` | Create or recover a project and bind the owner checkout to its workspace and repository |
+| `pact connect [--workspace UUID] [--repository UUID] [--rebind] [PATH]` | Bind another checkout to an existing destination, or explicitly replace its current binding |
 | `pact status [--path PATH] [--json]` | Show the server, workspace, project, and repository bound to a checkout |
 | `pact repository list` | Show the primary and additional project repositories and their verified revisions |
 | `pact repository status [--repository UUID]` | Show verified state for the primary or selected repository |

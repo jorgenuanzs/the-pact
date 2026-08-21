@@ -2,7 +2,6 @@ package localproject
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -106,51 +105,6 @@ func HasManifest(startPath string) (bool, error) {
 		return false, fmt.Errorf("inspect %s: %w", manifestName, err)
 	}
 	return true, nil
-}
-
-func Bind(startPath, serverURL, projectID string) error {
-	root, err := FindRoot(startPath)
-	if err != nil {
-		return err
-	}
-	if !validUUID(strings.TrimSpace(projectID)) {
-		return errors.New("remote project ID must be a UUID")
-	}
-	configPath := filepath.Join(root, localDirectory, localConfigName)
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("read local Pact configuration: %w", err)
-	}
-	var config localConfig
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&config); err != nil {
-		return fmt.Errorf("decode local Pact configuration: %w", err)
-	}
-	configuredServer, err := normalizeServerURL(config.ServerURL)
-	if err != nil {
-		return err
-	}
-	requestedServer, err := normalizeServerURL(serverURL)
-	if err != nil {
-		return err
-	}
-	if configuredServer != requestedServer {
-		return fmt.Errorf("project is configured for %s, not %s", configuredServer, requestedServer)
-	}
-	if config.ProjectID != "" && config.ProjectID != projectID {
-		return fmt.Errorf("this checkout is already connected to project %s", config.ProjectID)
-	}
-	config.ProjectID = projectID
-	payload, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode local Pact binding: %w", err)
-	}
-	payload = append(payload, '\n')
-	if err := writeAtomic(configPath, payload, 0o600); err != nil {
-		return fmt.Errorf("write local Pact binding: %w", err)
-	}
-	return nil
 }
 
 func NormalizeGitRemote(raw string) (string, error) {

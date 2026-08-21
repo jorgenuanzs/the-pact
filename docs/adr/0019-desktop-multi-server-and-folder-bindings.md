@@ -178,14 +178,18 @@ v2:
   "server_url": "https://pact.example.com",
   "workspace_id": "…",
   "repository_id": "…",
-  "project_id": "…"
+  "project_id": "…",
+  "git_remote_fingerprint": "sha256:…",
+  "configured_at": "2026-08-21T12:00:00Z"
 }
 ```
 
 `project_id` permanece mientras existan endpoints que lo requieran. El
 registro de Desktop puede guardar `server_profile_id` como índice local, pero
 el archivo del checkout conserva `server_url`, porque un UUID local no puede
-reconstruirse en otro computador.
+reconstruirse en otro computador. El remoto normalizado se compara mediante
+su fingerprint SHA-256 para no persistir la URL ni cualquier material sensible
+que pudiera haber contenido antes de normalizarse.
 
 Una misma carpeta no puede apuntar simultáneamente a varios servidores. Si se
 necesita utilizar el mismo repositorio con dos PACT Servers, se crean checkouts

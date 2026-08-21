@@ -1,11 +1,8 @@
 package localproject
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"os"
@@ -22,9 +19,10 @@ const (
 )
 
 type InitOptions struct {
-	StartPath string
-	Name      string
-	ServerURL string
+	StartPath         string
+	Name              string
+	ServerURL         string
+	AllowServerChange bool
 }
 
 type InitResult struct {
@@ -35,12 +33,6 @@ type InitResult struct {
 	ServerURL          string
 	ManifestCreated    bool
 	LocalConfigCreated bool
-}
-
-type localConfig struct {
-	SchemaVersion int    `json:"schema_version"`
-	ServerURL     string `json:"server_url"`
-	ProjectID     string `json:"project_id,omitempty"`
 }
 
 func Init(options InitOptions) (InitResult, error) {
@@ -69,7 +61,7 @@ func Init(options InitOptions) (InitResult, error) {
 		return InitResult{}, err
 	}
 
-	configuredServer, configCreated, err := ensureLocalConfig(configPath, options.ServerURL)
+	configuredServer, configCreated, err := ensureLocalConfig(configPath, options.ServerURL, options.AllowServerChange)
 	if err != nil {
 		return InitResult{}, err
 	}
@@ -190,28 +182,29 @@ func ensurePrivateDirectory(path string) error {
 	return nil
 }
 
-func ensureLocalConfig(path, requestedServer string) (string, bool, error) {
+func ensureLocalConfig(path, requestedServer string, allowServerChange bool) (string, bool, error) {
+	release, err := acquireBindingLock(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer release()
+
 	info, err := os.Lstat(path)
 	if err == nil {
 		if !info.Mode().IsRegular() {
 			return "", false, fmt.Errorf("%s exists but is not a regular file", path)
 		}
-		content, readErr := os.ReadFile(path)
+		existing, readErr := readLocalConfig(path)
 		if readErr != nil {
-			return "", false, fmt.Errorf("read local Pact configuration: %w", readErr)
+			return "", false, readErr
 		}
-		var existing localConfig
-		decoder := json.NewDecoder(bytes.NewReader(content))
-		decoder.DisallowUnknownFields()
-		if decodeErr := decoder.Decode(&existing); decodeErr != nil {
-			return "", false, fmt.Errorf("decode local Pact configuration: %w", decodeErr)
-		}
-		var trailing any
-		if trailingErr := decoder.Decode(&trailing); !errors.Is(trailingErr, io.EOF) {
-			return "", false, errors.New("decode local Pact configuration: unexpected trailing data")
-		}
-		if existing.SchemaVersion != 1 {
+		if existing.SchemaVersion != 1 && existing.SchemaVersion != LocalBindingSchemaVersion {
 			return "", false, fmt.Errorf("unsupported local Pact schema version %d", existing.SchemaVersion)
+		}
+		if existing.SchemaVersion == LocalBindingSchemaVersion {
+			if _, shapeErr := completeV2Config(existing); shapeErr != nil {
+				return "", false, shapeErr
+			}
 		}
 		normalized, normalizeErr := normalizeServerURL(existing.ServerURL)
 		if normalizeErr != nil {
@@ -223,7 +216,10 @@ func ensureLocalConfig(path, requestedServer string) (string, bool, error) {
 				return "", false, requestErr
 			}
 			if requested != normalized {
-				return "", false, fmt.Errorf("project is already linked locally to %s", normalized)
+				if !allowServerChange {
+					return "", false, fmt.Errorf("project is already linked locally to %s", normalized)
+				}
+				normalized = requested
 			}
 		}
 		if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
@@ -243,15 +239,10 @@ func ensureLocalConfig(path, requestedServer string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	payload, err := json.MarshalIndent(localConfig{
-		SchemaVersion: 1,
+	if err := writeLocalConfig(path, localConfig{
+		SchemaVersion: LocalBindingSchemaVersion,
 		ServerURL:     normalized,
-	}, "", "  ")
-	if err != nil {
-		return "", false, fmt.Errorf("encode local Pact configuration: %w", err)
-	}
-	payload = append(payload, '\n')
-	if err := writeExclusive(path, payload, 0o600); err != nil {
+	}); err != nil {
 		return "", false, fmt.Errorf("write local Pact configuration: %w", err)
 	}
 	return normalized, true, nil
