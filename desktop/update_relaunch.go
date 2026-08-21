@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -22,12 +23,15 @@ func markUpdateRelaunch() error {
 	if err != nil {
 		return err
 	}
-	return writeUpdateRelaunchMarker(markerPath, currentVersion)
+	return writeUpdateRelaunchState(markerPath, currentVersion)
 }
 
-// waitForUpdateRelaunch consumes the one-shot marker before Wails or WKWebView
-// are initialised. The helper has exited by the end of this short pause, so the
-// new application gets a clean first launch instead of requiring a manual
+// waitForUpdateRelaunch runs before Wails or WKWebView are initialised. A
+// one-shot marker covers updates started by PACT versions that already know
+// this protocol. The last-launched version also lets a newly installed version
+// recognise an update from older PACT builds that could not create the marker.
+// By the end of this short, once-per-version pause the helper has exited, so
+// the application gets a clean first launch instead of requiring a manual
 // close and reopen.
 func waitForUpdateRelaunch() {
 	if runtime.GOOS != "darwin" {
@@ -37,7 +41,11 @@ func waitForUpdateRelaunch() {
 	if err != nil {
 		return
 	}
-	pauseForUpdateRelaunch(markerPath, time.Sleep)
+	versionPath, err := updateRelaunchVersionPath()
+	if err != nil {
+		return
+	}
+	pauseForUpdateRelaunch(markerPath, versionPath, currentVersion, time.Sleep)
 }
 
 func updateRelaunchMarkerPath() (string, error) {
@@ -48,14 +56,22 @@ func updateRelaunchMarkerPath() (string, error) {
 	return filepath.Join(cacheDirectory, "com.nuanzs.pact", "update-relaunch.pending"), nil
 }
 
-func writeUpdateRelaunchMarker(markerPath, version string) (resultErr error) {
-	directory := filepath.Dir(markerPath)
+func updateRelaunchVersionPath() (string, error) {
+	cacheDirectory, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory: %w", err)
+	}
+	return filepath.Join(cacheDirectory, "com.nuanzs.pact", "last-launched-version"), nil
+}
+
+func writeUpdateRelaunchState(statePath, version string) (resultErr error) {
+	directory := filepath.Dir(statePath)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create update relaunch directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(directory, "update-relaunch-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create update relaunch marker: %w", err)
+		return fmt.Errorf("create update relaunch state: %w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer func() {
@@ -65,16 +81,16 @@ func writeUpdateRelaunchMarker(markerPath, version string) (resultErr error) {
 		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
-		return fmt.Errorf("secure update relaunch marker: %w", err)
+		return fmt.Errorf("secure update relaunch state: %w", err)
 	}
 	if _, err := fmt.Fprintln(temporary, version); err != nil {
-		return fmt.Errorf("write update relaunch marker: %w", err)
+		return fmt.Errorf("write update relaunch state: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close update relaunch marker: %w", err)
+		return fmt.Errorf("close update relaunch state: %w", err)
 	}
-	if err := os.Rename(temporaryPath, markerPath); err != nil {
-		return fmt.Errorf("activate update relaunch marker: %w", err)
+	if err := os.Rename(temporaryPath, statePath); err != nil {
+		return fmt.Errorf("activate update relaunch state: %w", err)
 	}
 	return nil
 }
@@ -86,8 +102,24 @@ func consumeUpdateRelaunchMarker(markerPath string) bool {
 	return true
 }
 
-func pauseForUpdateRelaunch(markerPath string, pause func(time.Duration)) bool {
-	if !consumeUpdateRelaunchMarker(markerPath) {
+func recordUpdateRelaunchVersion(versionPath, version string) bool {
+	if !releaseVersionPattern.MatchString(version) {
+		return false
+	}
+	previous, err := os.ReadFile(versionPath)
+	if err == nil && strings.TrimSpace(string(previous)) == version {
+		return false
+	}
+	if err := writeUpdateRelaunchState(versionPath, version); err != nil {
+		return false
+	}
+	return true
+}
+
+func pauseForUpdateRelaunch(markerPath, versionPath, version string, pause func(time.Duration)) bool {
+	marked := consumeUpdateRelaunchMarker(markerPath)
+	versionChanged := recordUpdateRelaunchVersion(versionPath, version)
+	if !marked && !versionChanged {
 		return false
 	}
 	pause(updateRelaunchDelay)

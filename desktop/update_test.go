@@ -62,7 +62,8 @@ func TestSignedGitHubProviderLoadsDetachedSignature(t *testing.T) {
 
 func TestUpdateRelaunchMarkerIsAtomicAndOneShot(t *testing.T) {
 	markerPath := filepath.Join(t.TempDir(), "nested", "update-relaunch.pending")
-	if err := writeUpdateRelaunchMarker(markerPath, "0.16.2"); err != nil {
+	versionPath := filepath.Join(filepath.Dir(markerPath), "last-launched-version")
+	if err := writeUpdateRelaunchState(markerPath, "0.16.2"); err != nil {
 		t.Fatal(err)
 	}
 	contents, err := os.ReadFile(markerPath)
@@ -73,14 +74,54 @@ func TestUpdateRelaunchMarkerIsAtomicAndOneShot(t *testing.T) {
 		t.Fatalf("marker version = %q, want 0.16.2", got)
 	}
 	var waited time.Duration
-	if !pauseForUpdateRelaunch(markerPath, func(duration time.Duration) { waited = duration }) {
+	if !pauseForUpdateRelaunch(markerPath, versionPath, "0.16.3", func(duration time.Duration) { waited = duration }) {
 		t.Fatal("first marked relaunch was not detected")
 	}
 	if waited != updateRelaunchDelay {
 		t.Fatalf("relaunch delay = %s, want %s", waited, updateRelaunchDelay)
 	}
-	if pauseForUpdateRelaunch(markerPath, func(time.Duration) { t.Fatal("second launch must not pause") }) {
+	if pauseForUpdateRelaunch(markerPath, versionPath, "0.16.3", func(time.Duration) { t.Fatal("second launch must not pause") }) {
 		t.Fatal("marker must only be consumed once")
+	}
+}
+
+func TestUpdateRelaunchBootstrapsFromVersionTransition(t *testing.T) {
+	directory := t.TempDir()
+	markerPath := filepath.Join(directory, "update-relaunch.pending")
+	versionPath := filepath.Join(directory, "last-launched-version")
+
+	var waits int
+	if !pauseForUpdateRelaunch(markerPath, versionPath, "0.16.5", func(time.Duration) { waits++ }) {
+		t.Fatal("first launch of a release version must pause without a legacy marker")
+	}
+	if pauseForUpdateRelaunch(markerPath, versionPath, "0.16.5", func(time.Duration) { waits++ }) {
+		t.Fatal("second launch of the same version must not pause")
+	}
+	if !pauseForUpdateRelaunch(markerPath, versionPath, "0.16.6", func(time.Duration) { waits++ }) {
+		t.Fatal("first launch of the next version must pause")
+	}
+	if waits != 2 {
+		t.Fatalf("relaunch pauses = %d, want 2", waits)
+	}
+
+	contents, err := os.ReadFile(versionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(contents)); got != "0.16.6" {
+		t.Fatalf("last launched version = %q, want 0.16.6", got)
+	}
+}
+
+func TestUpdateRelaunchDoesNotDelayDevelopmentBuilds(t *testing.T) {
+	directory := t.TempDir()
+	if pauseForUpdateRelaunch(
+		filepath.Join(directory, "update-relaunch.pending"),
+		filepath.Join(directory, "last-launched-version"),
+		"dev",
+		func(time.Duration) { t.Fatal("development launch must not pause") },
+	) {
+		t.Fatal("development launch was treated as an update")
 	}
 }
 
