@@ -26,6 +26,8 @@ func init() {
 }
 
 func main() {
+	waitForUpdateRelaunch()
+
 	assets, err := fs.Sub(desktopAssets, "frontend/dist")
 	if err != nil {
 		log.Fatal(err)

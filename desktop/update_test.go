@@ -8,8 +8,11 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/updater"
 	githubupdates "github.com/wailsapp/wails/v3/pkg/updater/providers/github"
@@ -54,6 +57,30 @@ func TestSignedGitHubProviderLoadsDetachedSignature(t *testing.T) {
 	}
 	if !ed25519.Verify(publicKey, digest[:], loaded) {
 		t.Fatal("downloaded signature did not verify")
+	}
+}
+
+func TestUpdateRelaunchMarkerIsAtomicAndOneShot(t *testing.T) {
+	markerPath := filepath.Join(t.TempDir(), "nested", "update-relaunch.pending")
+	if err := writeUpdateRelaunchMarker(markerPath, "0.16.2"); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(contents)); got != "0.16.2" {
+		t.Fatalf("marker version = %q, want 0.16.2", got)
+	}
+	var waited time.Duration
+	if !pauseForUpdateRelaunch(markerPath, func(duration time.Duration) { waited = duration }) {
+		t.Fatal("first marked relaunch was not detected")
+	}
+	if waited != updateRelaunchDelay {
+		t.Fatalf("relaunch delay = %s, want %s", waited, updateRelaunchDelay)
+	}
+	if pauseForUpdateRelaunch(markerPath, func(time.Duration) { t.Fatal("second launch must not pause") }) {
+		t.Fatal("marker must only be consumed once")
 	}
 }
 

@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 	githubupdates "github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
@@ -121,13 +123,21 @@ func (d *Desktop) configureUpdater() error {
 	if err != nil {
 		return fmt.Errorf("configure GitHub updater: %w", err)
 	}
-	return app.Updater.Init(updater.Config{
+	if err := app.Updater.Init(updater.Config{
 		CurrentVersion: currentVersion,
 		Providers: []updater.Provider{
 			&signedGitHubProvider{provider: provider, client: httpClient},
 		},
 		PublicKey: publicKey,
+	}); err != nil {
+		return err
+	}
+	app.Event.On(updater.EventUpdateReady, func(_ *application.CustomEvent) {
+		if err := markUpdateRelaunch(); err != nil {
+			log.Printf("prepare update relaunch: %v", err)
+		}
 	})
+	return nil
 }
 
 func desktopUpdateAssetMatcher(request updater.CheckRequest, assets []githubupdates.ReleaseAsset) int {
