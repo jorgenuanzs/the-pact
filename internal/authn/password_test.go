@@ -47,7 +47,10 @@ func TestPasswordPolicyUsesLengthWithoutCompositionRules(t *testing.T) {
 	if err := validatePassword("alllowercasebutlong"); err != nil {
 		t.Fatalf("valid lowercase password error = %v", err)
 	}
-	for _, password := range []string{"too short", strings.Repeat("x", 129), strings.Repeat(" ", 20)} {
+	if err := validatePassword(strings.Repeat("x", 11)); err != nil {
+		t.Fatalf("11-character password error = %v", err)
+	}
+	for _, password := range []string{strings.Repeat("x", 10), strings.Repeat("x", 129), strings.Repeat(" ", 20)} {
 		var validationErr *ValidationError
 		if err := validatePassword(password); !errors.As(err, &validationErr) {
 			t.Fatalf("validatePassword(%q) error = %v", password, err)
