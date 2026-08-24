@@ -101,6 +101,7 @@ type RoomService interface {
 }
 
 type AgentSessionService interface {
+	Enroll(context.Context, string, string, agentsession.EnrollmentInput) (agentsession.EnrollmentResult, error)
 	Start(context.Context, string, string, agentsession.StartInput) (agentsession.Session, error)
 	Heartbeat(context.Context, string, bool, string) (agentsession.Session, error)
 	Observe(context.Context, string, string, string, agentsession.ObservationInput) (agentsession.ObservationResult, error)
@@ -316,6 +317,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleGetWorkspace)))
 	mux.Handle("PATCH /v1/workspaces/{workspaceID}", api.requireAuth(http.HandlerFunc(api.handleUpdateWorkspace)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}/access", api.requireAuth(http.HandlerFunc(api.handleWorkspaceAccess)))
+	mux.Handle("POST /v1/workspaces/{workspaceID}/agent-enrollments", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleEnrollAgent))))
 	mux.Handle("PUT /v1/workspaces/{workspaceID}/projects/{projectID}", api.requireAuth(http.HandlerFunc(api.handleAttachWorkspaceProject)))
 	mux.Handle("GET /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("viewer", http.HandlerFunc(api.handleListResources))))
 	mux.Handle("POST /v1/workspaces/{workspaceID}/resources", api.requireAuth(api.requireWorkspaceRole("contributor", http.HandlerFunc(api.handleCreateResource))))
@@ -379,6 +381,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("/v1/workspaces/events/stream", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/workspaces/{workspaceID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch))
 	mux.Handle("/v1/workspaces/{workspaceID}/access", api.methodNotAllowed(http.MethodGet))
+	mux.Handle("/v1/workspaces/{workspaceID}/agent-enrollments", api.methodNotAllowed(http.MethodPost))
 	mux.Handle("/v1/workspaces/{workspaceID}/projects/{projectID}", api.methodNotAllowed(http.MethodPut))
 	mux.Handle("/v1/admin/users", api.methodNotAllowed(http.MethodGet))
 	mux.Handle("/v1/admin/users/{principalID}", api.methodNotAllowed(http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete))
@@ -1048,6 +1051,34 @@ func (a *API) handleStartAgentSession(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/v1/agent-sessions/"+session.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"data": session})
+}
+
+func (a *API) handleEnrollAgent(w http.ResponseWriter, r *http.Request) {
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeProblem(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type", "Unsupported media type", "Content-Type must be application/json.")
+		return
+	}
+	if a.agentSessions == nil {
+		a.writeDomainError(w, r, errors.New("agent session service is not configured"))
+		return
+	}
+	var input agentsession.EnrollmentInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "invalid_json", "Invalid request body", err.Error())
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	result, err := a.agentSessions.Enroll(r.Context(), principal.ID, r.PathValue("workspaceID"), input)
+	if err != nil {
+		a.writeDomainError(w, r, err)
+		return
+	}
+	status := http.StatusOK
+	if result.Created {
+		status = http.StatusCreated
+		w.Header().Set("Location", "/v1/agent-enrollments/"+result.Enrollment.ID)
+	}
+	writeJSON(w, status, map[string]any{"data": result})
 }
 
 func (a *API) handleScopeCheck(w http.ResponseWriter, r *http.Request) {
@@ -2354,12 +2385,16 @@ func (a *API) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		writeProblem(w, r, http.StatusConflict, "inactive_user", "User is disabled", err.Error())
 	case errors.Is(err, agentsession.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "agent_session_not_found", "Agent session not found", err.Error())
+	case errors.Is(err, agentsession.ErrEnrollmentTarget):
+		writeProblem(w, r, http.StatusNotFound, "agent_enrollment_target_not_found", "Agent enrollment target not found", err.Error())
 	case errors.Is(err, agentsession.ErrIdempotencyConflict):
 		writeProblem(w, r, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", err.Error())
 	case errors.Is(err, agentsession.ErrCommandIncomplete):
 		writeProblem(w, r, http.StatusConflict, "command_incomplete", "Command result unavailable", err.Error())
 	case errors.Is(err, projects.ErrNotFound):
 		writeProblem(w, r, http.StatusNotFound, "project_not_found", "Project not found", "The requested project does not exist.")
+	case errors.Is(err, projects.ErrWorkspaceNotFound):
+		writeProblem(w, r, http.StatusNotFound, "workspace_not_found", "Workspace not found", "The requested workspace does not exist or is archived.")
 	case errors.Is(err, projects.ErrSlugTaken):
 		writeProblem(w, r, http.StatusConflict, "project_slug_taken", "Project already exists", err.Error())
 	case errors.Is(err, projects.ErrRepositoryTaken):

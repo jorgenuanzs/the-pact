@@ -26,6 +26,127 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
+func (r *PostgresRepository) Enroll(
+	ctx context.Context,
+	organizationID string,
+	sponsorPrincipalID string,
+	workspaceID string,
+	input EnrollmentInput,
+) (EnrollmentResult, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return EnrollmentResult{}, fmt.Errorf("begin agent enrollment: %w", err)
+	}
+	defer rollback(tx)
+
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+	`, "pact-agent-enrollment:"+organizationID+":"+input.ProjectID+":"+sponsorPrincipalID+":"+input.AgentType); err != nil {
+		return EnrollmentResult{}, fmt.Errorf("lock agent enrollment: %w", err)
+	}
+	var relationExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM identity.workspace_projects AS relation
+			JOIN identity.workspaces AS workspace
+			  ON workspace.organization_id = relation.organization_id
+			 AND workspace.id = relation.workspace_id
+			JOIN identity.projects AS project
+			  ON project.organization_id = relation.organization_id
+			 AND project.id = relation.project_id
+			WHERE relation.organization_id = $1
+			  AND relation.workspace_id = $2
+			  AND relation.project_id = $3
+			  AND workspace.status = 'active'
+			  AND project.status <> 'archived'
+		)
+	`, organizationID, workspaceID, input.ProjectID).Scan(&relationExists); err != nil {
+		return EnrollmentResult{}, fmt.Errorf("verify enrollment destination: %w", err)
+	}
+	if !relationExists {
+		return EnrollmentResult{}, ErrEnrollmentTarget
+	}
+
+	agentID, err := upsertAgent(ctx, tx, organizationID, sponsorPrincipalID, StartInput{AgentType: input.AgentType})
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	var result EnrollmentResult
+	err = tx.QueryRow(ctx, `
+		SELECT enrollment.id,
+		       enrollment.workspace_id,
+		       enrollment.project_id,
+		       enrollment.agent_id,
+		       actor.display_name,
+		       enrollment.sponsor_principal_id,
+		       enrollment.agent_type,
+		       enrollment.client_type,
+		       enrollment.status,
+		       enrollment.created_at,
+		       enrollment.updated_at,
+		       enrollment.activated_at,
+		       enrollment.last_seen_at
+		FROM identity.agent_enrollments AS enrollment
+		JOIN identity.actors AS actor
+		  ON actor.organization_id = enrollment.organization_id
+		 AND actor.id = enrollment.agent_id
+		WHERE enrollment.organization_id = $1
+		  AND enrollment.project_id = $2
+		  AND enrollment.sponsor_principal_id = $3
+		  AND enrollment.agent_type = $4
+		  AND enrollment.status <> 'revoked'
+	`, organizationID, input.ProjectID, sponsorPrincipalID, input.AgentType).Scan(
+		&result.Enrollment.ID,
+		&result.Enrollment.WorkspaceID,
+		&result.Enrollment.ProjectID,
+		&result.Enrollment.AgentID,
+		&result.Enrollment.AgentName,
+		&result.Enrollment.SponsorPrincipalID,
+		&result.Enrollment.AgentType,
+		&result.Enrollment.ClientType,
+		&result.Enrollment.Status,
+		&result.Enrollment.CreatedAt,
+		&result.Enrollment.UpdatedAt,
+		&result.Enrollment.ActivatedAt,
+		&result.Enrollment.LastSeenAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO identity.agent_enrollments (
+				organization_id, workspace_id, project_id, agent_id,
+				sponsor_principal_id, agent_type, client_type
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id, workspace_id, project_id, agent_id,
+			          sponsor_principal_id, agent_type, client_type, status,
+			          created_at, updated_at, activated_at, last_seen_at
+		`, organizationID, workspaceID, input.ProjectID, agentID, sponsorPrincipalID, input.AgentType, input.ClientType).Scan(
+			&result.Enrollment.ID,
+			&result.Enrollment.WorkspaceID,
+			&result.Enrollment.ProjectID,
+			&result.Enrollment.AgentID,
+			&result.Enrollment.SponsorPrincipalID,
+			&result.Enrollment.AgentType,
+			&result.Enrollment.ClientType,
+			&result.Enrollment.Status,
+			&result.Enrollment.CreatedAt,
+			&result.Enrollment.UpdatedAt,
+			&result.Enrollment.ActivatedAt,
+			&result.Enrollment.LastSeenAt,
+		)
+		result.Enrollment.AgentName = canonicalAgentDisplayName(input.AgentType)
+		result.Created = true
+	}
+	if err != nil {
+		return EnrollmentResult{}, fmt.Errorf("create agent enrollment: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return EnrollmentResult{}, fmt.Errorf("commit agent enrollment: %w", err)
+	}
+	return result, nil
+}
+
 func (r *PostgresRepository) Start(
 	ctx context.Context,
 	organizationID string,
@@ -65,6 +186,21 @@ func (r *PostgresRepository) Start(
 	agentID, err := upsertAgent(ctx, tx, organizationID, sponsorPrincipalID, input)
 	if err != nil {
 		return Session{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE identity.agent_enrollments
+		SET status = 'active',
+		    activated_at = COALESCE(activated_at, transaction_timestamp()),
+		    last_seen_at = transaction_timestamp(),
+		    updated_at = transaction_timestamp()
+		WHERE organization_id = $1
+		  AND project_id = $2
+		  AND agent_id = $3
+		  AND sponsor_principal_id = $4
+		  AND agent_type = $5
+		  AND status <> 'revoked'
+	`, organizationID, projectID, agentID, sponsorPrincipalID, input.AgentType); err != nil {
+		return Session{}, fmt.Errorf("activate agent enrollment: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx, `

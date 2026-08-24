@@ -360,7 +360,15 @@ type fakeEventReader struct {
 }
 
 type fakeAgentSessionService struct {
+	enroll  func(context.Context, string, string, agentsession.EnrollmentInput) (agentsession.EnrollmentResult, error)
 	observe func(context.Context, string, string, string, agentsession.ObservationInput) (agentsession.ObservationResult, error)
+}
+
+func (f fakeAgentSessionService) Enroll(ctx context.Context, principalID, workspaceID string, input agentsession.EnrollmentInput) (agentsession.EnrollmentResult, error) {
+	if f.enroll != nil {
+		return f.enroll(ctx, principalID, workspaceID, input)
+	}
+	return agentsession.EnrollmentResult{}, nil
 }
 
 type fakeCoordinationService struct {
@@ -1284,6 +1292,49 @@ func TestWorkspaceAccessReturnsAdministratorsWithoutProjects(t *testing.T) {
 	}
 }
 
+func TestEnrollWorkspaceAgentReturnsPendingIdentity(t *testing.T) {
+	const (
+		workspaceID  = "018f784a-68c1-7b0f-8f2a-cfc255f99e4d"
+		projectID    = "018f784a-68c1-7b0f-8f2a-cfc255f99e1d"
+		enrollmentID = "018f784a-68c1-7b0f-8f2a-cfc255f99e8a"
+	)
+	handler := New(Config{
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		Build:          buildinfo.Info{Version: "test"},
+		Readiness:      func(context.Context) error { return nil },
+		ProjectService: fakeProjectService{},
+		AccessService:  fakeAccessService{},
+		AgentSessionService: fakeAgentSessionService{enroll: func(_ context.Context, principalID, receivedWorkspaceID string, input agentsession.EnrollmentInput) (agentsession.EnrollmentResult, error) {
+			if principalID != access.BootstrapPrincipalID || receivedWorkspaceID != workspaceID {
+				t.Fatalf("principal=%q workspace=%q", principalID, receivedWorkspaceID)
+			}
+			if input.ProjectID != projectID || input.AgentType != "codex" || input.ClientType != "codex-mcp" {
+				t.Fatalf("input = %#v", input)
+			}
+			return agentsession.EnrollmentResult{Created: true, Enrollment: agentsession.Enrollment{
+				ID: enrollmentID, WorkspaceID: workspaceID, ProjectID: projectID,
+				AgentName: "Codex", AgentType: "codex", ClientType: "codex-mcp", Status: "pending",
+			}}, nil
+		}},
+		BackofficeReader: fakeBackofficeReader{get: func(context.Context, string, string) (backoffice.Overview, error) { return backoffice.Overview{}, nil }},
+		EventReader:      fakeEventReader{},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(
+		http.MethodPost,
+		"/v1/workspaces/"+workspaceID+"/agent-enrollments",
+		`{"project_id":"`+projectID+`","agent_type":"codex","client_type":"codex-mcp"}`,
+	))
+
+	if response.Code != http.StatusCreated || response.Header().Get("Location") != "/v1/agent-enrollments/"+enrollmentID {
+		t.Fatalf("status=%d location=%q body=%s", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"status":"pending"`) || !strings.Contains(response.Body.String(), `"created":true`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
 func TestProjectOverviewKeepsCodeActivityUnobserved(t *testing.T) {
 	const (
 		organizationID = "00000000-0000-4000-8000-000000000001"
@@ -1480,6 +1531,7 @@ func TestCreateProjectRejectsUnknownJSONField(t *testing.T) {
 }
 
 func TestCreateProjectReturnsStoredResponseOnReplay(t *testing.T) {
+	const workspaceID = "018f784a-68c1-7b0f-8f2a-cfc255f99e2d"
 	project := projects.Project{
 		ID:             "018f784a-68c1-7b0f-8f2a-cfc255f99e1d",
 		OrganizationID: "00000000-0000-4000-8000-000000000001",
@@ -1492,14 +1544,14 @@ func TestCreateProjectReturnsStoredResponseOnReplay(t *testing.T) {
 	}
 	service := fakeProjectService{
 		create: func(_ context.Context, key string, input projects.CreateInput) (projects.CreateResult, error) {
-			if key != "create-pact" || input.Slug != "pact" {
+			if key != "create-pact" || input.Slug != "pact" || input.WorkspaceID != workspaceID {
 				t.Fatalf("unexpected command: key=%q input=%#v", key, input)
 			}
 			return projects.CreateResult{Project: project, Replayed: true}, nil
 		},
 	}
 	handler := testHandler(t, service, fakeEventReader{})
-	request := authenticatedRequest(http.MethodPost, "/v1/projects", `{"name":"Pact","slug":"pact"}`)
+	request := authenticatedRequest(http.MethodPost, "/v1/projects", `{"name":"Pact","slug":"pact","workspace_id":"`+workspaceID+`"}`)
 	request.Header.Set("Idempotency-Key", "create-pact")
 	response := httptest.NewRecorder()
 

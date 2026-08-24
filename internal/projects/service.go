@@ -42,6 +42,7 @@ func NewService(organizationID string, repository Repository) *Service {
 func (s *Service) Create(ctx context.Context, idempotencyKey string, input CreateInput) (CreateResult, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Slug = strings.TrimSpace(input.Slug)
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
 	if input.CanonicalRevision != nil {
 		trimmed := strings.ToLower(strings.TrimSpace(*input.CanonicalRevision))
 		input.CanonicalRevision = &trimmed
@@ -103,6 +104,8 @@ func validateInput(idempotencyKey string, input CreateInput) error {
 		return &ValidationError{Field: "slug", Message: "must contain at most 63 characters"}
 	case !slugPattern.MatchString(input.Slug):
 		return &ValidationError{Field: "slug", Message: "must use lowercase letters, numbers, and single hyphens"}
+	case input.WorkspaceID != "" && !validUUID(input.WorkspaceID):
+		return &ValidationError{Field: "workspace_id", Message: "must be a UUID"}
 	case input.CanonicalRevision != nil && *input.CanonicalRevision == "":
 		return &ValidationError{Field: "canonical_revision", Message: "must not be empty when provided"}
 	case input.CanonicalRevision != nil && len(*input.CanonicalRevision) > maxRevisionLength:

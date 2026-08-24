@@ -8,10 +8,18 @@ import (
 )
 
 type fakeRepository struct {
+	enroll    func(context.Context, string, string, string, EnrollmentInput) (EnrollmentResult, error)
 	start     func(context.Context, string, string, string, StartInput) (Session, error)
 	heartbeat func(context.Context, string, string, bool, string) (Session, error)
 	observe   func(context.Context, string, string, string, string, [sha256.Size]byte, ObservationInput) (ObservationResult, error)
 	close     func(context.Context, string, string, bool, string) error
+}
+
+func (f fakeRepository) Enroll(ctx context.Context, organizationID, sponsorID, workspaceID string, input EnrollmentInput) (EnrollmentResult, error) {
+	if f.enroll == nil {
+		return EnrollmentResult{}, nil
+	}
+	return f.enroll(ctx, organizationID, sponsorID, workspaceID, input)
 }
 
 func (f fakeRepository) Start(ctx context.Context, organizationID, sponsorID, projectID string, input StartInput) (Session, error) {
@@ -56,6 +64,28 @@ func TestStartNormalizesAgentIdentity(t *testing.T) {
 	}
 	if received.NodeKey != "node" || received.AgentName != "Kimi" ||
 		received.AgentType != "kimi" || received.ClientType != "kimi-cli" {
+		t.Fatalf("input = %#v", received)
+	}
+}
+
+func TestEnrollNormalizesPendingAgentIdentity(t *testing.T) {
+	var received EnrollmentInput
+	service := NewService("organization", fakeRepository{
+		enroll: func(_ context.Context, organizationID, sponsorID, workspaceID string, input EnrollmentInput) (EnrollmentResult, error) {
+			if organizationID != "organization" || sponsorID != "018f784a-68c1-7b0f-8f2a-cfc255f99e2e" || workspaceID != "018f784a-68c1-7b0f-8f2a-cfc255f99e4d" {
+				t.Fatalf("organization=%q sponsor=%q workspace=%q", organizationID, sponsorID, workspaceID)
+			}
+			received = input
+			return EnrollmentResult{Created: true}, nil
+		},
+	})
+	_, err := service.Enroll(context.Background(), " 018f784a-68c1-7b0f-8f2a-cfc255f99e2e ", " 018f784a-68c1-7b0f-8f2a-cfc255f99e4d ", EnrollmentInput{
+		ProjectID: " 018f784a-68c1-7b0f-8f2a-cfc255f99e1d ", AgentType: " CODEX ", ClientType: " CODEX-MCP ",
+	})
+	if err != nil {
+		t.Fatalf("Enroll() error = %v", err)
+	}
+	if received.ProjectID != "018f784a-68c1-7b0f-8f2a-cfc255f99e1d" || received.AgentType != "codex" || received.ClientType != "codex-mcp" {
 		t.Fatalf("input = %#v", received)
 	}
 }

@@ -9,16 +9,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jorgenuanzs/the-pact/internal/agentconfig"
-	"github.com/jorgenuanzs/the-pact/internal/gitremote"
+	"github.com/jorgenuanzs/the-pact/internal/agentsession"
+	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/localproject"
 	"github.com/jorgenuanzs/the-pact/internal/localserver"
 	"github.com/jorgenuanzs/the-pact/internal/pactclient"
@@ -32,12 +35,20 @@ import (
 const localStateSchemaVersion = 2
 
 type DesktopServerProfile struct {
-	ID             string `json:"id"`
-	Label          string `json:"label"`
-	ServerURL      string `json:"server_url"`
-	Kind           string `json:"kind"`
-	PrincipalLabel string `json:"principal_label,omitempty"`
-	Active         bool   `json:"active"`
+	ID              string `json:"id"`
+	Label           string `json:"label"`
+	ServerURL       string `json:"server_url"`
+	Kind            string `json:"kind"`
+	PrincipalLabel  string `json:"principal_label,omitempty"`
+	Active          bool   `json:"active"`
+	Reachable       bool   `json:"reachable"`
+	Version         string `json:"version,omitempty"`
+	Commit          string `json:"commit,omitempty"`
+	BuildDate       string `json:"build_date,omitempty"`
+	ProtocolVersion int    `json:"protocol_version,omitempty"`
+	Compatibility   string `json:"compatibility"`
+	UpdateAvailable bool   `json:"update_available"`
+	VersionError    string `json:"version_error,omitempty"`
 }
 
 type LocalClientStatus struct {
@@ -63,19 +74,22 @@ type LocalFolder struct {
 }
 
 type LocalComputerStatus struct {
-	Hostname        string                 `json:"hostname"`
-	OperatingSystem string                 `json:"operating_system"`
-	Architecture    string                 `json:"architecture"`
-	RuntimeReady    bool                   `json:"runtime_ready"`
-	RuntimePath     string                 `json:"runtime_path,omitempty"`
-	RuntimeVersion  string                 `json:"runtime_version,omitempty"`
-	RuntimeError    string                 `json:"runtime_error,omitempty"`
-	ServerURL       string                 `json:"server_url,omitempty"`
-	ActiveProfileID string                 `json:"active_profile_id,omitempty"`
-	Profiles        []DesktopServerProfile `json:"profiles"`
-	Clients         []LocalClientStatus    `json:"clients"`
-	Folders         []LocalFolder          `json:"folders"`
-	ManagedServer   localserver.Status     `json:"managed_server"`
+	Hostname           string                 `json:"hostname"`
+	OperatingSystem    string                 `json:"operating_system"`
+	Architecture       string                 `json:"architecture"`
+	RuntimeReady       bool                   `json:"runtime_ready"`
+	RuntimePath        string                 `json:"runtime_path,omitempty"`
+	RuntimeVersion     string                 `json:"runtime_version,omitempty"`
+	RuntimeDigest      string                 `json:"runtime_digest,omitempty"`
+	RuntimeError       string                 `json:"runtime_error,omitempty"`
+	MCPMigrated        int                    `json:"mcp_migrated"`
+	MCPMigrationErrors []string               `json:"mcp_migration_errors"`
+	ServerURL          string                 `json:"server_url,omitempty"`
+	ActiveProfileID    string                 `json:"active_profile_id,omitempty"`
+	Profiles           []DesktopServerProfile `json:"profiles"`
+	Clients            []LocalClientStatus    `json:"clients"`
+	Folders            []LocalFolder          `json:"folders"`
+	ManagedServer      localserver.Status     `json:"managed_server"`
 }
 
 type LocalFolderInspection struct {
@@ -130,12 +144,14 @@ type ConnectLocalAgentInput struct {
 }
 
 type ConnectLocalAgentResult struct {
-	Client        string `json:"client"`
-	ProjectRoot   string `json:"project_root"`
-	ConfigPath    string `json:"config_path"`
-	RuntimePath   string `json:"runtime_path"`
-	Changed       bool   `json:"changed"`
-	RestartNeeded bool   `json:"restart_needed"`
+	Client           string `json:"client"`
+	ProjectRoot      string `json:"project_root"`
+	ConfigPath       string `json:"config_path"`
+	RuntimePath      string `json:"runtime_path"`
+	Changed          bool   `json:"changed"`
+	RestartNeeded    bool   `json:"restart_needed"`
+	EnrollmentStatus string `json:"enrollment_status,omitempty"`
+	Warning          string `json:"warning,omitempty"`
 }
 
 type localState struct {
@@ -168,6 +184,11 @@ func (d *Desktop) LocalComputerStatus() LocalComputerStatus {
 		Clients:         make([]LocalClientStatus, 0),
 		Folders:         make([]LocalFolder, 0),
 	}
+	d.mu.Lock()
+	result.RuntimeError = d.localRuntimeError
+	result.MCPMigrated = d.localRuntimeMigrated
+	result.MCPMigrationErrors = append([]string(nil), d.localRuntimeMigrations...)
+	d.mu.Unlock()
 	if profiles, profileErr := userconfig.ListProfiles(); profileErr == nil {
 		active, _ := userconfig.ActiveProfile()
 		result.ActiveProfileID = active.ID
@@ -178,19 +199,29 @@ func (d *Desktop) LocalComputerStatus() LocalComputerStatus {
 				result.ServerURL = presentation.ServerURL
 			}
 		}
+		result.Profiles = inspectServerVersions(result.Profiles)
 	}
-	runtimePath, runtimeVersion, runtimeErr := ensureLocalRuntime()
+	runtimeInstallation, runtimeErr := ensureLocalRuntimeInstallation()
 	if runtimeErr != nil {
-		result.RuntimeError = runtimeErr.Error()
+		result.RuntimeError = joinLocalError(result.RuntimeError, runtimeErr.Error())
 	} else {
 		result.RuntimeReady = true
-		result.RuntimePath = runtimePath
-		result.RuntimeVersion = runtimeVersion
+		result.RuntimePath = runtimeInstallation.LauncherPath
+		result.RuntimeVersion = strings.TrimPrefix(buildinfo.Current().Version, "v")
+		result.RuntimeDigest = runtimeInstallation.Digest
 	}
 
 	state, stateErr := loadLocalState()
 	if stateErr != nil {
 		result.RuntimeError = joinLocalError(result.RuntimeError, stateErr.Error())
+	}
+	if runtimeErr == nil {
+		migrated, migrationErrors := migrateLocalAgentConfigurations(state, runtimeInstallation.LauncherPath)
+		result.MCPMigrated += migrated
+		result.MCPMigrationErrors = append(result.MCPMigrationErrors, migrationErrors...)
+	}
+	if result.MCPMigrationErrors == nil {
+		result.MCPMigrationErrors = make([]string, 0)
 	}
 	for _, record := range state.Folders {
 		result.Folders = append(result.Folders, inspectLocalRecord(record))
@@ -205,6 +236,28 @@ func (d *Desktop) LocalComputerStatus() LocalComputerStatus {
 		cancel()
 	}
 	return result
+}
+
+func (d *Desktop) prepareLocalRuntime() {
+	installation, err := ensureLocalRuntimeInstallation()
+	if err != nil {
+		d.mu.Lock()
+		d.localRuntimeError = err.Error()
+		d.mu.Unlock()
+		return
+	}
+	state, err := loadLocalState()
+	if err != nil {
+		d.mu.Lock()
+		d.localRuntimeError = err.Error()
+		d.mu.Unlock()
+		return
+	}
+	migrated, migrationErrors := migrateLocalAgentConfigurations(state, installation.LauncherPath)
+	d.mu.Lock()
+	d.localRuntimeMigrated = migrated
+	d.localRuntimeMigrations = append([]string(nil), migrationErrors...)
+	d.mu.Unlock()
 }
 
 func (d *Desktop) SelectLocalProjectFolder() (LocalFolderInspection, error) {
@@ -310,12 +363,11 @@ func (d *Desktop) BindLocalFolder(input BindLocalFolderInput) (BindLocalFolderRe
 		if !input.CreateIfNeeded {
 			return BindLocalFolderResult{}, errors.New("selecciona un repositorio registrado o autoriza su creación en el workspace")
 		}
-		project, wasCreated, resolveErr := ensureDesktopProject(ctx, client, checkout)
+		project, wasCreated, resolveErr := ensureDesktopProject(
+			ctx, client, checkout, strings.TrimSpace(input.WorkspaceID),
+		)
 		if resolveErr != nil {
 			return BindLocalFolderResult{}, resolveErr
-		}
-		if _, attachErr := client.AttachWorkspaceProject(ctx, strings.TrimSpace(input.WorkspaceID), project.ID); attachErr != nil {
-			return BindLocalFolderResult{}, fmt.Errorf("vincular proyecto al workspace: %w", attachErr)
 		}
 		if project.RootRepository == nil {
 			return BindLocalFolderResult{}, errors.New("el proyecto PACT no tiene un repositorio raíz")
@@ -354,6 +406,20 @@ func (d *Desktop) BindLocalFolder(input BindLocalFolderInput) (BindLocalFolderRe
 		if configureErr != nil {
 			return BindLocalFolderResult{}, fmt.Errorf("configurar %s: %w", clientID, configureErr)
 		}
+		enrollment, enrollErr := client.EnrollAgent(ctx, strings.TrimSpace(input.WorkspaceID), agentsession.EnrollmentInput{
+			ProjectID:  projectID,
+			AgentType:  clientID,
+			ClientType: clientID + "-mcp",
+		})
+		switch {
+		case enrollErr == nil:
+			configured.EnrollmentStatus = enrollment.Enrollment.Status
+		case agentEnrollmentUnsupported(enrollErr):
+			configured.EnrollmentStatus = "legacy"
+		default:
+			configured.EnrollmentStatus = "deferred"
+			configured.Warning = fmt.Sprintf("La carpeta quedó configurada, pero PACT Server no pudo registrar %s como pendiente: %v", clientID, enrollErr)
+		}
 		results = append(results, configured)
 	}
 	if err := rememberLocalBinding(binding, profile.ID, uniqueLocalClients(input.Clients)); err != nil {
@@ -371,7 +437,7 @@ func (d *Desktop) ConnectLocalAgent(input ConnectLocalAgentInput) (ConnectLocalA
 	if err != nil {
 		return ConnectLocalAgentResult{}, err
 	}
-	profile, err := userconfig.FindProfileByURL(binding.ServerURL)
+	profile, err := userconfig.AuthorizedForServer(binding.ServerURL)
 	if err != nil {
 		return ConnectLocalAgentResult{}, fmt.Errorf("esta carpeta pertenece a %s, pero este computador no tiene una conexión autorizada para ese servidor", binding.ServerURL)
 	}
@@ -379,14 +445,41 @@ func (d *Desktop) ConnectLocalAgent(input ConnectLocalAgentInput) (ConnectLocalA
 	if err != nil {
 		return ConnectLocalAgentResult{}, err
 	}
+	client, err := pactclient.New(profile.ServerURL, profile.DeviceCredential)
+	if err != nil {
+		return ConnectLocalAgentResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	enrollment, enrollmentErr := client.EnrollAgent(ctx, binding.WorkspaceID, agentsession.EnrollmentInput{
+		ProjectID: binding.ProjectID, AgentType: clientID, ClientType: clientID + "-mcp",
+	})
+	switch {
+	case enrollmentErr == nil:
+		result.EnrollmentStatus = enrollment.Enrollment.Status
+	case agentEnrollmentUnsupported(enrollmentErr):
+		result.EnrollmentStatus = "legacy"
+	default:
+		result.EnrollmentStatus = "deferred"
+		result.Warning = fmt.Sprintf("La carpeta quedó configurada, pero PACT Server no pudo registrar %s como pendiente: %v", clientID, enrollmentErr)
+	}
 	if err := rememberLocalBinding(binding, profile.ID, configuredClients(binding.Root)); err != nil {
 		return ConnectLocalAgentResult{}, err
 	}
 	return result, nil
 }
 
+// Older PACT Servers discover an agent on its first MCP session and do not
+// expose the enrollment endpoint. Keeping that path compatible lets Desktop
+// configure an existing server while newer servers can show the pending agent
+// immediately.
+func agentEnrollmentUnsupported(err error) bool {
+	var problem *pactclient.Problem
+	return errors.As(err, &problem) && (problem.Status == http.StatusNotFound || problem.Status == http.StatusMethodNotAllowed)
+}
+
 func connectLocalAgent(binding localproject.Binding, clientID string) (ConnectLocalAgentResult, error) {
-	runtimePath, _, err := ensureLocalRuntime()
+	installation, err := ensureLocalRuntimeInstallation()
 	if err != nil {
 		return ConnectLocalAgentResult{}, err
 	}
@@ -394,14 +487,14 @@ func connectLocalAgent(binding localproject.Binding, clientID string) (ConnectLo
 	result := ConnectLocalAgentResult{
 		Client:        clientID,
 		ProjectRoot:   binding.Root,
-		RuntimePath:   runtimePath,
+		RuntimePath:   installation.LauncherPath,
 		RestartNeeded: true,
 	}
 	switch clientID {
 	case "codex":
 		configured, configureErr := agentconfig.EnableCodex(agentconfig.CodexOptions{
 			ProjectRoot: binding.Root,
-			PactCommand: runtimePath,
+			PactCommand: installation.LauncherPath,
 		})
 		if configureErr != nil {
 			return ConnectLocalAgentResult{}, configureErr
@@ -411,7 +504,7 @@ func connectLocalAgent(binding localproject.Binding, clientID string) (ConnectLo
 	case "claude":
 		configured, configureErr := agentconfig.EnableClaude(agentconfig.ClaudeOptions{
 			ProjectRoot: binding.Root,
-			PactCommand: runtimePath,
+			PactCommand: installation.LauncherPath,
 		})
 		if configureErr != nil {
 			return ConnectLocalAgentResult{}, configureErr
@@ -544,36 +637,108 @@ func applicationExists(name string) bool {
 	return false
 }
 
+type localRuntimeInstallation struct {
+	RuntimePath  string
+	LauncherPath string
+	Digest       string
+}
+
 func ensureLocalRuntime() (string, string, error) {
-	name := "pact-local"
-	if goruntime.GOOS == "windows" {
-		name += ".exe"
+	installation, err := ensureLocalRuntimeInstallation()
+	if err != nil {
+		return "", "", err
 	}
-	payload, err := localHelperAssets.ReadFile(filepath.ToSlash(filepath.Join("localhelper", name)))
+	return installation.LauncherPath, installation.Digest, nil
+}
+
+func ensureLocalRuntimeInstallation() (localRuntimeInstallation, error) {
+	runtimeName := "pact-local"
+	launcherAssetName := "pact-mcp-launcher"
+	launcherName := "pact-mcp"
+	if goruntime.GOOS == "windows" {
+		runtimeName += ".exe"
+		launcherAssetName += ".exe"
+		launcherName += ".exe"
+	}
+	payload, err := localHelperAssets.ReadFile(filepath.ToSlash(filepath.Join("localhelper", runtimeName)))
 	if err != nil || len(payload) == 0 {
-		return "", "", errors.New("the PACT local runtime is not bundled in this development build")
+		return localRuntimeInstallation{}, errors.New("the PACT local runtime is not bundled in this development build")
+	}
+	launcherPayload, err := localHelperAssets.ReadFile(filepath.ToSlash(filepath.Join("localhelper", launcherAssetName)))
+	if err != nil || len(launcherPayload) == 0 {
+		return localRuntimeInstallation{}, errors.New("the PACT MCP launcher is not bundled in this development build")
 	}
 	digest := sha256.Sum256(payload)
 	version := hex.EncodeToString(digest[:])[:12]
 	configDirectory, err := desktopConfigDirectory()
 	if err != nil {
-		return "", "", fmt.Errorf("resolve local application directory: %w", err)
+		return localRuntimeInstallation{}, fmt.Errorf("resolve local application directory: %w", err)
 	}
-	directory := filepath.Join(configDirectory, "runtime", version)
+	runtimeRoot := filepath.Join(configDirectory, "runtime")
+	directory := filepath.Join(runtimeRoot, version)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return "", "", fmt.Errorf("create local runtime directory: %w", err)
+		return localRuntimeInstallation{}, fmt.Errorf("create local runtime directory: %w", err)
 	}
-	path := filepath.Join(directory, name)
+	path := filepath.Join(directory, runtimeName)
 	if current, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(current, payload) {
 		if goruntime.GOOS != "windows" {
 			_ = os.Chmod(path, 0o700)
 		}
-		return path, version, nil
+	} else if err := writeLocalAtomic(path, payload, 0o700); err != nil {
+		return localRuntimeInstallation{}, fmt.Errorf("install local PACT runtime: %w", err)
 	}
-	if err := writeLocalAtomic(path, payload, 0o700); err != nil {
-		return "", "", fmt.Errorf("install local PACT runtime: %w", err)
+	launcherDirectory := filepath.Join(configDirectory, "bin")
+	if err := os.MkdirAll(launcherDirectory, 0o700); err != nil {
+		return localRuntimeInstallation{}, fmt.Errorf("create PACT launcher directory: %w", err)
 	}
-	return path, version, nil
+	launcherPath := filepath.Join(launcherDirectory, launcherName)
+	if current, readErr := os.ReadFile(launcherPath); readErr != nil || !bytes.Equal(current, launcherPayload) {
+		if err := writeLocalAtomic(launcherPath, launcherPayload, 0o700); err != nil {
+			return localRuntimeInstallation{}, fmt.Errorf("install PACT MCP launcher: %w", err)
+		}
+	} else if goruntime.GOOS != "windows" {
+		_ = os.Chmod(launcherPath, 0o700)
+	}
+	activePath := filepath.Join(runtimeRoot, "active")
+	activePayload := []byte(version + "\n")
+	if current, readErr := os.ReadFile(activePath); readErr != nil || !bytes.Equal(current, activePayload) {
+		if err := writeLocalAtomic(activePath, activePayload, 0o600); err != nil {
+			return localRuntimeInstallation{}, fmt.Errorf("activate PACT local runtime: %w", err)
+		}
+	}
+	return localRuntimeInstallation{RuntimePath: path, LauncherPath: launcherPath, Digest: version}, nil
+}
+
+func migrateLocalAgentConfigurations(state localState, launcherPath string) (int, []string) {
+	migrated := 0
+	errorsFound := make([]string, 0)
+	for _, record := range state.Folders {
+		if info, err := os.Stat(record.Root); err != nil || !info.IsDir() {
+			continue
+		}
+		for _, clientID := range configuredClients(record.Root) {
+			var changed bool
+			var err error
+			switch clientID {
+			case "codex":
+				var configured agentconfig.CodexResult
+				configured, err = agentconfig.EnableCodex(agentconfig.CodexOptions{ProjectRoot: record.Root, PactCommand: launcherPath})
+				changed = configured.Changed
+			case "claude":
+				var configured agentconfig.ClaudeResult
+				configured, err = agentconfig.EnableClaude(agentconfig.ClaudeOptions{ProjectRoot: record.Root, PactCommand: launcherPath})
+				changed = configured.Changed
+			}
+			if err != nil {
+				errorsFound = append(errorsFound, fmt.Sprintf("%s (%s): %v", record.Name, clientID, err))
+				continue
+			}
+			if changed {
+				migrated++
+			}
+		}
+	}
+	return migrated, errorsFound
 }
 
 func rememberLocalBinding(binding localproject.Binding, profileID string, clients []string) error {
@@ -717,8 +882,91 @@ func uniqueLocalClients(values []string) []string {
 func desktopServerProfile(id, label, serverURL, kind, principalLabel string, active bool) DesktopServerProfile {
 	return DesktopServerProfile{
 		ID: id, Label: label, ServerURL: serverURL, Kind: kind,
-		PrincipalLabel: principalLabel, Active: active,
+		PrincipalLabel: principalLabel, Active: active, Compatibility: "unknown",
 	}
+}
+
+type serverVersionInspection struct {
+	Index int
+	Info  buildinfo.Info
+	Err   error
+}
+
+func inspectServerVersions(profiles []DesktopServerProfile) []DesktopServerProfile {
+	if len(profiles) == 0 {
+		return profiles
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	results := make(chan serverVersionInspection, len(profiles))
+	for index := range profiles {
+		go func(index int) {
+			info, err := pactclient.FetchVersion(ctx, profiles[index].ServerURL)
+			results <- serverVersionInspection{Index: index, Info: info, Err: err}
+		}(index)
+	}
+	for range profiles {
+		inspection := <-results
+		profile := &profiles[inspection.Index]
+		if inspection.Err != nil {
+			profile.VersionError = inspection.Err.Error()
+			profile.Compatibility = "unreachable"
+			continue
+		}
+		profile.Reachable = true
+		profile.Version = strings.TrimPrefix(strings.TrimSpace(inspection.Info.Version), "v")
+		profile.Commit = inspection.Info.Commit
+		profile.BuildDate = inspection.Info.Date
+		profile.ProtocolVersion = inspection.Info.ProtocolVersion
+		profile.Compatibility = protocolCompatibility(inspection.Info)
+		profile.UpdateAvailable = versionOlderThan(profile.Version, strings.TrimPrefix(currentVersion, "v"))
+	}
+	return profiles
+}
+
+func protocolCompatibility(remote buildinfo.Info) string {
+	if remote.ProtocolVersion == 0 || remote.MinProtocolVersion == 0 {
+		return "unknown"
+	}
+	local := buildinfo.Current()
+	if remote.ProtocolVersion < local.MinProtocolVersion || local.ProtocolVersion < remote.MinProtocolVersion {
+		return "incompatible"
+	}
+	return "compatible"
+}
+
+func versionOlderThan(candidate, current string) bool {
+	left, leftOK := parseReleaseVersion(candidate)
+	right, rightOK := parseReleaseVersion(current)
+	if !leftOK || !rightOK {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return left[index] < right[index]
+		}
+	}
+	return false
+}
+
+func parseReleaseVersion(value string) ([3]int, bool) {
+	var result [3]int
+	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+	if base, _, found := strings.Cut(value, "-"); found {
+		value = base
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) != len(result) {
+		return result, false
+	}
+	for index, part := range parts {
+		parsed, err := strconv.Atoi(part)
+		if err != nil || parsed < 0 {
+			return result, false
+		}
+		result[index] = parsed
+	}
+	return result, true
 }
 
 func containsBindingMatch(matches []repositorybinding.Match, projectID, repositoryID string) bool {
@@ -734,29 +982,41 @@ func ensureDesktopProject(
 	ctx context.Context,
 	client *pactclient.Client,
 	checkout localproject.Checkout,
+	workspaceID string,
 ) (projects.Project, bool, error) {
+	matches, err := client.ResolveRepositoryBinding(ctx, repositorybinding.ResolveInput{
+		RemoteURL: checkout.RemoteURL,
+	})
+	if err != nil {
+		return projects.Project{}, false, err
+	}
 	projectList, err := client.ListProjects(ctx)
 	if err != nil {
 		return projects.Project{}, false, err
 	}
-	for _, project := range projectList {
-		if project.RootRepository == nil || project.RootRepository.RemoteURL == nil {
-			continue
+	for _, match := range matches {
+		if match.WorkspaceID != workspaceID {
+			return projects.Project{}, false, fmt.Errorf(
+				"este repositorio ya está registrado en el workspace %s; elige ese workspace para conectarlo o muévelo explícitamente desde PACT Server",
+				match.WorkspaceName,
+			)
 		}
-		registered, normalizeErr := gitremote.Normalize(*project.RootRepository.RemoteURL)
-		if normalizeErr == nil && registered == checkout.RemoteURL {
-			return project, false, nil
+		for _, project := range projectList {
+			if project.ID == match.ProjectID {
+				return project, false, nil
+			}
 		}
+		return projects.Project{}, false, errors.New("el repositorio apareció en el workspace seleccionado, pero el proyecto no está disponible para esta identidad")
 	}
 	revision := checkout.CanonicalRevision
 	input := projects.CreateInput{
-		Name: checkout.Name, Slug: checkout.Slug, CanonicalRevision: &revision,
+		Name: checkout.Name, Slug: checkout.Slug, WorkspaceID: workspaceID, CanonicalRevision: &revision,
 		RootRepository: &projects.SourceRepositoryInput{
 			Slug: "primary", Name: "Primary", RemoteURL: checkout.RemoteURL,
 			DefaultBranch: checkout.DefaultBranch, ObjectFormat: checkout.ObjectFormat,
 		},
 	}
-	digest := sha256.Sum256([]byte("desktop.project.init\x00" + checkout.RemoteURL))
+	digest := sha256.Sum256([]byte("desktop.project.init\x00" + workspaceID + "\x00" + checkout.RemoteURL))
 	project, err := client.CreateProject(ctx, "pact-desktop-init-"+hex.EncodeToString(digest[:]), input)
 	if err != nil {
 		return projects.Project{}, false, fmt.Errorf("registrar repositorio en PACT Server: %w", err)

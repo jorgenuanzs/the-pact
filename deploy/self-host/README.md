@@ -53,6 +53,11 @@ docker compose up --detach --wait
 The one-shot `migrate` service applies schema migrations before the new server
 becomes healthy.
 
+Every server exposes `GET /version` with its product version, commit, build
+date, and supported protocol range. PACT Desktop uses this endpoint to report
+compatibility, but it never changes a remote deployment without a separate,
+explicit infrastructure integration.
+
 ## Backup and restore
 
 Daily backups live in the `postgres-backups` Docker volume. To create an

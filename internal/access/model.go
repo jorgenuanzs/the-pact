@@ -93,6 +93,9 @@ type ProjectAgent struct {
 	Connected            bool       `json:"connected"`
 	ActiveSessions       int64      `json:"active_sessions"`
 	SessionCount         int64      `json:"session_count"`
+	EnrollmentCount      int64      `json:"enrollment_count"`
+	PendingEnrollments   int64      `json:"pending_enrollments"`
+	EnrollmentProjectID  string     `json:"enrollment_project_id,omitempty"`
 	LastClientType       string     `json:"last_client_type,omitempty"`
 	LastNodeName         string     `json:"last_node_name,omitempty"`
 	LastSeenAt           *time.Time `json:"last_seen_at,omitempty"`

@@ -30,12 +30,17 @@ function installBridge(): DesktopBridge {
       architecture: "arm64",
       runtime_ready: true,
       runtime_path: "/local/pact-runtime",
-      runtime_version: "abc123",
+      runtime_version: "0.16.0",
+      runtime_digest: "abc123abc123",
+      mcp_migrated: 0,
+      mcp_migration_errors: [],
       server_url: "https://pact.example.com",
       active_profile_id: "profile-1",
       profiles: [{
         id: "profile-1", label: "PACT Example", server_url: "https://pact.example.com",
-        kind: "remote", principal_label: "Jorge", active: true,
+        kind: "remote", principal_label: "Jorge", active: true, reachable: true,
+        version: "0.16.0", commit: "abcdef012345", protocol_version: 1,
+        compatibility: "compatible", update_available: false,
       }],
       clients: [
         { id: "codex", name: "Codex", detected: true, connected_folders: 0 },
@@ -105,7 +110,7 @@ function installBridge(): DesktopBridge {
   return bridge;
 }
 
-function renderPage(view: "overview" | "agents" | "service" = "overview") {
+function renderPage(view: "overview" | "connections" | "agents" | "folders" | "service" = "overview") {
   return render(
     <MemoryRouter>
       <ToastProvider>
@@ -158,7 +163,7 @@ describe("LocalComputerPage", () => {
     renderPage("agents");
 
     expect(await screen.findByText("Codex")).toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: "Conectar" })[0]);
+    await user.click(screen.getByRole("button", { name: "Configurar Codex en una carpeta" }));
     await user.click(screen.getByRole("button", { name: /Elegir carpeta Git/ }));
 
     expect((await screen.findAllByText("Footfall")).length).toBeGreaterThan(0);
@@ -181,6 +186,20 @@ describe("LocalComputerPage", () => {
     expect(await screen.findByText("Carpeta conectada")).toBeInTheDocument();
   });
 
+  it("ubica la conexión de carpetas en las secciones locales y no en el encabezado global", async () => {
+    installBridge();
+    const { unmount } = renderPage("agents");
+
+    expect(await screen.findByText("Aplicaciones disponibles en este equipo")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Conectar cliente" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Configurar Codex en una carpeta" })).toBeInTheDocument();
+
+    unmount();
+    renderPage("folders");
+    expect(await screen.findByRole("button", { name: "Conectar una carpeta" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Conectar cliente" })).not.toBeInTheDocument();
+  });
+
   it("permite comprobar una actualización firmada desde la aplicación", async () => {
     const user = userEvent.setup();
     const bridge = installBridge();
@@ -189,5 +208,13 @@ describe("LocalComputerPage", () => {
     await user.click(await screen.findByRole("button", { name: "Buscar actualizaciones" }));
 
     expect(bridge.CheckForUpdates).toHaveBeenCalledOnce();
+  });
+
+  it("muestra la versión y compatibilidad de cada PACT Server", async () => {
+    installBridge();
+    renderPage("connections");
+
+    expect(await screen.findByText("Compatible")).toBeInTheDocument();
+    expect(screen.getByText("0.16.0")).toBeInTheDocument();
   });
 });

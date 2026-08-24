@@ -26,6 +26,8 @@ interface LocalConnectionWizardProps {
   open: boolean;
   profiles: DesktopServerProfile[];
   preferredClient: ClientID;
+  preferredWorkspaceID?: string;
+  preferredProjectID?: string;
   onOpenChange: (open: boolean) => void;
   onConnected: (result: BindLocalFolderResult) => void;
   onManageConnections: () => void;
@@ -41,6 +43,8 @@ export function LocalConnectionWizard({
   open,
   profiles,
   preferredClient,
+  preferredWorkspaceID = "",
+  preferredProjectID = "",
   onOpenChange,
   onConnected,
   onManageConnections,
@@ -69,14 +73,19 @@ export function LocalConnectionWizard({
     setClients([preferredClient]);
     setBusy(false);
     setError("");
-  }, [open, preferredClient, profiles]);
+  }, [open, preferredClient, preferredProjectID, preferredWorkspaceID, profiles]);
 
   const availableMatches = useMemo(
     () => (resolution?.matches || []).filter((candidate) => candidate.workspace_id === workspaceID),
     [resolution?.matches, workspaceID],
   );
+  const matchesInOtherWorkspaces = useMemo(
+    () => (resolution?.matches || []).filter((candidate) => candidate.workspace_id !== workspaceID),
+    [resolution?.matches, workspaceID],
+  );
   const selectedWorkspace = resolution?.workspaces.find((workspace) => workspace.id === workspaceID);
   const selectedProfile = profiles.find((profile) => profile.id === profileID);
+  const supportsDirectWorkspaceRegistration = (selectedProfile?.protocol_version || 0) >= 2;
 
   const selectFolder = async () => {
     if (!bridge) return;
@@ -105,12 +114,18 @@ export function LocalConnectionWizard({
       const next = await bridge.ResolveLocalFolder({ project_root: folder.root, profile_id: profileID });
       setResolution(next);
       const existingWorkspace = next.folder.profile_id === profileID ? next.folder.workspace_id : "";
+      const requestedWorkspace = next.workspaces.some((workspace) => workspace.id === preferredWorkspaceID)
+        ? preferredWorkspaceID
+        : "";
       const initialWorkspace = existingWorkspace
+        || requestedWorkspace
         || next.matches[0]?.workspace_id
         || next.workspaces[0]?.id
         || "";
       setWorkspaceID(initialWorkspace);
-      const initialMatch = next.matches.find((candidate) => candidate.workspace_id === initialWorkspace) || null;
+      const initialMatch = next.matches.find((candidate) => candidate.workspace_id === initialWorkspace && candidate.project_id === preferredProjectID)
+        || next.matches.find((candidate) => candidate.workspace_id === initialWorkspace)
+        || null;
       setMatch(initialMatch);
       setCreateIfNeeded(false);
       return true;
@@ -251,10 +266,20 @@ export function LocalConnectionWizard({
                     </button>
                   ))}
                 </div>
+              ) : workspaceID && matchesInOtherWorkspaces.length ? (
+                <div className="local-inline-alert" role="alert">
+                  Este remote ya está registrado en <strong>{matchesInOtherWorkspaces[0].workspace_name}</strong>.
+                  Selecciona ese workspace para conectarlo. PACT no moverá un repositorio entre workspaces de forma implícita.
+                </div>
+              ) : workspaceID && !supportsDirectWorkspaceRegistration ? (
+                <div className="local-inline-alert" role="alert">
+                  Este PACT Server necesita una actualización antes de registrar carpetas nuevas directamente en un workspace.
+                  No se ha creado ni movido ningún proyecto.
+                </div>
               ) : workspaceID ? (
                 <button type="button" className="local-create-target" data-selected={createIfNeeded || undefined} onClick={() => { setCreateIfNeeded((value) => !value); setMatch(null); }}>
                   <Icon name="repository" />
-                  <span><strong>Registrar este repositorio en {selectedWorkspace?.name}</strong><small>No existe una vinculación para <code>{folder?.remote_url}</code>. PACT creará el proyecto y lo añadirá a este workspace.</small></span>
+                  <span><strong>Registrar este repositorio en {selectedWorkspace?.name}</strong><small>No existe una vinculación para <code>{folder?.remote_url}</code>. Se añadirá directamente a este workspace; no se creará otro workspace.</small></span>
                 </button>
               ) : null}
               {resolution && !resolution.workspaces.length ? <div className="local-inline-alert">No tienes workspaces visibles en esta conexión. Crea uno desde PACT Server antes de continuar.</div> : null}
@@ -286,7 +311,7 @@ export function LocalConnectionWizard({
               <dl className="local-confirmation-list">
                 <div><dt>CARPETA</dt><dd><strong>{folder?.name}</strong><code>{folder?.root}</code></dd></div>
                 <div><dt>CONEXIÓN</dt><dd><strong>{selectedProfile?.label}</strong><code>{selectedProfile?.server_url}</code></dd></div>
-                <div><dt>WORKSPACE</dt><dd><strong>{selectedWorkspace?.name}</strong><small>{match ? match.repository_name : "Se registrará este repositorio"}</small></dd></div>
+                <div><dt>WORKSPACE</dt><dd><strong>{selectedWorkspace?.name}</strong><small>{match ? match.repository_name : "El repositorio se registrará directamente aquí"}</small></dd></div>
                 <div><dt>CLIENTES</dt><dd><strong>{clients.map((client) => client === "codex" ? "Codex" : "Claude Code").join(" y ")}</strong></dd></div>
               </dl>
             </section>

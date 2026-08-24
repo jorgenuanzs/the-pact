@@ -13,6 +13,7 @@ import (
 
 var (
 	ErrNotFound            = errors.New("agent session not found")
+	ErrEnrollmentTarget    = errors.New("agent enrollment workspace or project not found")
 	ErrIdempotencyConflict = errors.New("idempotency key was already used with a different observation")
 	ErrCommandIncomplete   = errors.New("the previous observation command has not completed")
 )
@@ -27,10 +28,35 @@ func (e *ValidationError) Error() string {
 }
 
 type Repository interface {
+	Enroll(context.Context, string, string, string, EnrollmentInput) (EnrollmentResult, error)
 	Start(context.Context, string, string, string, StartInput) (Session, error)
 	Heartbeat(context.Context, string, string, bool, string) (Session, error)
 	Observe(context.Context, string, string, string, string, [sha256.Size]byte, ObservationInput) (ObservationResult, error)
 	Close(context.Context, string, string, bool, string) error
+}
+
+func (s *Service) Enroll(ctx context.Context, sponsorPrincipalID, workspaceID string, input EnrollmentInput) (EnrollmentResult, error) {
+	sponsorPrincipalID = strings.TrimSpace(sponsorPrincipalID)
+	workspaceID = strings.TrimSpace(workspaceID)
+	input.ProjectID = strings.TrimSpace(input.ProjectID)
+	input.AgentType = strings.ToLower(strings.TrimSpace(input.AgentType))
+	input.ClientType = strings.ToLower(strings.TrimSpace(input.ClientType))
+	if err := validateUUID("sponsor_principal_id", sponsorPrincipalID); err != nil {
+		return EnrollmentResult{}, err
+	}
+	if err := validateUUID("workspace_id", workspaceID); err != nil {
+		return EnrollmentResult{}, err
+	}
+	if err := validateUUID("project_id", input.ProjectID); err != nil {
+		return EnrollmentResult{}, err
+	}
+	if input.AgentType == "" || len(input.AgentType) > 100 {
+		return EnrollmentResult{}, &ValidationError{Field: "agent_type", Message: "must contain between 1 and 100 characters"}
+	}
+	if input.ClientType == "" || len(input.ClientType) > 100 {
+		return EnrollmentResult{}, &ValidationError{Field: "client_type", Message: "must contain between 1 and 100 characters"}
+	}
+	return s.repository.Enroll(ctx, s.organizationID, sponsorPrincipalID, workspaceID, input)
 }
 
 type Service struct {

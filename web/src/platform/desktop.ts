@@ -65,7 +65,10 @@ export interface LocalComputerStatus {
   runtime_ready: boolean;
   runtime_path?: string;
   runtime_version?: string;
+  runtime_digest?: string;
   runtime_error?: string;
+  mcp_migrated?: number;
+  mcp_migration_errors?: string[];
   server_url?: string;
   active_profile_id?: string;
   profiles: DesktopServerProfile[];
@@ -81,6 +84,8 @@ export interface LocalServerStatus {
   server_url?: string;
   image?: string;
   version?: string;
+  target_image?: string;
+  update_available?: boolean;
   data_directory?: string;
   error?: string;
 }
@@ -124,6 +129,14 @@ export interface DesktopServerProfile {
   kind: "remote" | "managed_local" | string;
   principal_label?: string;
   active: boolean;
+  reachable?: boolean;
+  version?: string;
+  commit?: string;
+  build_date?: string;
+  protocol_version?: number;
+  compatibility?: "compatible" | "incompatible" | "unknown" | "unreachable" | string;
+  update_available?: boolean;
+  version_error?: string;
 }
 
 export interface RepositoryBindingMatch {
@@ -181,6 +194,8 @@ export interface ConnectLocalAgentResult {
   runtime_path: string;
   changed: boolean;
   restart_needed: boolean;
+  enrollment_status?: "pending" | "active" | "legacy" | "deferred" | string;
+  warning?: string;
 }
 
 export interface DesktopAPIRequest {

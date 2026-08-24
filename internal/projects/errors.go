@@ -7,6 +7,7 @@ import (
 
 var (
 	ErrNotFound            = errors.New("project not found")
+	ErrWorkspaceNotFound   = errors.New("workspace not found")
 	ErrSlugTaken           = errors.New("project slug is already in use")
 	ErrRepositoryTaken     = errors.New("repository remote is already connected to another project")
 	ErrIdempotencyConflict = errors.New("idempotency key was already used with a different request")

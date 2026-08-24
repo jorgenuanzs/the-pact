@@ -8,11 +8,38 @@ as the basis for the GitHub release notes.
 
 ## Unreleased
 
+## v0.16.8 — 2026-08-24
+
+### Added
+
+- **Usuarios y agentes** now provides one entry point for inviting a person or
+  authorizing Codex or Claude in a workspace. Authorized AI clients appear
+  immediately as **Pendiente de iniciar**, include guided startup instructions,
+  and become connected automatically when their first MCP session starts.
+- Added durable, idempotent workspace agent enrollments to PACT Server so
+  Desktop and Control can distinguish an authorized client from a running
+  session without inventing activity or waiting for the first heartbeat.
+
 ### Changed
 
+- Desktop no longer presents a global, ambiguous **Connect client** action.
+  AI clients are configured from **AI clients**, and additional local folders
+  are connected from **Local folders**. Workspace access now explains that an
+  agent is registered only after the configured AI client starts PACT MCP.
+- Codex and Claude configurations managed by Desktop now use a stable,
+  per-user MCP launcher. Desktop atomically selects the bundled runtime and
+  migrates remembered project configurations away from release-specific
+  executable paths.
+- **This computer → PACT connections** now reports each authorized server's
+  build version, commit, reachability, protocol compatibility, and known
+  update availability.
+- PACT builds now publish an explicit protocol compatibility range through
+  `GET /version`, independently from the product's semantic version.
+- Protocol 2 adds atomic repository registration inside a selected workspace;
+  Desktop disables that action against legacy servers instead of falling back
+  to the workspace-creating compatibility flow.
 - Local account passwords now require 11 to 128 characters across the API,
   Control UI, and server-side validation.
-
 - Bundled Instrument Sans and JetBrains Mono with the web and Desktop
   frontends, including their OFL licenses, so typography no longer depends on
   Google Fonts or an internet connection at runtime.
@@ -27,6 +54,16 @@ as the basis for the GitHub release notes.
 
 ### Fixed
 
+- Connecting an unregistered Git folder to an existing workspace now creates
+  its technical project directly inside that workspace. PACT no longer creates
+  and archives a temporary workspace named after the local folder, and Control
+  hides archived compatibility workspaces from the active workspace rail.
+- Desktop refuses to move a repository that already belongs to another
+  workspace during folder onboarding and directs the user to its current
+  workspace instead.
+- New Codex and Claude chats now follow the runtime bundled with the current
+  Desktop release instead of remaining pinned to the runtime extracted by an
+  older release.
 - Desktop now recognizes the native Wails asset origin synchronously and
   selects its hash router on the first render, preventing the blank window
   seen after a clean install or update.

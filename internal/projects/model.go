@@ -18,6 +18,7 @@ type Project struct {
 type CreateInput struct {
 	Name              string                 `json:"name"`
 	Slug              string                 `json:"slug"`
+	WorkspaceID       string                 `json:"workspace_id,omitempty"`
 	CanonicalRevision *string                `json:"canonical_revision,omitempty"`
 	RootRepository    *SourceRepositoryInput `json:"root_repository,omitempty"`
 }

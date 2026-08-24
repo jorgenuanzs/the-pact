@@ -11,6 +11,33 @@ type StartInput struct {
 	ObserveGit bool   `json:"observe_git"`
 }
 
+type EnrollmentInput struct {
+	ProjectID  string `json:"project_id"`
+	AgentType  string `json:"agent_type"`
+	ClientType string `json:"client_type"`
+}
+
+type Enrollment struct {
+	ID                 string     `json:"id"`
+	WorkspaceID        string     `json:"workspace_id"`
+	ProjectID          string     `json:"project_id"`
+	AgentID            string     `json:"agent_id"`
+	AgentName          string     `json:"agent_name"`
+	SponsorPrincipalID string     `json:"sponsor_principal_id"`
+	AgentType          string     `json:"agent_type"`
+	ClientType         string     `json:"client_type"`
+	Status             string     `json:"status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	ActivatedAt        *time.Time `json:"activated_at,omitempty"`
+	LastSeenAt         *time.Time `json:"last_seen_at,omitempty"`
+}
+
+type EnrollmentResult struct {
+	Enrollment Enrollment `json:"enrollment"`
+	Created    bool       `json:"created"`
+}
+
 type Session struct {
 	ID         string    `json:"id"`
 	ProjectID  string    `json:"project_id"`

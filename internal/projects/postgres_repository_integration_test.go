@@ -17,6 +17,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/platform/migrations"
 	"github.com/jorgenuanzs/the-pact/internal/platform/postgres"
 	"github.com/jorgenuanzs/the-pact/internal/projects"
+	"github.com/jorgenuanzs/the-pact/internal/workspaces"
 )
 
 func TestProjectCreateWithRootRepository(t *testing.T) {
@@ -40,10 +41,19 @@ func TestProjectCreateWithRootRepository(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	revision := "0123456789abcdef0123456789abcdef01234567"
 	remoteURL := "https://github.com/example/integration-" + suffix
+	workspaceResult, err := workspaces.NewService(
+		config.DefaultLocalOrganizationID, workspaces.NewPostgresRepository(pool),
+	).Create(ctx, "root-repository-workspace-"+suffix, workspaces.CreateInput{
+		Name: "Target Workspace " + suffix, Slug: "target-workspace-" + suffix,
+	})
+	if err != nil {
+		t.Fatalf("create target workspace: %v", err)
+	}
 	service := projects.NewService(config.DefaultLocalOrganizationID, projects.NewPostgresRepository(pool))
 	result, err := service.Create(ctx, "root-repository-"+suffix, projects.CreateInput{
 		Name:              "Root Repository " + suffix,
 		Slug:              "root-repository-" + suffix,
+		WorkspaceID:       workspaceResult.Workspace.ID,
 		CanonicalRevision: &revision,
 		RootRepository: &projects.SourceRepositoryInput{
 			Slug:          "primary",
@@ -83,6 +93,17 @@ func TestProjectCreateWithRootRepository(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("project list did not include the root repository")
+	}
+	var targetRelations, generatedWorkspaces int
+	if err := pool.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM identity.workspace_projects WHERE workspace_id = $1 AND project_id = $2),
+			(SELECT count(*) FROM identity.workspaces WHERE name = $3 AND settings @> '{"managed_default": true}'::jsonb)
+	`, workspaceResult.Workspace.ID, result.Project.ID, result.Project.Name).Scan(&targetRelations, &generatedWorkspaces); err != nil {
+		t.Fatalf("inspect workspace assignment: %v", err)
+	}
+	if targetRelations != 1 || generatedWorkspaces != 0 {
+		t.Fatalf("target relations=%d generated workspaces=%d", targetRelations, generatedWorkspaces)
 	}
 }
 

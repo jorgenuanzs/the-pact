@@ -184,20 +184,45 @@ func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
 		t.Fatalf("device remained active after password change: %v", err)
 	}
 
-	agentSession, err := agentsession.NewService(
+	agentSessions := agentsession.NewService(
 		organizationID,
 		agentsession.NewPostgresRepository(pool),
-	).Start(ctx, collaborator.ID, projectResult.Project.ID, agentsession.StartInput{
+	)
+	var projectWorkspaceID string
+	if err := pool.QueryRow(ctx, `
+		SELECT workspace_id
+		FROM identity.workspace_projects
+		WHERE organization_id = $1 AND project_id = $2
+	`, organizationID, projectResult.Project.ID).Scan(&projectWorkspaceID); err != nil {
+		t.Fatalf("find project workspace: %v", err)
+	}
+	enrollment, err := agentSessions.Enroll(ctx, collaborator.ID, projectWorkspaceID, agentsession.EnrollmentInput{
+		ProjectID: projectResult.Project.ID, AgentType: "codex", ClientType: "codex-mcp",
+	})
+	if err != nil || !enrollment.Created || enrollment.Enrollment.Status != "pending" {
+		t.Fatalf("enroll access agent = %#v, %v", enrollment, err)
+	}
+	replayedEnrollment, err := agentSessions.Enroll(ctx, collaborator.ID, projectWorkspaceID, agentsession.EnrollmentInput{
+		ProjectID: projectResult.Project.ID, AgentType: "codex", ClientType: "codex-mcp",
+	})
+	if err != nil || replayedEnrollment.Created || replayedEnrollment.Enrollment.ID != enrollment.Enrollment.ID {
+		t.Fatalf("replayed access enrollment = %#v, %v", replayedEnrollment, err)
+	}
+	pendingRoster, err := authorization.GetWorkspaceAccess(ctx, owner.Principal, projectWorkspaceID)
+	if err != nil {
+		t.Fatalf("get pending workspace access: %v", err)
+	}
+	if len(pendingRoster.Agents) != 1 || pendingRoster.Agents[0].Connected || pendingRoster.Agents[0].PendingEnrollments != 1 || pendingRoster.Agents[0].SessionCount != 0 {
+		t.Fatalf("pending workspace agents = %#v", pendingRoster.Agents)
+	}
+	agentSession, err := agentSessions.Start(ctx, collaborator.ID, projectResult.Project.ID, agentsession.StartInput{
 		NodeKey: "access-node-" + suffix, NodeName: "Access node",
 		AgentName: "Access Codex", AgentType: "codex", ClientType: "codex", ObserveGit: true,
 	})
 	if err != nil {
 		t.Fatalf("start access agent session: %v", err)
 	}
-	secondAgentSession, err := agentsession.NewService(
-		organizationID,
-		agentsession.NewPostgresRepository(pool),
-	).Start(ctx, collaborator.ID, projectResult.Project.ID, agentsession.StartInput{
+	secondAgentSession, err := agentSessions.Start(ctx, collaborator.ID, projectResult.Project.ID, agentsession.StartInput{
 		NodeKey: "access-node-second-" + suffix, NodeName: "Second access node",
 		AgentName: "codex-release-check", AgentType: "codex", ClientType: "codex-mcp", ObserveGit: true,
 	})
@@ -216,6 +241,13 @@ func TestLocalAccountsInvitationsAndDeviceRevocationLifecycle(t *testing.T) {
 	}
 	if len(roster.Agents) != 1 || roster.Agents[0].AgentID != agentSession.ActorID || !roster.Agents[0].Connected || roster.Agents[0].SessionCount != 2 {
 		t.Fatalf("project agents = %#v", roster.Agents)
+	}
+	activeWorkspaceRoster, err := authorization.GetWorkspaceAccess(ctx, owner.Principal, projectWorkspaceID)
+	if err != nil {
+		t.Fatalf("get active workspace access: %v", err)
+	}
+	if len(activeWorkspaceRoster.Agents) != 1 || !activeWorkspaceRoster.Agents[0].Connected || activeWorkspaceRoster.Agents[0].PendingEnrollments != 0 {
+		t.Fatalf("active workspace agents = %#v", activeWorkspaceRoster.Agents)
 	}
 
 	userAdministration := useradmin.NewService(

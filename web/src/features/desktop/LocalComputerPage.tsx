@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { Workspace } from "@/api/types";
 import { Page } from "@/components/layout/Page";
@@ -30,7 +30,7 @@ const viewCopy: Record<LocalView, { title: string; description: string }> = {
   },
   agents: {
     title: "Clientes de IA",
-    description: "Configura qué aplicaciones de IA pueden usar el contexto compartido de cada carpeta.",
+    description: "Configura qué aplicaciones de IA pueden iniciar PACT dentro de cada carpeta.",
   },
   connections: {
     title: "Conexiones PACT",
@@ -64,6 +64,8 @@ function normalizeLocalStatus(status: LocalComputerStatus): LocalComputerStatus 
     managed_server: status.managed_server || { installed: false, running: false, ready: false },
     profiles: Array.isArray(status.profiles) ? status.profiles : [],
     clients: Array.isArray(status.clients) ? status.clients : [],
+    mcp_migrated: status.mcp_migrated || 0,
+    mcp_migration_errors: Array.isArray(status.mcp_migration_errors) ? status.mcp_migration_errors : [],
     folders: Array.isArray(status.folders)
       ? status.folders.map((folder) => ({
         ...folder,
@@ -77,6 +79,7 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
   const bridge = desktopBridge();
   const directory = useWorkspace();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const [status, setStatus] = useState<LocalComputerStatus | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
@@ -84,6 +87,7 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [preferredClient, setPreferredClient] = useState<ClientID>("codex");
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!bridge) {
@@ -115,14 +119,23 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
     setDialogOpen(true);
   };
 
+  useEffect(() => {
+    if (!status || deepLinkHandled || searchParams.get("connect") !== "agent") return;
+    const requestedClient = searchParams.get("client") === "claude" ? "claude" : "codex";
+    setPreferredClient(requestedClient);
+    setDialogOpen(true);
+    setDeepLinkHandled(true);
+  }, [deepLinkHandled, searchParams, status]);
+
   const handleConnected = async (result: BindLocalFolderResult) => {
     setDialogOpen(false);
+    const warnings = result.clients.map((client) => client.warning).filter(Boolean);
     toast({
       title: result.created ? "Repositorio registrado y carpeta conectada" : "Carpeta conectada",
-      description: result.clients.some((client) => client.restart_needed)
+      description: warnings.length ? warnings.join(" ") : result.clients.some((client) => client.restart_needed)
         ? "Abre un chat nuevo en esa carpeta para que el cliente cargue PACT MCP."
         : undefined,
-      tone: "success",
+      tone: warnings.length ? "warning" : "success",
     });
     await refresh();
   };
@@ -134,10 +147,7 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
       title={copy.title}
       showWorkspaceStatus={false}
       actions={(
-        <>
-          <Button variant="secondary" size="sm" onClick={() => void refresh()} loading={loading}>Actualizar todo</Button>
-          {view !== "service" ? <Button size="sm" onClick={() => openConnector()}>Conectar cliente</Button> : null}
-        </>
+        <Button variant="secondary" size="sm" onClick={() => void refresh()} loading={loading}>Actualizar todo</Button>
       )}
     >
       <div className="local-computer-page">
@@ -162,6 +172,8 @@ export function LocalComputerPage({ view = "overview" }: { view?: LocalView }) {
         open={dialogOpen}
         preferredClient={preferredClient}
         profiles={status?.profiles || []}
+        preferredWorkspaceID={searchParams.get("workspace") || ""}
+        preferredProjectID={searchParams.get("project") || ""}
         onOpenChange={setDialogOpen}
         onConnected={(result) => void handleConnected(result)}
         onManageConnections={() => {
@@ -332,8 +344,20 @@ function LocalConnections({ status, onRefresh }: { status: LocalComputerStatus; 
           {status.profiles.map((profile) => (
             <article key={profile.id} data-active={profile.active || undefined}>
               <span className="local-profile-server-icon"><Icon name="server" /></span>
-              <div><strong>{profile.label}</strong><code>{profile.server_url}</code><small>{profile.kind === "managed_local" ? "Servidor local administrado" : profile.principal_label || "Servidor remoto"}</small></div>
-              <StatusChip tone={profile.active ? "active" : "neutral"}>{profile.active ? "Abierto ahora" : "Autorizado"}</StatusChip>
+              <div>
+                <strong>{profile.label}</strong>
+                <code>{profile.server_url}</code>
+                <small>{profile.kind === "managed_local" ? "Servidor local administrado" : profile.principal_label || "Servidor remoto"}</small>
+                <small className="local-profile-build">
+                  {profile.reachable ? <>PACT Server <code>{profile.version || "desconocida"}</code>{profile.commit && profile.commit !== "unknown" ? <> · <code>{profile.commit.slice(0, 12)}</code></> : null}</> : "No se pudo consultar la versión"}
+                </small>
+              </div>
+              <span className="local-profile-statuses">
+                <StatusChip tone={profile.compatibility === "incompatible" || profile.compatibility === "unreachable" ? "danger" : profile.update_available ? "warning" : profile.compatibility === "compatible" ? "active" : "neutral"}>
+                  {profile.compatibility === "incompatible" ? "Incompatible" : profile.compatibility === "unreachable" ? "Sin conexión" : profile.update_available ? "Actualización disponible" : profile.compatibility === "compatible" ? "Compatible" : "Versión heredada"}
+                </StatusChip>
+                <StatusChip tone={profile.active ? "active" : "neutral"}>{profile.active ? "Abierto ahora" : "Autorizado"}</StatusChip>
+              </span>
               {!profile.active ? <Button variant="secondary" size="sm" loading={busy === profile.id} onClick={() => void activate(profile.id)}>Abrir servidor</Button> : null}
             </article>
           ))}
@@ -370,7 +394,9 @@ function LocalAgents({ status, onConnect }: { status: LocalComputerStatus; onCon
           <ClientRow key={client.id} client={client} onConnect={() => onConnect(client.id)} />
         ))}
       </div>
-      <p className="local-section-note">PACT instala una definición MCP local. No entrega tu contraseña al agente y no concede acceso automático a otros workspaces.</p>
+      {(status.mcp_migrated || 0) > 0 ? <div className="local-inline-notice">PACT actualizó {status.mcp_migrated} {status.mcp_migrated === 1 ? "integración MCP" : "integraciones MCP"} al launcher estable. Abre chats nuevos para usar el runtime actual.</div> : null}
+      {(status.mcp_migration_errors || []).map((message) => <div className="local-inline-alert" role="alert" key={message}>{message}</div>)}
+      <p className="local-section-note">Una carpeta configurada todavía no es un agente activo. Codex o Claude aparecerán en el workspace cuando abras el cliente en esa carpeta y este inicie PACT MCP.</p>
     </section>
   );
 }
@@ -384,9 +410,16 @@ function ClientRow({ client, onConnect }: { client: LocalClientStatus; onConnect
         <small>{client.detected ? `Detectado${client.detection ? ` · ${client.detection}` : ""}` : "No detectado; puedes preparar la integración igualmente"}</small>
       </div>
       <StatusChip tone={client.connected_folders > 0 ? "active" : client.detected ? "info" : "neutral"}>
-        {client.connected_folders > 0 ? `${client.connected_folders} ${client.connected_folders === 1 ? "carpeta" : "carpetas"}` : client.detected ? "Disponible" : "Pendiente"}
+        {client.connected_folders > 0 ? `${client.connected_folders} ${client.connected_folders === 1 ? "carpeta configurada" : "carpetas configuradas"}` : client.detected ? "Disponible" : "Pendiente"}
       </StatusChip>
-      <Button variant="secondary" size="sm" onClick={onConnect}>{client.connected_folders > 0 ? "Conectar otra" : "Conectar"}</Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        aria-label={client.connected_folders > 0 ? `Configurar ${client.name} en otra carpeta` : `Configurar ${client.name} en una carpeta`}
+        onClick={onConnect}
+      >
+        {client.connected_folders > 0 ? "Configurar otra carpeta" : "Configurar en una carpeta"}
+      </Button>
     </article>
   );
 }
@@ -394,7 +427,13 @@ function ClientRow({ client, onConnect }: { client: LocalClientStatus; onConnect
 function LocalFolders({ status, onConnect }: { status: LocalComputerStatus; onConnect: (client: ClientID) => void }) {
   return (
     <section className="local-section local-primary-section">
-      <header><div><span>SOLO EN ESTE EQUIPO</span><h2>Carpetas recordadas</h2></div><small>Las rutas locales no se sincronizan con otros computadores.</small></header>
+      <header>
+        <div><span>SOLO EN ESTE EQUIPO</span><h2>Carpetas recordadas</h2></div>
+        <div className="local-section-header-actions">
+          <small>Las rutas locales no se sincronizan con otros computadores.</small>
+          {status.folders.length > 0 ? <Button variant="secondary" size="sm" onClick={() => onConnect("codex")}>Añadir carpeta</Button> : null}
+        </div>
+      </header>
       {status.folders.length === 0 ? (
         <div className="local-empty">
           <Icon name="folder" size="lg" />
@@ -489,10 +528,10 @@ function LocalService({
         <dl className="local-runtime-facts">
           <div><dt>Modo</dt><dd>Bajo demanda por MCP</dd></div>
           <div><dt>Versión local</dt><dd><code>{status.runtime_version || "—"}</code></dd></div>
+          <div><dt>Runtime activo</dt><dd><code>{status.runtime_digest || "—"}</code></dd></div>
           <div><dt>Plataforma</dt><dd>{platformLabel(status)}</dd></div>
-          <div><dt>Servidor</dt><dd><code>{status.server_url || "—"}</code></dd></div>
         </dl>
-        {status.runtime_path ? <div className="local-runtime-path"><span>EJECUTABLE</span><code>{status.runtime_path}</code></div> : null}
+        {status.runtime_path ? <div className="local-runtime-path"><span>LAUNCHER MCP ESTABLE</span><code>{status.runtime_path}</code></div> : null}
         {status.runtime_error ? <div className="local-inline-alert" role="alert">{status.runtime_error}</div> : null}
       </section>
       <section className="local-section local-primary-section local-update-section">
@@ -515,15 +554,17 @@ function LocalService({
       <section className="local-section local-primary-section local-server-section">
         <header>
           <div><span>PACT SERVER LOCAL</span><h2>{server.installed ? (server.ready ? "En ejecución y listo" : server.running ? "Iniciando" : "Instalado y detenido") : "No instalado"}</h2></div>
-          <StatusChip tone={server.ready ? "active" : server.installed ? "warning" : "neutral"}>{server.ready ? "Listo" : server.installed ? "Detenido" : "Opcional"}</StatusChip>
+          <StatusChip tone={server.update_available ? "warning" : server.ready ? "active" : server.installed ? "warning" : "neutral"}>{server.update_available ? "Actualización disponible" : server.ready ? "Al día" : server.installed ? "Detenido" : "Opcional"}</StatusChip>
         </header>
         {server.installed ? (
           <>
             <dl className="local-runtime-facts">
               <div><dt>URL</dt><dd><code>{server.server_url || "—"}</code></dd></div>
               <div><dt>Versión</dt><dd><code>{server.version || "—"}</code></dd></div>
+              <div><dt>Versión objetivo</dt><dd><code>{server.target_image?.split(":").pop() || "—"}</code></dd></div>
               <div><dt>Imagen</dt><dd><code>{server.image || "—"}</code></dd></div>
               <div><dt>Datos</dt><dd><code>{server.data_directory || "—"}</code></dd></div>
+              <div><dt>Estado de versión</dt><dd>{server.update_available ? "Pendiente" : "Al día"}</dd></div>
             </dl>
             {server.error ? <div className="local-inline-alert" role="alert">{server.error}</div> : null}
             <div className="local-server-actions">
@@ -531,7 +572,7 @@ function LocalService({
                 ? <Button variant="secondary" loading={busy === "stop"} onClick={() => void operate("stop")}>Detener</Button>
                 : <Button loading={busy === "start"} onClick={() => void operate("start")}>Iniciar</Button>}
               <Button variant="secondary" loading={busy === "backup"} disabled={!server.running} onClick={() => void operate("backup")}>Crear respaldo</Button>
-              <Button variant="secondary" loading={busy === "upgrade"} disabled={!server.running} onClick={() => void operate("upgrade")}>Actualizar</Button>
+              {server.update_available ? <Button variant="secondary" loading={busy === "upgrade"} disabled={!server.running} onClick={() => void operate("upgrade")}>Actualizar servidor</Button> : null}
               {server.server_url ? <Button variant="ghost" onClick={() => void bridge?.OpenExternalURL(`${server.server_url}/admin/`)}>Abrir panel</Button> : null}
             </div>
           </>
