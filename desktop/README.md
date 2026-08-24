@@ -19,7 +19,11 @@ PACT Desktop supports remote and local PACT Servers:
 - detect Codex and Claude Code, select a checkout with the native folder
   picker, and install their project-scoped MCP configuration;
 - bundle and extract a native `pact-local` runtime so MCP keeps working when
-  the PACT Desktop window or the standalone CLI is closed.
+  the PACT Desktop window or the standalone CLI is closed;
+- install a stable `pact-mcp` launcher, atomically select the active bundled
+  runtime, and migrate remembered Codex and Claude configurations;
+- inspect the build and protocol compatibility of every authorized PACT
+  Server from **This computer → PACT connections**;
 - install and operate a private local PACT Server with PostgreSQL + pgvector
   through Docker Compose;
 - start, stop, back up, and upgrade that local server without requiring a
@@ -40,6 +44,15 @@ Desktop keeps server administration separate from this computer's agent and
 checkout configuration. Remote mode connects this computer to a team server;
 local mode installs the same versioned server image and database stack on the
 computer itself.
+
+The MCP definition in each checkout points to the stable launcher under the
+user's PACT configuration directory. The launcher verifies and starts the
+content-addressed runtime selected by Desktop. Existing MCP processes keep
+running until their client closes them; opening a new chat adopts the current
+runtime without rewriting the project configuration again.
+
+The complete version and compatibility contract is recorded in
+[ADR-0020](../docs/adr/0020-version-compatibility-and-mcp-runtime-updates.md).
 
 ## Develop
 

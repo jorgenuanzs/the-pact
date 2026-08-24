@@ -67,6 +67,34 @@ func TestCreateRejectsInvalidSlug(t *testing.T) {
 	}
 }
 
+func TestCreateNormalizesAndValidatesWorkspace(t *testing.T) {
+	const workspaceID = "00000000-0000-4000-8000-000000000002"
+	var received CreateInput
+	service := NewService("org", fakeRepository{
+		create: func(_ context.Context, _ string, _ string, _ [sha256.Size]byte, input CreateInput) (CreateResult, error) {
+			received = input
+			return CreateResult{Project: Project{ID: "project"}}, nil
+		},
+	})
+
+	if _, err := service.Create(context.Background(), "key", CreateInput{
+		Name: "Pact", Slug: "pact", WorkspaceID: "  " + workspaceID + "  ",
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if received.WorkspaceID != workspaceID {
+		t.Fatalf("workspace ID = %q", received.WorkspaceID)
+	}
+
+	_, err := service.Create(context.Background(), "other-key", CreateInput{
+		Name: "Pact", Slug: "pact", WorkspaceID: "magi",
+	})
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) || validationErr.Field != "workspace_id" {
+		t.Fatalf("Create() error = %v", err)
+	}
+}
+
 func TestCreateRejectsSymbolicRevision(t *testing.T) {
 	revision := "main"
 	service := NewService("org", fakeRepository{

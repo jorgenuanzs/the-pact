@@ -35,6 +35,8 @@ desktop/build/darwin/icons.icns
 desktop/build/windows/icon.ico
 desktop/localhelper/pact-local
 desktop/localhelper/pact-local.exe
+desktop/localhelper/pact-mcp-launcher
+desktop/localhelper/pact-mcp-launcher.exe
 
 # Terraform local state
 .terraform/

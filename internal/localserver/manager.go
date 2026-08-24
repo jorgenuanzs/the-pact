@@ -71,14 +71,16 @@ type InstallResult struct {
 }
 
 type Status struct {
-	Installed     bool   `json:"installed"`
-	Running       bool   `json:"running"`
-	Ready         bool   `json:"ready"`
-	ServerURL     string `json:"server_url,omitempty"`
-	Image         string `json:"image,omitempty"`
-	Version       string `json:"version,omitempty"`
-	DataDirectory string `json:"data_directory,omitempty"`
-	Error         string `json:"error,omitempty"`
+	Installed       bool   `json:"installed"`
+	Running         bool   `json:"running"`
+	Ready           bool   `json:"ready"`
+	ServerURL       string `json:"server_url,omitempty"`
+	Image           string `json:"image,omitempty"`
+	Version         string `json:"version,omitempty"`
+	TargetImage     string `json:"target_image,omitempty"`
+	UpdateAvailable bool   `json:"update_available"`
+	DataDirectory   string `json:"data_directory,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 type installation struct {
@@ -264,7 +266,8 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 	}
 	result := Status{
 		Installed: true, ServerURL: "http://127.0.0.1:" + strconv.Itoa(metadata.Port),
-		Image: metadata.Image, Version: imageVersion(metadata.Image), DataDirectory: m.Root,
+		Image: metadata.Image, Version: imageVersion(metadata.Image), TargetImage: DefaultImage(),
+		UpdateAvailable: metadata.Image != DefaultImage(), DataDirectory: m.Root,
 	}
 	if err := m.preflight(ctx); err != nil {
 		result.Error = err.Error()

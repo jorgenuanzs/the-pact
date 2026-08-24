@@ -8,6 +8,8 @@ export interface Status {
     "server_url"?: string;
     "image"?: string;
     "version"?: string;
+    "target_image"?: string;
+    "update_available": boolean;
     "data_directory"?: string;
     "error"?: string;
 }

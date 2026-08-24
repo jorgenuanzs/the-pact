@@ -16,6 +16,7 @@ import (
 	"github.com/jorgenuanzs/the-pact/internal/agentsession"
 	"github.com/jorgenuanzs/the-pact/internal/authn"
 	"github.com/jorgenuanzs/the-pact/internal/backoffice"
+	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 	"github.com/jorgenuanzs/the-pact/internal/contextpack"
 	"github.com/jorgenuanzs/the-pact/internal/coordination"
 	"github.com/jorgenuanzs/the-pact/internal/knowledge"
@@ -83,6 +84,20 @@ func newUnauthenticated(serverURL string) (*Client, error) {
 			Timeout: 15 * time.Second,
 		},
 	}, nil
+}
+
+func FetchVersion(ctx context.Context, serverURL string) (buildinfo.Info, error) {
+	client, err := newUnauthenticated(serverURL)
+	if err != nil {
+		return buildinfo.Info{}, err
+	}
+	var response struct {
+		Data buildinfo.Info `json:"data"`
+	}
+	if err := client.do(ctx, http.MethodGet, "/version", "", nil, &response); err != nil {
+		return buildinfo.Info{}, err
+	}
+	return response.Data, nil
 }
 
 func (c *Client) ListProjects(ctx context.Context) ([]projects.Project, error) {
@@ -722,6 +737,21 @@ func (c *Client) StartAgentSession(
 	path := "/v1/projects/" + url.PathEscape(projectID) + "/agent-sessions"
 	if err := c.do(ctx, http.MethodPost, path, "application/json", request{Body: input}, &response); err != nil {
 		return agentsession.Session{}, err
+	}
+	return response.Data, nil
+}
+
+func (c *Client) EnrollAgent(
+	ctx context.Context,
+	workspaceID string,
+	input agentsession.EnrollmentInput,
+) (agentsession.EnrollmentResult, error) {
+	var response struct {
+		Data agentsession.EnrollmentResult `json:"data"`
+	}
+	path := "/v1/workspaces/" + url.PathEscape(workspaceID) + "/agent-enrollments"
+	if err := c.do(ctx, http.MethodPost, path, "application/json", request{Body: input}, &response); err != nil {
+		return agentsession.EnrollmentResult{}, err
 	}
 	return response.Data, nil
 }

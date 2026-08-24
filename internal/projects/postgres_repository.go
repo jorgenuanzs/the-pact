@@ -61,7 +61,7 @@ func (r *PostgresRepository) Create(
 	if err != nil {
 		return CreateResult{}, mapProjectWriteError(err)
 	}
-	if err := insertDefaultWorkspace(ctx, tx, project); err != nil {
+	if err := insertProjectWorkspace(ctx, tx, project, input.WorkspaceID); err != nil {
 		return CreateResult{}, err
 	}
 
@@ -83,11 +83,13 @@ func (r *PostgresRepository) Create(
 	payload, err := json.Marshal(struct {
 		Name              string            `json:"name"`
 		Slug              string            `json:"slug"`
+		WorkspaceID       string            `json:"workspace_id,omitempty"`
 		CanonicalRevision *string           `json:"canonical_revision"`
 		RootRepository    *SourceRepository `json:"root_repository"`
 	}{
 		Name:              project.Name,
 		Slug:              project.Slug,
+		WorkspaceID:       input.WorkspaceID,
 		CanonicalRevision: project.CanonicalRevision,
 		RootRepository:    project.RootRepository,
 	})
@@ -180,7 +182,35 @@ func (r *PostgresRepository) Create(
 	return CreateResult{Project: project}, nil
 }
 
-func insertDefaultWorkspace(ctx context.Context, tx pgx.Tx, project Project) error {
+func insertProjectWorkspace(ctx context.Context, tx pgx.Tx, project Project, requestedWorkspaceID string) error {
+	if requestedWorkspaceID != "" {
+		var attachedProjectID string
+		err := tx.QueryRow(ctx, `
+			INSERT INTO identity.workspace_projects (organization_id, workspace_id, project_id)
+			SELECT workspace.organization_id, workspace.id, $3
+			FROM identity.workspaces AS workspace
+			WHERE workspace.organization_id = $1
+			  AND workspace.id = $2
+			  AND workspace.status <> 'archived'
+			RETURNING project_id
+		`, project.OrganizationID, requestedWorkspaceID, project.ID).Scan(&attachedProjectID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrWorkspaceNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("attach project to requested workspace: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE identity.workspaces
+			SET version = version + 1,
+			    updated_at = transaction_timestamp()
+			WHERE organization_id = $1 AND id = $2
+		`, project.OrganizationID, requestedWorkspaceID); err != nil {
+			return fmt.Errorf("touch requested project workspace: %w", err)
+		}
+		return nil
+	}
+
 	var workspaceID string
 	err := tx.QueryRow(ctx, `
 		INSERT INTO identity.workspaces (

@@ -210,6 +210,27 @@ export interface ProjectAccess {
   [key: string]: unknown;
 }
 
+export interface AgentEnrollment {
+  id: Identifier;
+  workspace_id: Identifier;
+  project_id: Identifier;
+  agent_id: Identifier;
+  agent_name: string;
+  sponsor_principal_id: Identifier;
+  agent_type: "codex" | "claude" | string;
+  client_type: string;
+  status: "pending" | "active" | "revoked" | string;
+  created_at: string;
+  updated_at: string;
+  activated_at?: string;
+  last_seen_at?: string;
+}
+
+export interface AgentEnrollmentResult {
+  enrollment: AgentEnrollment;
+  created: boolean;
+}
+
 export interface AdminUser {
   principal_id: Identifier;
   display_name?: string;

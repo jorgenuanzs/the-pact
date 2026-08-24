@@ -499,6 +499,12 @@ func (r *PostgresRepository) GetWorkspaceAccess(
 			 AND relation.project_id = session.project_id
 			WHERE session.organization_id = $1
 			  AND relation.workspace_id = $2
+		), workspace_enrollments AS (
+			SELECT enrollment.*
+			FROM identity.agent_enrollments AS enrollment
+			WHERE enrollment.organization_id = $1
+			  AND enrollment.workspace_id = $2
+			  AND enrollment.status <> 'revoked'
 		), session_stats AS (
 			SELECT session.actor_id,
 			       count(*) AS session_count,
@@ -509,6 +515,12 @@ func (r *PostgresRepository) GetWorkspaceAccess(
 			       ) AS active_sessions
 			FROM workspace_sessions AS session
 			GROUP BY session.actor_id
+		), enrollment_stats AS (
+			SELECT enrollment.agent_id,
+			       count(*) AS enrollment_count,
+			       count(*) FILTER (WHERE enrollment.status = 'pending') AS pending_enrollments
+			FROM workspace_enrollments AS enrollment
+			GROUP BY enrollment.agent_id
 		), latest_sessions AS (
 			SELECT DISTINCT ON (session.actor_id)
 			       session.actor_id,
@@ -517,6 +529,19 @@ func (r *PostgresRepository) GetWorkspaceAccess(
 			       session.last_seen_at
 			FROM workspace_sessions AS session
 			ORDER BY session.actor_id, session.last_seen_at DESC, session.started_at DESC
+		), latest_enrollments AS (
+			SELECT DISTINCT ON (enrollment.agent_id)
+			       enrollment.agent_id,
+			       enrollment.project_id,
+			       enrollment.client_type,
+			       enrollment.last_seen_at,
+			       enrollment.updated_at
+			FROM workspace_enrollments AS enrollment
+			ORDER BY enrollment.agent_id, enrollment.updated_at DESC, enrollment.created_at DESC
+		), candidate_agents AS (
+			SELECT actor_id AS agent_id FROM session_stats
+			UNION
+			SELECT agent_id FROM enrollment_stats
 		)
 		SELECT agent.id,
 		       agent_actor.display_name,
@@ -547,12 +572,16 @@ func (r *PostgresRepository) GetWorkspaceAccess(
 		               OR sponsor_project.role IS NOT NULL
 		           )
 		       ) AS access_active,
-		       session_stats.active_sessions,
-		       session_stats.session_count,
-		       latest_session.client_type,
+		       COALESCE(session_stats.active_sessions, 0),
+		       COALESCE(session_stats.session_count, 0),
+		       COALESCE(enrollment_stats.enrollment_count, 0),
+		       COALESCE(enrollment_stats.pending_enrollments, 0),
+		       COALESCE(latest_enrollment.project_id::text, ''),
+		       COALESCE(latest_session.client_type, latest_enrollment.client_type, ''),
 		       COALESCE(node.name, ''),
-		       latest_session.last_seen_at
+		       COALESCE(latest_session.last_seen_at, latest_enrollment.last_seen_at)
 		FROM identity.agents AS agent
+		JOIN candidate_agents AS candidate ON candidate.agent_id = agent.id
 		JOIN identity.actors AS agent_actor
 		  ON agent_actor.organization_id = agent.organization_id
 		 AND agent_actor.id = agent.id
@@ -587,15 +616,18 @@ func (r *PostgresRepository) GetWorkspaceAccess(
 			END DESC
 			LIMIT 1
 		) AS sponsor_project ON true
-		JOIN session_stats ON session_stats.actor_id = agent.id
-		JOIN latest_sessions AS latest_session ON latest_session.actor_id = agent.id
+		LEFT JOIN session_stats ON session_stats.actor_id = agent.id
+		LEFT JOIN enrollment_stats ON enrollment_stats.agent_id = agent.id
+		LEFT JOIN latest_sessions AS latest_session ON latest_session.actor_id = agent.id
+		LEFT JOIN latest_enrollments AS latest_enrollment ON latest_enrollment.agent_id = agent.id
 		LEFT JOIN identity.nodes AS node
 		  ON node.organization_id = agent.organization_id
 		 AND node.id = latest_session.node_id
 		WHERE agent.organization_id = $1
 		  AND agent_actor.status <> 'retired'
-		ORDER BY (session_stats.active_sessions > 0) DESC,
-		         latest_session.last_seen_at DESC,
+		ORDER BY (COALESCE(session_stats.active_sessions, 0) > 0) DESC,
+		         (COALESCE(enrollment_stats.pending_enrollments, 0) > 0) DESC,
+		         COALESCE(latest_session.last_seen_at, latest_enrollment.updated_at) DESC,
 		         lower(agent_actor.display_name),
 		         agent.id
 	`, organizationID, workspaceID, now, freshAfter)
@@ -615,6 +647,9 @@ func (r *PostgresRepository) GetWorkspaceAccess(
 			&agent.AccessActive,
 			&agent.ActiveSessions,
 			&agent.SessionCount,
+			&agent.EnrollmentCount,
+			&agent.PendingEnrollments,
+			&agent.EnrollmentProjectID,
 			&agent.LastClientType,
 			&agent.LastNodeName,
 			&agent.LastSeenAt,

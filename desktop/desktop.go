@@ -18,10 +18,13 @@ import (
 )
 
 type Desktop struct {
-	mu          sync.Mutex
-	app         *application.App
-	streams     map[string]context.CancelFunc
-	updateError string
+	mu                     sync.Mutex
+	app                    *application.App
+	streams                map[string]context.CancelFunc
+	updateError            string
+	localRuntimeError      string
+	localRuntimeMigrated   int
+	localRuntimeMigrations []string
 }
 
 type DesktopStatus struct {
@@ -50,7 +53,9 @@ type DeviceLoginResult struct {
 }
 
 func NewDesktop() *Desktop {
-	return &Desktop{streams: make(map[string]context.CancelFunc)}
+	desktop := &Desktop{streams: make(map[string]context.CancelFunc)}
+	desktop.prepareLocalRuntime()
+	return desktop
 }
 
 func (d *Desktop) attachApplication(app *application.App) {

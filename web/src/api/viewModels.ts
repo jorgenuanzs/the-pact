@@ -10,9 +10,9 @@ export function projectForWorkspace(workspace: Workspace | undefined, projects: 
 }
 
 export function normalizeWorkspaces(payload: unknown): Workspace[] {
-  if (Array.isArray(payload)) return payload as Workspace[];
+  if (Array.isArray(payload)) return (payload as Workspace[]).filter((workspace) => workspace.status !== "archived");
   const value = payload as { workspaces?: Workspace[] } | null;
-  return value?.workspaces || [];
+  return (value?.workspaces || []).filter((workspace) => workspace.status !== "archived");
 }
 
 export function normalizeProjects(payload: unknown): ProjectSummary[] {

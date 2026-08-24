@@ -201,6 +201,7 @@ paths:
             example:
               name: The Pact
               slug: the-pact
+              workspace_id: 019c3fd8-2b34-7a10-8b75-3fd40dcfb68f
               canonical_revision: 3269b3f
               root_repository:
                 slug: primary
@@ -1226,8 +1227,10 @@ paths:
         Funciona aunque el workspace todavía no tenga repositorios. Incluye a
         propietarios y administradores de la organización, membresías directas
         del workspace y acceso heredado desde cualquiera de sus repositorios.
-        Los agentes solo aparecen cuando tienen historial de sesión dentro del
-        workspace; `connected` representa una sesión activa y reciente.
+        Los agentes aparecen al ser autorizados o al crear una sesión dentro
+        del workspace. Un agente autorizado sin sesiones tiene
+        `pending_enrollments > 0`; `connected` representa una sesión activa y
+        reciente.
       security:
         - bearerAuth: []
       responses:
@@ -1245,6 +1248,55 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/agent-enrollments:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    post:
+      tags:
+        - Access
+        - Workspaces
+      operationId: enrollWorkspaceAgent
+      summary: Autoriza un agente de IA antes de su primera sesión
+      description: |
+        Crea de forma idempotente la identidad lógica del cliente para la
+        persona autenticada y la vincula con un repositorio técnico del
+        workspace. El estado inicial es `pending`; la primera sesión MCP del
+        mismo cliente lo cambia a `active`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentEnrollmentRequest"
+      responses:
+        "200":
+          description: La autorización ya existía y fue devuelta sin duplicarla.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentEnrollmentResponse"
+        "201":
+          description: Agente autorizado y pendiente de su primera sesión.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentEnrollmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
   /v1/projects/{project_id}/access:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -3826,6 +3878,13 @@ components:
           minLength: 1
           maxLength: 63
           pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        workspace_id:
+          type: string
+          format: uuid
+          description: |
+            Workspace existente donde se registrará el proyecto. Cuando se
+            omite, PACT conserva el comportamiento compatible de crear un
+            workspace administrado con el mismo nombre del proyecto.
         canonical_revision:
           type:
             - string
@@ -5659,6 +5718,8 @@ components:
         - connected
         - active_sessions
         - session_count
+        - enrollment_count
+        - pending_enrollments
       properties:
         agent_id:
           type: string
@@ -5689,7 +5750,18 @@ components:
         session_count:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
+        enrollment_count:
+          type: integer
+          format: int64
+          minimum: 0
+        pending_enrollments:
+          type: integer
+          format: int64
+          minimum: 0
+        enrollment_project_id:
+          type: string
+          format: uuid
         last_client_type:
           type: string
         last_node_name:
@@ -5697,6 +5769,81 @@ components:
         last_seen_at:
           type: string
           format: date-time
+    AgentEnrollmentRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id, agent_type, client_type]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        agent_type:
+          type: string
+          minLength: 1
+          maxLength: 100
+          examples: [codex]
+        client_type:
+          type: string
+          minLength: 1
+          maxLength: 100
+          examples: [codex-mcp]
+    AgentEnrollment:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, project_id, agent_id, agent_name, sponsor_principal_id, agent_type, client_type, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+        agent_name:
+          type: string
+        sponsor_principal_id:
+          type: string
+          format: uuid
+        agent_type:
+          type: string
+        client_type:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, revoked]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+    AgentEnrollmentResult:
+      type: object
+      additionalProperties: false
+      required: [enrollment, created]
+      properties:
+        enrollment:
+          $ref: "#/components/schemas/AgentEnrollment"
+        created:
+          type: boolean
+    AgentEnrollmentResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AgentEnrollmentResult"
     ProjectOverview:
       type: object
       additionalProperties: false

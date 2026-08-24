@@ -46,6 +46,8 @@ export interface ConnectLocalAgentResult {
     "runtime_path": string;
     "changed": boolean;
     "restart_needed": boolean;
+    "enrollment_status"?: string;
+    "warning"?: string;
 }
 
 export interface DesktopAPIRequest {
@@ -68,6 +70,14 @@ export interface DesktopServerProfile {
     "kind": string;
     "principal_label"?: string;
     "active": boolean;
+    "reachable": boolean;
+    "version"?: string;
+    "commit"?: string;
+    "build_date"?: string;
+    "protocol_version"?: number;
+    "compatibility": string;
+    "update_available": boolean;
+    "version_error"?: string;
 }
 
 export interface DesktopStatus {
@@ -129,7 +139,10 @@ export interface LocalComputerStatus {
     "runtime_ready": boolean;
     "runtime_path"?: string;
     "runtime_version"?: string;
+    "runtime_digest"?: string;
     "runtime_error"?: string;
+    "mcp_migrated": number;
+    "mcp_migration_errors": string[] | null;
     "server_url"?: string;
     "active_profile_id"?: string;
     "profiles": DesktopServerProfile[] | null;

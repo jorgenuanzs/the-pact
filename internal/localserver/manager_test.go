@@ -41,6 +41,9 @@ func TestInstallWritesPrivateConfigurationAndStartsStack(t *testing.T) {
 	if result.SetupCode == "" || !result.Status.Installed || !result.Status.Running || result.Status.ServerURL != "http://127.0.0.1:9080" {
 		t.Fatalf("Install() = %#v", result)
 	}
+	if !result.Status.UpdateAvailable || result.Status.TargetImage != DefaultImage() {
+		t.Fatalf("Install() did not report its version target: %#v", result.Status)
+	}
 	for _, name := range []string{composeName, environmentName, installationName} {
 		info, err := os.Stat(filepath.Join(manager.Root, name))
 		if err != nil {

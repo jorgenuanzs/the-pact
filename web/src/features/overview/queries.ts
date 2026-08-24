@@ -165,6 +165,8 @@ export function mergeWorkspaceAgents(overviews: ProjectAccess[]): OverviewRecord
           access_active: Boolean(previous?.value.access_active) || Boolean(agent.access_active),
           active_sessions: Number(previous?.value.active_sessions || 0) + Number(agent.active_sessions || 0),
           session_count: Number(previous?.value.session_count || 0) + Number(agent.session_count || 0),
+          enrollment_count: Number(previous?.value.enrollment_count || 0) + Number(agent.enrollment_count || 0),
+          pending_enrollments: Number(previous?.value.pending_enrollments || 0) + Number(agent.pending_enrollments || 0),
           last_seen_at: recent.last_seen_at,
         },
       });
