@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -133,7 +134,11 @@ func TestLocalRuntimeIsExtractedAsAWorkingCLI(t *testing.T) {
 	if version == "" {
 		t.Fatal("expected a runtime version")
 	}
-	expectedLauncher := filepath.Join(configDirectory, "bin", "pact-mcp")
+	launcherName := "pact-mcp"
+	if runtime.GOOS == "windows" {
+		launcherName += ".exe"
+	}
+	expectedLauncher := filepath.Join(configDirectory, "bin", launcherName)
 	if path != expectedLauncher {
 		t.Fatalf("launcher path = %q, want stable path %q", path, expectedLauncher)
 	}
