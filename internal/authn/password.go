@@ -12,11 +12,13 @@ import (
 )
 
 const (
-	argonMemory      = 19 * 1024
-	argonIterations  = 2
-	argonParallelism = 1
-	argonSaltLength  = 16
-	argonKeyLength   = 32
+	argonMemory       = 19 * 1024
+	argonIterations   = 2
+	argonParallelism  = 1
+	argonSaltLength   = 16
+	argonKeyLength    = 32
+	minPasswordLength = 11
+	maxPasswordLength = 128
 )
 
 func hashPassword(password string) (string, error) {
@@ -100,8 +102,8 @@ func dummyPasswordHash() string {
 
 func validatePassword(password string) error {
 	length := len([]rune(password))
-	if length < 15 || length > 128 {
-		return &ValidationError{Field: "password", Message: "must contain 15 to 128 characters"}
+	if length < minPasswordLength || length > maxPasswordLength {
+		return &ValidationError{Field: "password", Message: "must contain 11 to 128 characters"}
 	}
 	if strings.TrimSpace(password) == "" {
 		return &ValidationError{Field: "password", Message: "must not contain only whitespace"}

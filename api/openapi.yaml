@@ -2204,7 +2204,7 @@ paths:
               required: [current_password, new_password]
               properties:
                 current_password: { type: string, writeOnly: true }
-                new_password: { type: string, writeOnly: true, minLength: 15, maxLength: 128 }
+                new_password: { type: string, writeOnly: true, minLength: 11, maxLength: 128 }
       responses:
         "204": { description: Contraseña actualizada. }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -2909,7 +2909,7 @@ components:
         password:
           type: string
           writeOnly: true
-          minLength: 15
+          minLength: 11
           maxLength: 128
     DeviceAuthorizationResponse:
       type: object

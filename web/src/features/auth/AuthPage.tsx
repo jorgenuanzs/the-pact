@@ -154,7 +154,7 @@ export function AuthPage() {
                 name="password"
                 type={showPassword ? "text" : "password"}
                 autoComplete={createsAccount ? "new-password" : "current-password"}
-                minLength={createsAccount ? 15 : undefined}
+                minLength={createsAccount ? 11 : undefined}
                 maxLength={128}
                 required
               />
@@ -167,7 +167,7 @@ export function AuthPage() {
                 {showPassword ? "Ocultar" : "Mostrar"}
               </button>
             </span>
-            {createsAccount ? <small>Utiliza al menos 15 caracteres.</small> : null}
+            {createsAccount ? <small>Utiliza al menos 11 caracteres.</small> : null}
           </label>
 
           {preparationError || error ? (

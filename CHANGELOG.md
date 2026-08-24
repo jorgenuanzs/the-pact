@@ -10,6 +10,9 @@ as the basis for the GitHub release notes.
 
 ### Changed
 
+- Local account passwords now require 11 to 128 characters across the API,
+  Control UI, and server-side validation.
+
 - Bundled Instrument Sans and JetBrains Mono with the web and Desktop
   frontends, including their OFL licenses, so typography no longer depends on
   Google Fonts or an internet connection at runtime.
