@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import fonts from "./index.css?raw";
+import fontFaces from "./fonts.css?raw";
+import styles from "./index.css?raw";
 import layout from "./layout.css?raw";
 import tokens from "./tokens.css?raw";
 
@@ -15,11 +16,15 @@ describe("contrato visual del handoff", () => {
     expect(tokens).toContain("--pact-text-label: 0.625rem");
   });
 
-  it("carga únicamente las familias y pesos aprobados", () => {
-    expect(fonts).toContain("Instrument+Sans:wght@400;500;600");
-    expect(fonts).toContain("JetBrains+Mono:wght@400;700");
-    expect(fonts).not.toContain("Instrument+Sans:wght@400;500;600;700");
-    expect(fonts).not.toContain("JetBrains+Mono:wght@400;500;700");
+  it("carga localmente las familias y pesos aprobados", () => {
+    expect(styles).toContain('@import "./fonts.css"');
+    expect(fontFaces).toContain('font-family: "Instrument Sans"');
+    expect(fontFaces).toContain('font-family: "JetBrains Mono"');
+    expect(fontFaces).toContain("font-weight: 400 700");
+    expect(fontFaces).toContain("instrument-sans-latin.woff2");
+    expect(fontFaces).toContain("jetbrains-mono-latin.woff2");
+    expect(fontFaces).not.toContain("fonts.googleapis.com");
+    expect(fontFaces).not.toContain("fonts.gstatic.com");
   });
 
   it("mantiene controles e iconos en la métrica del sistema", () => {
