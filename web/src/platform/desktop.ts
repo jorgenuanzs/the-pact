@@ -249,9 +249,30 @@ declare global {
 
 export const DESKTOP_STREAM_EVENT = "pact:desktop-project-stream";
 
+/**
+ * Wails loads packaged frontend assets from its own URL instead of an HTTP
+ * server. This signal is available synchronously, unlike System.IsDesktop(),
+ * whose environment is injected after the first navigation finishes.
+ */
+export function isWailsAssetURL(address: string): boolean {
+  try {
+    const url = new URL(address);
+    return url.protocol === "wails:" || url.hostname === "wails.localhost";
+  } catch {
+    return false;
+  }
+}
+
+export function hasDesktopRuntime(address = typeof window === "undefined" ? "" : window.location.href): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.go?.main?.Desktop) return true;
+  if (isWailsAssetURL(address)) return true;
+  return System.IsDesktop();
+}
+
 export function desktopBridge(): DesktopBridge | null {
   if (window.go?.main?.Desktop) return window.go.main.Desktop;
-  return System.IsDesktop() ? NativeDesktop as unknown as DesktopBridge : null;
+  return hasDesktopRuntime() ? NativeDesktop as unknown as DesktopBridge : null;
 }
 
 export function isDesktopRuntime(): boolean {
@@ -260,6 +281,6 @@ export function isDesktopRuntime(): boolean {
 
 export function onDesktopStreamMessage(listener: (message: DesktopStreamMessage) => void): () => void {
   if (window.runtime?.EventsOn) return window.runtime.EventsOn(DESKTOP_STREAM_EVENT, listener);
-  if (!System.IsDesktop()) return () => undefined;
+  if (!hasDesktopRuntime()) return () => undefined;
   return Events.On(DESKTOP_STREAM_EVENT, (event) => listener(event.data as DesktopStreamMessage));
 }

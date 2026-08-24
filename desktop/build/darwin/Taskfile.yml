@@ -12,7 +12,7 @@ tasks:
     cmds:
       - >-
         go build
-        {{if ne .DEV "true"}}-tags production -trimpath -ldflags="-w -s -X main.currentVersion={{.DESKTOP_VERSION}} -X main.currentCommit={{.DESKTOP_COMMIT}}"{{else}}-gcflags=all="-l"{{end}}
+        {{if ne .DEV "true"}}-tags production -trimpath -ldflags="-w -s -X main.currentVersion={{.DESKTOP_VERSION}} -X main.currentCommit={{.DESKTOP_COMMIT}} -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Version={{.DESKTOP_VERSION}} -X github.com/jorgenuanzs/the-pact/internal/buildinfo.Commit={{.DESKTOP_COMMIT}}"{{else}}-gcflags=all="-l"{{end}}
         -buildvcs=false
         -o "{{.BIN_DIR}}/{{.APP_NAME}}"
     env:

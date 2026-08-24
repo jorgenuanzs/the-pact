@@ -8,6 +8,26 @@ as the basis for the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+
+- Bundled Instrument Sans and JetBrains Mono with the web and Desktop
+  frontends, including their OFL licenses, so typography no longer depends on
+  Google Fonts or an internet connection at runtime.
+- Reworked first-run Desktop onboarding to explain that users, workspaces,
+  projects, permissions, and context belong to a specific PACT Server before
+  offering an existing server or a new local installation.
+- Creating a local server now requires a separate confirmation that explains
+  Docker, persistent data, loopback-only access, and the independent owner
+  account before any image is downloaded or container is started.
+- Desktop release builds now pin managed local servers to the matching stable
+  PACT Server image instead of silently following the mutable `edge` tag.
+
+### Fixed
+
+- Desktop now recognizes the native Wails asset origin synchronously and
+  selects its hash router on the first render, preventing the blank window
+  seen after a clean install or update.
+
 ## v0.16.7 — 2026-08-21
 
 ### Added
