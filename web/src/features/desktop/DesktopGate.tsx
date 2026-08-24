@@ -10,17 +10,18 @@ import {
 
 import styles from "./desktop.module.css";
 
-type Phase = "checking" | "server" | "approval" | "unreachable";
+type Phase = "checking" | "server-choice" | "server-url" | "local-confirm" | "approval" | "unreachable";
 
 export function DesktopGate({ children }: { children: ReactNode }) {
   const native = desktopBridge();
-  const [phase, setPhase] = useState<Phase>(native ? "checking" : "server");
+  const [phase, setPhase] = useState<Phase>(native ? "checking" : "server-choice");
   const [status, setStatus] = useState<DesktopStatus | null>(null);
   const [serverURL, setServerURL] = useState("");
   const [authorization, setAuthorization] = useState<DesktopDeviceLogin | null>(null);
   const [localServer, setLocalServer] = useState<LocalServerStatus | null>(null);
   const [profiles, setProfiles] = useState<DesktopServerProfile[]>([]);
   const [localSetupCode, setLocalSetupCode] = useState("");
+  const [localInstallConfirmed, setLocalInstallConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -37,10 +38,10 @@ export function DesktopGate({ children }: { children: ReactNode }) {
       setProfiles(profileList || []);
       setServerURL(current.server_url || current.default_url || "");
       if (current.connected) return;
-      setPhase(current.configured ? "unreachable" : "server");
+      setPhase(current.configured ? "unreachable" : "server-choice");
     } catch (statusError) {
       setError(message(statusError, "No se pudo iniciar PACT Desktop."));
-      setPhase("server");
+      setPhase("server-choice");
     }
   }, [native]);
 
@@ -57,7 +58,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
       if (Date.now() >= new Date(authorization.expires_at).getTime()) {
         setError("La autorización venció. Inicia una conexión nueva.");
         setAuthorization(null);
-        setPhase("server");
+        setPhase("server-choice");
         return;
       }
       try {
@@ -70,7 +71,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
         if (result.status !== "pending") {
           setError(`El servidor cerró la autorización con estado ${result.status}.`);
           setAuthorization(null);
-          setPhase("server");
+          setPhase("server-choice");
           return;
         }
       } catch (pollError) {
@@ -95,6 +96,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     setError("");
     try {
       const next = await native.BeginDeviceLogin(serverURL);
+      setLocalSetupCode("");
       setAuthorization(next);
       setServerURL(next.server_url);
       setPhase("approval");
@@ -156,7 +158,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
         local = await native.StartLocalServer();
         setLocalServer(local);
       }
-      await authorizeLocalServer(local);
+      await authorizeLocalServer(local, localSetupCode);
     } catch (localError) {
       setError(message(localError, "No se pudo preparar PACT Server local."));
     } finally {
@@ -171,10 +173,10 @@ export function DesktopGate({ children }: { children: ReactNode }) {
         <div>
           <p className={styles.eyebrow}>CONTROL LOCAL</p>
           <h1>Tu proyecto, sus agentes y el contexto compartido en una sola aplicación.</h1>
-          <p>PACT Desktop conecta este computador con un PACT Server sin entregar tu contraseña al cliente ni exponer la credencial a la interfaz.</p>
+          <p>Conecta este computador al PACT Server de tu organización o crea uno local para comenzar por tu cuenta.</p>
         </div>
         <ol className={styles.steps}>
-          <li data-active={phase === "server"}>Servidor</li>
+          <li data-active={phase === "server-choice" || phase === "server-url" || phase === "local-confirm"}>Servidor</li>
           <li data-active={phase === "approval"}>Autorización</li>
           <li>Workspace</li>
         </ol>
@@ -185,20 +187,30 @@ export function DesktopGate({ children }: { children: ReactNode }) {
           <DesktopLoading />
         ) : phase === "approval" && authorization ? (
           <div className={styles.card}>
-            <p className={styles.eyebrow}>AUTORIZAR DISPOSITIVO</p>
-            <h2>Confirma este computador</h2>
-            <p>Se abrió PACT Server en tu navegador. Inicia sesión allí y confirma que aparece este código:</p>
-            <strong className={styles.code}>{authorization.user_code}</strong>
             {localSetupCode ? (
-              <div className={styles.setupCode}>
-                <span>PRIMERA CONFIGURACIÓN</span>
-                <p>Como este servidor es nuevo, utiliza también este código para crear la cuenta propietaria:</p>
-                <code>{localSetupCode}</code>
-              </div>
-            ) : null}
-            <button className={styles.primary} type="button" onClick={() => void native.OpenExternalURL(authorization.verification_url)}>Abrir PACT Server</button>
-            <button className={styles.secondary} type="button" onClick={() => { setAuthorization(null); setPhase("server"); }}>Cancelar</button>
-            <small>PACT Desktop está esperando la aprobación. La contraseña solo se introduce en el servidor.</small>
+              <>
+                <p className={styles.eyebrow}>CONFIGURACIÓN LOCAL</p>
+                <h2>Termina de crear tu servidor</h2>
+                <p>PACT Server, PostgreSQL y pgvector ya están funcionando. En el navegador crearás la primera cuenta propietaria y después autorizarás este computador.</p>
+                <div className={styles.setupCode}>
+                  <span>1 · CÓDIGO DE CONFIGURACIÓN</span>
+                  <p>Utilízalo una sola vez para crear la cuenta propietaria de este servidor local.</p>
+                  <code>{localSetupCode}</code>
+                </div>
+                <span className={styles.deviceCodeLabel}>2 · CÓDIGO DEL COMPUTADOR</span>
+                <strong className={styles.code}>{authorization.user_code}</strong>
+              </>
+            ) : (
+              <>
+                <p className={styles.eyebrow}>AUTORIZAR DISPOSITIVO</p>
+                <h2>Confirma este computador</h2>
+                <p>Se abrió PACT Server en tu navegador. Inicia sesión allí y confirma que aparece este código:</p>
+                <strong className={styles.code}>{authorization.user_code}</strong>
+              </>
+            )}
+            <button className={styles.primary} type="button" onClick={() => void native.OpenExternalURL(authorization.verification_url)}>{localSetupCode ? "Abrir configuración local" : "Abrir PACT Server"}</button>
+            <button className={styles.secondary} type="button" onClick={() => { setAuthorization(null); setPhase("server-choice"); }}>{localSetupCode ? "Volver (el servidor seguirá instalado)" : "Cancelar"}</button>
+            <small>{localSetupCode ? "La instalación ya terminó. Volver no elimina el servidor ni su base de datos." : "PACT Desktop está esperando la aprobación. La contraseña solo se introduce en el servidor."}</small>
             {error ? <p className={styles.error}>{error}</p> : null}
           </div>
         ) : phase === "unreachable" ? (
@@ -215,11 +227,11 @@ export function DesktopGate({ children }: { children: ReactNode }) {
             ))}
             <button className={styles.secondary} type="button" disabled={busy} onClick={() => void forgetConnection()}>Olvidar esta conexión</button>
           </div>
-        ) : (
+        ) : phase === "server-url" ? (
           <form className={styles.card} onSubmit={(event) => void beginLogin(event)}>
-            <p className={styles.eyebrow}>CONECTAR PACT SERVER</p>
-            <h2>¿A qué PACT Server quieres conectarte?</h2>
-            <p>Introduce la URL proporcionada por tu empresa o utiliza una instalación local de PACT.</p>
+            <p className={styles.eyebrow}>SERVIDOR EXISTENTE</p>
+            <h2>Conecta tu PACT Server</h2>
+            <p>Introduce la URL de tu empresa o equipo. Tu cuenta, workspaces y permisos viven en ese servidor.</p>
             <label htmlFor="pact-desktop-server">URL del servidor</label>
             <input
               id="pact-desktop-server"
@@ -232,15 +244,57 @@ export function DesktopGate({ children }: { children: ReactNode }) {
               placeholder="https://pact.example.com"
             />
             <button className={styles.primary} type="submit" disabled={busy || !serverURL.trim()}>{busy ? "Conectando…" : "Conectar servidor"}</button>
-            <button className={styles.localOption} type="button" disabled={busy} onClick={() => void useLocalServer()}>
-              <span>{localServer?.installed ? "Usar PACT Server local" : "Crear PACT Server local"}</span>
-              <small>{localServer?.installed
-                ? `${localServer.running ? "En ejecución" : "Detenido"}${localServer.server_url ? ` · ${localServer.server_url}` : ""}`
-                : "Instala PACT Server, PostgreSQL y pgvector mediante Docker en este computador."}</small>
-              <em>{busy ? "Preparando" : localServer?.installed ? "Disponible" : "Docker"}</em>
-            </button>
+            <button className={styles.secondary} type="button" disabled={busy} onClick={() => { setError(""); setPhase("server-choice"); }}>Volver</button>
             {error ? <p className={styles.error}>{error}</p> : null}
           </form>
+        ) : phase === "local-confirm" ? (
+          <div className={styles.card}>
+            <p className={styles.eyebrow}>NUEVO SERVIDOR LOCAL</p>
+            <h2>Crea PACT en este computador</h2>
+            <p>Será un servidor nuevo e independiente, disponible solamente en este equipo.</p>
+            <ul className={styles.installFacts}>
+              <li><strong>Docker</strong><span>Descargará PACT Server, PostgreSQL y pgvector, y ejecutará sus contenedores.</span></li>
+              <li><strong>Datos persistentes</strong><span>Creará un volumen local. Cerrar PACT Desktop no elimina tus datos.</span></li>
+              <li><strong>Acceso privado</strong><span>Usará <code>127.0.0.1:8080</code>; no quedará expuesto a internet ni a tu red.</span></li>
+              <li><strong>Cuenta independiente</strong><span>Crearás un propietario nuevo. Las cuentas de otros PACT Servers no se copian.</span></li>
+            </ul>
+            <label className={styles.installConfirmation}>
+              <input
+                type="checkbox"
+                checked={localInstallConfirmed}
+                onChange={(event) => setLocalInstallConfirmed(event.target.checked)}
+              />
+              <span><strong>Confirmo que quiero crear este servidor local</strong><small>Docker Desktop debe estar instalado y abierto.</small></span>
+            </label>
+            <button className={styles.primary} type="button" disabled={busy || !localInstallConfirmed} onClick={() => void useLocalServer()}>{busy ? "Instalando PACT Server…" : "Confirmar e instalar"}</button>
+            <button className={styles.secondary} type="button" disabled={busy} onClick={() => { setError(""); setLocalInstallConfirmed(false); setPhase("server-choice"); }}>Volver sin instalar</button>
+            {error ? <p className={styles.error}>{error}</p> : null}
+          </div>
+        ) : (
+          <div className={styles.card}>
+            <p className={styles.eyebrow}>PACT SERVER</p>
+            <h2>Elige dónde vive tu proyecto</h2>
+            <p>PACT Desktop necesita un servidor. Cada servidor mantiene sus propios usuarios, workspaces, proyectos, permisos y contexto.</p>
+            <div className={styles.serverBoundary}>
+              <strong>Las cuentas pertenecen a un servidor</strong>
+              <span>Si ya tienes una cuenta PACT, conecta el servidor donde fue creada. Un servidor local comienza vacío.</span>
+            </div>
+            <div className={styles.serverChoices}>
+              <button type="button" onClick={() => { setError(""); setPhase("server-url"); }}>
+                <span><strong>Conectar un servidor existente</strong><small>Para una cuenta, empresa o equipo que ya utiliza PACT.</small></span>
+                <em>RECOMENDADO</em>
+              </button>
+              <button type="button" disabled={busy} onClick={() => {
+                setError("");
+                if (localServer?.installed) void useLocalServer();
+                else { setLocalInstallConfirmed(false); setPhase("local-confirm"); }
+              }}>
+                <span><strong>{localServer?.installed ? "Usar el servidor local" : "Crear un servidor local"}</strong><small>{localServer?.installed ? `Ya está instalado${localServer.server_url ? ` en ${localServer.server_url}` : ""}.` : "Para trabajar solo en este computador mediante Docker."}</small></span>
+                <em>{localServer?.installed ? "DISPONIBLE" : "NUEVO"}</em>
+              </button>
+            </div>
+            {error ? <p className={styles.error}>{error}</p> : null}
+          </div>
         )}
       </section>
     </main>

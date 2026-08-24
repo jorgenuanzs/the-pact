@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jorgenuanzs/the-pact/internal/buildinfo"
 )
 
 type recordedCommand struct {
@@ -68,6 +70,25 @@ func TestStatusReportsNotInstalledWithoutDocker(t *testing.T) {
 	status, err := manager.Status(context.Background())
 	if err != nil || status.Installed {
 		t.Fatalf("Status() = %#v, %v", status, err)
+	}
+}
+
+func TestDefaultImagePinsTheDesktopRelease(t *testing.T) {
+	original := buildinfo.Version
+	t.Cleanup(func() { buildinfo.Version = original })
+
+	for _, test := range []struct {
+		version string
+		want    string
+	}{
+		{version: "0.16.8", want: "ghcr.io/jorgenuanzs/the-pact:v0.16.8"},
+		{version: "v0.16.8", want: "ghcr.io/jorgenuanzs/the-pact:v0.16.8"},
+		{version: "dev", want: "ghcr.io/jorgenuanzs/the-pact:edge"},
+	} {
+		buildinfo.Version = test.version
+		if got := DefaultImage(); got != test.want {
+			t.Fatalf("DefaultImage() with version %q = %q, want %q", test.version, got, test.want)
+		}
 	}
 }
 

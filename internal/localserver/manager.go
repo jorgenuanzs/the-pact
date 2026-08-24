@@ -119,6 +119,8 @@ func DefaultImage() string {
 	version := strings.TrimSpace(buildinfo.Current().Version)
 	if version == "" || version == "dev" || version == "unknown" {
 		version = "edge"
+	} else {
+		version = "v" + strings.TrimPrefix(version, "v")
 	}
 	return serverImagePrefix + version
 }

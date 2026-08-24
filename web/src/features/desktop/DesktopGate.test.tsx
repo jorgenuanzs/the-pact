@@ -78,11 +78,17 @@ describe("DesktopGate", () => {
     expect(screen.getByText("PACT Control")).toBeInTheDocument();
   });
 
-  it("solicita un servidor sin asumir una URL cuando el equipo aún no está configurado", async () => {
+  it("explica que cada cuenta pertenece a un servidor antes de pedir una URL", async () => {
     installDesktopBridge();
     render(<DesktopGate><span>Área conectada</span></DesktopGate>);
 
-    expect(await screen.findByRole("heading", { name: "¿A qué PACT Server quieres conectarte?" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Elige dónde vive tu proyecto" })).toBeInTheDocument();
+    expect(screen.getByText("Las cuentas pertenecen a un servidor")).toBeInTheDocument();
+    expect(screen.queryByLabelText("URL del servidor")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Conectar un servidor existente/ }));
+
+    expect(await screen.findByRole("heading", { name: "Conecta tu PACT Server" })).toBeInTheDocument();
     expect(screen.getByLabelText("URL del servidor")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Conectar servidor" })).toBeDisabled();
     expect(screen.queryByText("Área conectada")).not.toBeInTheDocument();
@@ -92,6 +98,7 @@ describe("DesktopGate", () => {
     const bridge = installDesktopBridge();
     render(<DesktopGate><span>Área conectada</span></DesktopGate>);
 
+    fireEvent.click(await screen.findByRole("button", { name: /Conectar un servidor existente/ }));
     const connect = await screen.findByRole("button", { name: "Conectar servidor" });
     fireEvent.change(screen.getByLabelText("URL del servidor"), {
       target: { value: "https://pact.example.com" },
@@ -104,14 +111,34 @@ describe("DesktopGate", () => {
     await waitFor(() => expect(screen.queryByText("Conectando…")).not.toBeInTheDocument());
   });
 
-  it("instala un servidor local y comienza su autorización", async () => {
+  it("no instala un servidor local hasta recibir una confirmación explícita", async () => {
     const bridge = installDesktopBridge();
     render(<DesktopGate><span>Área conectada</span></DesktopGate>);
 
-    fireEvent.click(await screen.findByRole("button", { name: /Crear PACT Server local/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Crear un servidor local/ }));
+
+    expect(await screen.findByRole("heading", { name: "Crea PACT en este computador" })).toBeInTheDocument();
+    expect(screen.getByText("Cuenta independiente")).toBeInTheDocument();
+    expect(bridge.InstallLocalServer).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Confirmar e instalar" })).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText(/Confirmo que quiero crear este servidor local/));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar e instalar" }));
 
     expect(await screen.findByText("local-setup-code")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Volver (el servidor seguirá instalado)" })).toBeInTheDocument();
     expect(bridge.InstallLocalServer).toHaveBeenCalledWith({ port: 8080 });
     expect(bridge.BeginDeviceLogin).toHaveBeenCalledWith("http://127.0.0.1:8080");
+  });
+
+  it("permite volver desde la explicación local sin instalar nada", async () => {
+    const bridge = installDesktopBridge();
+    render(<DesktopGate><span>Área conectada</span></DesktopGate>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Crear un servidor local/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Volver sin instalar" }));
+
+    expect(await screen.findByRole("heading", { name: "Elige dónde vive tu proyecto" })).toBeInTheDocument();
+    expect(bridge.InstallLocalServer).not.toHaveBeenCalled();
   });
 });
