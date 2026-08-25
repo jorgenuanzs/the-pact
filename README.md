@@ -433,6 +433,28 @@ worktree may keep an independent binding to another server.
 
 ## Connect AI agents
 
+### Activation boundary
+
+Installing Pact on a computer does not activate it in every project. Pact is
+active for an AI client only when the current Git checkout has both:
+
+1. a valid private binding at `.pact/config.json`, created by `pact init` or
+   `pact connect`; and
+2. a project-scoped MCP configuration created by `pact enable <client>` or
+   Pact Desktop.
+
+Do not register Pact MCP globally with Codex, Claude, or another client. A
+checkout without its own project-scoped configuration starts no Pact process,
+receives no Pact instructions or tools, sends no heartbeat, and spends no
+model context on Pact. Opening another repository therefore behaves exactly as
+it did before Pact was installed.
+
+When MCP does start, it publishes the versioned `pact.agent/v1` operating
+contract in the MCP initialization instructions and in
+`pact.project_context.operating_contract`. The contract tells a newly connected
+agent what Pact is, when it is active, and which coordination steps apply to
+analysis or file changes.
+
 ### Codex
 
 From the connected repository:
@@ -466,7 +488,8 @@ servers in its [official MCP guide](https://code.claude.com/docs/en/mcp).
 
 ### Any MCP-compatible client
 
-Start Pact as a local `stdio` MCP server:
+Add Pact to the client's project-local configuration and start it as a local
+`stdio` MCP server:
 
 ```json
 {
@@ -550,12 +573,22 @@ The local MCP adapter exposes the following tools:
 | `pact.compile_context_pack` | Persist an intent-specific snapshot with event cursor, Git revision, expiry, and source fingerprint |
 | `pact.get_context_pack` | Retrieve a persisted Context Pack after its payload integrity check |
 
-The recommended agent flow is:
+At the beginning of a task, call `pact.project_context` once. The returned
+operating contract keeps read-only work lightweight and reserves coordination
+for actual modifications:
 
 ```text
-project_context → workspace_context → get_repository_sync → check_scopes → start_work → edit worktree_path
-                → compile_context_pack → offer_handoff or update_work
+project_context
+├── analysis only → inspect or answer without an intent or scope reservation
+└── file changes  → inspect repository state → choose minimum scopes
+                    → check_scopes → start_work → edit only worktree_path
+                    → update_work
 ```
+
+Use `workspace_context` only when deeper accepted decisions, requirements,
+constraints, questions, risks, or sources are relevant. Compile a Context Pack
+or offer a Handoff when another collaborator needs a bounded continuation; they
+are not mandatory overhead for every task.
 
 Rooms are deliberately outside that mandatory coordination flow. A human
 creates a small number of long-lived rooms and may mention an agent with `@`.
