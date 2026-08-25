@@ -211,6 +211,15 @@ La carpeta determina el destino del agente. El cliente no se conecta
 globalmente a un workspace: Codex o Claude quedan habilitados por carpeta y
 pueden estar habilitados en muchas carpetas de servidores distintos.
 
+Instalar PACT o un cliente de IA en el computador no activa PACT globalmente.
+La activación requiere simultáneamente un binding válido en
+`.pact/config.json` y una configuración MCP específica del checkout. Sin la
+configuración MCP no se inicia el runtime ni se consume contexto del modelo.
+Sin el binding, el runtime debe rechazar el inicio antes de crear estado local,
+abrir una sesión o enviar heartbeat. Si queda una configuración MCP huérfana,
+el proceso puede ser invocado por el cliente, pero termina inmediatamente y no
+entrega instrucciones ni herramientas PACT utilizables.
+
 ### 6. El servidor resuelve repositorios sin conocer rutas locales
 
 PACT Server ofrecerá una operación autorizada de resolución a partir de una
@@ -248,6 +257,14 @@ Al iniciar, el runtime:
 
 Dos clientes pueden ejecutar simultáneamente runtimes contra servidores
 diferentes. `active_profile_id` no participa en esta resolución.
+
+Después de validar el binding, MCP entrega un contrato operativo versionado al
+cliente. La versión inicial, `pact.agent/v1`, indica que el runtime es exclusivo
+del checkout, exige una única lectura inicial de `pact.project_context`, permite
+análisis de solo lectura sin intents ni reservas y reserva el flujo de scopes +
+worktree aislado para tareas que realmente modifican archivos. Así un agente
+nuevo puede aprender el protocolo sin depender de entrenamiento previo sobre
+PACT ni recibir instrucciones permanentes fuera del proyecto conectado.
 
 ### 8. El servidor local administrado es un perfil normal
 
@@ -383,6 +400,8 @@ mezclar contexto. Los checkouts separados hacen explícita esa frontera.
 
 La instalación del cliente sí es global, pero su configuración PACT debe ser
 por carpeta. Un agente abierto en un checkout necesita un destino determinista.
+Además, una configuración global impondría instrucciones, herramientas y coste
+de contexto incluso en proyectos que no utilizan PACT.
 
 ### Fusionar los workspaces de todos los servidores en una vista única
 

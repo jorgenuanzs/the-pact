@@ -182,17 +182,34 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initializeResult := clientSession.InitializeResult()
+	if initializeResult == nil {
+		t.Fatal("MCP initialize result is nil")
+	}
+	for _, expected := range []string{
+		pactAgentProtocolVersion,
+		"checkout-scoped",
+		"Do not look for or invoke PACT in other folders",
+		"Read-only analysis does not require an intent",
+		"edits only inside the worktree_path",
+	} {
+		if !strings.Contains(initializeResult.Instructions, expected) {
+			t.Errorf("MCP instructions do not contain %q: %s", expected, initializeResult.Instructions)
+		}
+	}
 	t.Cleanup(func() {
 		_ = clientSession.Close()
 		_ = serverSession.Wait()
 	})
 
 	toolNames := make(map[string]bool)
+	toolDescriptions := make(map[string]string)
 	for tool, toolErr := range clientSession.Tools(context.Background(), nil) {
 		if toolErr != nil {
 			t.Fatal(toolErr)
 		}
 		toolNames[tool.Name] = true
+		toolDescriptions[tool.Name] = tool.Description
 	}
 	for _, expected := range []string{
 		"pact.project_context", "pact.list_projects", "pact.list_workspaces", "pact.refresh_git_observation",
@@ -205,6 +222,10 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 		if !toolNames[expected] {
 			t.Errorf("MCP tool %q was not registered", expected)
 		}
+	}
+	if description := toolDescriptions["pact.project_context"]; !strings.Contains(description, "once at the beginning") ||
+		!strings.Contains(description, "versioned PACT operating contract") {
+		t.Fatalf("pact.project_context description = %q", description)
 	}
 
 	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "pact.project_context"})
@@ -221,6 +242,8 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 	contextJSON := string(encoded)
 	for _, expected := range []string{
 		"Footfall", "Footfall Product", "Shared product context", "Use PostgreSQL", "One durable shared store", "codex-mcp", "Improve API", "internal/api", "pact/intent-improve-api",
+		`"protocol_version":"pact.agent/v1"`, `"activation":"checkout_only"`, `"activation_marker":".pact/config.json"`,
+		`"read_only_policy":"Read-only analysis requires no intent or scope reservation."`,
 		`"changed_paths":1`, `"remote_url":"[REDACTED]"`, `"api_token":"[REDACTED]"`,
 	} {
 		if !strings.Contains(contextJSON, expected) {
@@ -271,6 +294,17 @@ func TestMCPServerExposesSafeProjectContext(t *testing.T) {
 		if strings.Contains(string(refreshJSON), forbidden) {
 			t.Errorf("observation result leaked %q: %s", forbidden, refreshJSON)
 		}
+	}
+}
+
+func TestMCPRejectsCheckoutWithoutPactBinding(t *testing.T) {
+	root := newRealGitRepository(t, "https://github.com/example/not-connected.git")
+	err := runMCP([]string{"serve", "--client", "codex", "--path", root}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "project is not connected") {
+		t.Fatalf("runMCP() error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".pact")); !os.IsNotExist(statErr) {
+		t.Fatalf("unconnected checkout unexpectedly gained local PACT state: %v", statErr)
 	}
 }
 

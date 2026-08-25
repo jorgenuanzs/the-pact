@@ -501,6 +501,7 @@ func runEnable(args []string, stdout, stderr io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "Codex MCP %s for %s\n", state, binding.Root)
 		fmt.Fprintf(stdout, "  project config  %s\n", result.ConfigPath)
+		fmt.Fprintln(stdout, "  activation      this checkout only; PACT remains inactive in other folders")
 		if result.Excluded {
 			fmt.Fprintln(stdout, "  Git visibility  machine-local (excluded through .git/info/exclude)")
 		}
@@ -520,6 +521,7 @@ func runEnable(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Claude MCP %s for %s\n", state, binding.Root)
 	fmt.Fprintf(stdout, "  project config  %s\n", result.ConfigPath)
+	fmt.Fprintln(stdout, "  activation      this checkout only; PACT remains inactive in other folders")
 	if result.Excluded {
 		fmt.Fprintln(stdout, "  Git visibility  machine-local (excluded through .git/info/exclude)")
 	}

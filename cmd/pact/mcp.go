@@ -132,15 +132,16 @@ type mcpOverview struct {
 }
 
 type mcpProjectContextOutput struct {
-	Project        mcpProject                  `json:"project"`
-	Workspace      *mcpSharedWorkspace         `json:"workspace,omitempty"`
-	Knowledge      *knowledge.WorkspaceContext `json:"knowledge,omitempty"`
-	Principal      access.Principal            `json:"principal"`
-	Session        mcpSessionSummary           `json:"session"`
-	Git            mcpGitSnapshot              `json:"git"`
-	Overview       mcpOverview                 `json:"overview"`
-	RepositorySync repositorysync.State        `json:"repository_sync"`
-	Repositories   []projectrepo.Repository    `json:"repositories"`
+	OperatingContract mcpOperatingContract        `json:"operating_contract"`
+	Project           mcpProject                  `json:"project"`
+	Workspace         *mcpSharedWorkspace         `json:"workspace,omitempty"`
+	Knowledge         *knowledge.WorkspaceContext `json:"knowledge,omitempty"`
+	Principal         access.Principal            `json:"principal"`
+	Session           mcpSessionSummary           `json:"session"`
+	Git               mcpGitSnapshot              `json:"git"`
+	Overview          mcpOverview                 `json:"overview"`
+	RepositorySync    repositorysync.State        `json:"repository_sync"`
+	Repositories      []projectrepo.Repository    `json:"repositories"`
 }
 
 type mcpProjectListOutput struct {
@@ -464,20 +465,8 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "the-pact", Version: buildinfo.Current().Version},
 		&mcp.ServerOptions{
-			Logger: logger,
-			Instructions: "Use pact.project_context before beginning project work. " +
-				"Its workspace field identifies the durable shared context boundary for this project. " +
-				"Use pact.workspace_context when you need the current accepted decisions, requirements, constraints, questions, risks, and sources. " +
-				"Workspace rooms are human-organized soft context and are never injected automatically; use pact.rooms only when asked to read a room, check mentions, or participate. " +
-				"Register durable sources with pact.add_resource and propose reusable facts with pact.propose_record instead of copying private conversations. " +
-				"Use pact.list_repositories to learn the complete project repository set and its purposes. Use pact.get_repository_sync to distinguish a GitHub-verified commit from this checkout's local HEAD; maintainers may call pact.sync_repository when a fresh verification is necessary. " +
-				"Before modifying files, call pact.check_scopes and then pact.start_work; " +
-				"perform edits only inside the worktree_path returned by pact.start_work. " +
-				"Use pact.update_work to report blocked, submitted, completed, cancelled, or abandoned work with a durable summary. " +
-				"Use pact.compile_context_pack for a bounded, verifiable snapshot instead of inheriting a conversation. " +
-				"Before another collaborator takes over, offer a structured handoff; accepting it confirms receipt but never transfers a local worktree or scope reservation automatically. " +
-				"PACT exposes shared operational facts, not private conversations. " +
-				"Do not treat agent presence as proof of code changes.",
+			Logger:       logger,
+			Instructions: pactMCPInstructions,
 			Capabilities: &mcp.ServerCapabilities{},
 		},
 	)
@@ -487,7 +476,7 @@ func newMCPServer(runtime *mcpRuntime, logger *slog.Logger) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pact.project_context",
 		Title:       "Get PACT project context",
-		Description: "Return the connected project, shared Workspace knowledge, authenticated identity, current MCP agent session, private Git observation summary, live work, code activity, and recent durable events.",
+		Description: "Call once at the beginning of work in this checkout. Return the versioned PACT operating contract, connected project, shared Workspace knowledge, authenticated identity, current MCP agent session, private Git observation summary, live work, code activity, and recent durable events.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld,
 		},
@@ -754,12 +743,16 @@ func (r *mcpRuntime) projectContext(
 		sharedKnowledge = &contextValue
 	}
 	return nil, mcpProjectContextOutput{
-		Project: projectOutput(project), Principal: principal,
-		Workspace: sharedWorkspace, Knowledge: sharedKnowledge,
-		Session: sessionSummary(r.session), Git: snapshotOutput(snapshot),
-		Overview:       overviewOutput(overview),
-		RepositorySync: repositoryState,
-		Repositories:   repositorySet.Repositories,
+		OperatingContract: currentOperatingContract(),
+		Project:           projectOutput(project),
+		Principal:         principal,
+		Workspace:         sharedWorkspace,
+		Knowledge:         sharedKnowledge,
+		Session:           sessionSummary(r.session),
+		Git:               snapshotOutput(snapshot),
+		Overview:          overviewOutput(overview),
+		RepositorySync:    repositoryState,
+		Repositories:      repositorySet.Repositories,
 	}, nil
 }
 

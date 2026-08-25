@@ -571,6 +571,7 @@ func TestEnableCodexConfiguresConnectedProject(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "[mcp_servers.pact]") ||
 		!strings.Contains(stdout.String(), "Codex MCP enabled") ||
+		!strings.Contains(stdout.String(), "this checkout only") ||
 		!strings.Contains(stdout.String(), configPath) {
 		t.Fatalf("stdout = %s\nconfig = %s", stdout.String(), content)
 	}
@@ -624,6 +625,7 @@ func TestEnableClaudeConfiguresConnectedProject(t *testing.T) {
 		!strings.Contains(string(content), `"--client"`) ||
 		!strings.Contains(string(content), `"claude"`) ||
 		!strings.Contains(stdout.String(), "Claude MCP enabled") ||
+		!strings.Contains(stdout.String(), "this checkout only") ||
 		!strings.Contains(stdout.String(), configPath) {
 		t.Fatalf("stdout = %s\nconfig = %s", stdout.String(), content)
 	}
@@ -638,6 +640,34 @@ func TestEnableClaudeConfiguresConnectedProject(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "already enabled") {
 		t.Fatalf("second enable stdout = %s", stdout.String())
+	}
+}
+
+func TestEnableRejectsCheckoutWithoutPactBinding(t *testing.T) {
+	for _, test := range []struct {
+		client     string
+		configPath string
+	}{
+		{client: "codex", configPath: filepath.Join(".codex", "config.toml")},
+		{client: "claude", configPath: ".mcp.json"},
+	} {
+		t.Run(test.client, func(t *testing.T) {
+			root := newRealGitRepository(t, "https://github.com/example/not-connected-"+test.client+".git")
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			err := run(
+				[]string{"enable", test.client, "--path", root},
+				strings.NewReader(""),
+				&stdout,
+				&stderr,
+			)
+			if err == nil || !strings.Contains(err.Error(), "project is not connected") {
+				t.Fatalf("enable %s error = %v; stdout = %s; stderr = %s", test.client, err, stdout.String(), stderr.String())
+			}
+			if _, statErr := os.Stat(filepath.Join(root, test.configPath)); !os.IsNotExist(statErr) {
+				t.Fatalf("enable %s unexpectedly wrote %s: %v", test.client, test.configPath, statErr)
+			}
+		})
 	}
 }
 

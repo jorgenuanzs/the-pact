@@ -8,6 +8,27 @@ as the basis for the GitHub release notes.
 
 ## Unreleased
 
+## v0.16.9 — 2026-08-25
+
+### Added
+
+- Added the versioned `pact.agent/v1` operating contract to MCP initialization
+  and `pact.project_context`, so a newly connected AI client learns Pact's
+  purpose, activation boundary, read-only policy, modification flow, and core
+  safety rules without prior Pact-specific training.
+
+### Changed
+
+- Read-only analysis now explicitly requires no intent or scope reservation.
+  Coordinated scopes and isolated worktrees apply only when an agent will
+  modify files.
+- `pact enable codex` and `pact enable claude` now state that their MCP
+  configuration activates Pact only for the current checkout.
+- Formalized and regression-tested the checkout activation boundary: MCP
+  startup and AI-client enablement reject an unbound Git checkout before
+  creating local Pact state or client configuration, preserving zero Pact
+  runtime and context overhead in unrelated projects.
+
 ## v0.16.8 — 2026-08-24
 
 ### Added
