@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24.16.0-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a AS web-dependencies
+FROM node:26.0.0-alpine3.22@sha256:60ff302eeca050b69ab0740f91c66207dc70f5fed1fb3c778c844d769a311443 AS web-dependencies
 
 WORKDIR /src/web
 
